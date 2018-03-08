@@ -1,0 +1,154 @@
+server:
+  default:
+    # Enable Flask's debugging features. Should be false in production
+    DEBUG: true
+    TESTING: true
+    SECRET_KEY: notverysecret
+    INDY_GENESIS_PATH: /opt/app-root/.genesis
+    THE_ORG_BOOK_API_URL: http://api:8080
+    # ISSUERS: SRI-REG SRI-INAC
+    VERSION: 0.1.0
+
+issuers:
+  SRI-REG:
+    jurisdiction:
+      name: Public Services and Procurement Canada
+      abbreviation: PSPC
+      # url: https://canada.ca/organizations/tpsgc-pspc
+
+    name: Acquisitions Branch
+    abbreviation: AB
+    url: "https://www.canada.ca/en/public-services-procurement.html"
+
+    wallet_seed: pspc-ab-sri000000000000000000000
+    claim_types:
+
+    - description: Vendor Credential
+      schema:
+        name: pspc-sri.gc-vendor-credential
+        version: 1.0.5
+        attr_names:
+        - legal_entity_id
+        - sri_record_id
+        - status
+        - legal_name
+        - org_type
+        - addressee
+        - address_line_1
+        - address_line_2
+        - city
+        - province
+        - postal_code
+        - country
+        - effective_date
+        - end_date
+
+    - description: Green Supplier
+      schema:
+        name: pspc-sri.green-supplier
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - status
+        - effective_date
+        - end_date
+
+    - description: Women-Owned Supplier
+      schema:
+        name: pspc-sri.women-owned-supplier
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - status
+        - effective_date
+        - end_date
+
+    - description: Vendor Performance Evaluation
+      schema:
+        name: pspc-sri.gc-vendor-performance
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - score
+        - status
+        - effective_date
+        - end_date
+
+  SRI-CISD:
+    jurisdiction:
+      name: Public Services and Procurement Canada
+      abbreviation: PSPC
+
+    name: Canadian Industrial Security Directorate
+    abbreviation: CISD
+    url: "https://www.tpsgc-pwgsc.gc.ca/esc-src/index-eng.html"
+
+    wallet_seed: pspc-cisd-sri0000000000000000000
+    claim_types:
+
+    - description: Designated Organization Screening
+      schema:
+        name: pspc-sri.designated-organization-screening
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - type
+        - status
+        - effective_date
+        - end_date
+
+    - description: Facility Security Clearance
+      schema:
+        name: pspc-sri.facility-security-clearance
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - level
+        - status
+        - effective_date
+        - end_date
+
+  SRI-INAC:
+    jurisdiction:
+      name:  Aboriginal Affairs and Northern Development Canada
+      abbreviation: AANDC
+      # url: http://www.aadnc-aandc.gc.ca
+
+    name: Indigenous and Northern Affairs Canada
+    abbreviation: INAC
+    url: "https://www.canada.ca/en/indigenous-northern-affairs.html"
+
+    wallet_seed: aandc-inac0000000000000000000000
+    claim_types:
+
+    - description: Aboriginal Business
+      schema:
+        name: isc-inac.aboriginal-business
+        version: 1.0.0
+        attr_names:
+        - legal_entity_id
+        - status
+        - effective_date
+        - end_date
+
+logging:
+  default:
+    version: 1
+    disable_existing_loggers: false
+    formatters:
+      simple:
+        format: '%(asctime)s %(levelname)s [%(name)s] %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        level: DEBUG
+        formatter: simple
+        stream: ext://sys.stdout
+    loggers:
+      indy.libindy:
+        level: ERROR
+        handlers: [console]
+        propagate: no
+    root:
+      level: DEBUG
+      handlers: [console]
