@@ -51,7 +51,7 @@ class VonClient:
 
             # download genesis transaction file
             logger.info('Fetching genesis transaction file from {}/genesis'.format(ledger_url))
-            response = requests.get('{}/genesis'.format(ledger_url))
+            response = requests.get('{}/genesis'.format(ledger_url), timeout=10)
             if response.status_code != 200:
                 raise RuntimeError('Error downloading genesis file: status {}'.format(response.status))
             data = response.text

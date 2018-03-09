@@ -20,6 +20,30 @@ def encode_claim(claim):
     return encoded_claim
 
 
+def init_claim_handler(app):
+	if hasattr(app, 'global_config') and 'issuers' in app.global_config:
+		issuers = []
+		issuer_ids = []
+		limit_issuers = app.config.get('ISSUERS', '').strip()
+		limit_issuers = limit_issuers.split() \
+			if (limit_issuers != '' and limit_issuers != 'all') \
+			else None
+		for issuer_key, issuer in app.global_config['issuers'].items():
+			if not 'id' in issuer:
+				issuer['id'] = issuer_key
+			if not limit_issuers or issuer['id'] in limit_issuers:
+				issuers.append(issuer)
+				issuer_ids.append(issuer['id'])
+		if len(issuers):
+			logger.info("Starting issuer services: {}".format(', '.join(issuer_ids)))
+			app.claim_handler = ClaimHandler(app.config, issuers)
+			app.claim_handler.init_sync()
+		else:
+			raise ValueError("No defined issuers referenced by ISSUERS")
+	else:
+		raise ValueError("No issuers defined by config")
+
+
 # A class to coordinate operations involving both of the clients
 class ClaimHandler:
     def __init__(self, config, issuer_specs):

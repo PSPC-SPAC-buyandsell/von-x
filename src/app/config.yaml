@@ -3,6 +3,7 @@ server:
     # Enable Flask's debugging features. Should be false in production
     DEBUG: true
     TESTING: true
+    LOGGER_NAME: webserver
     SECRET_KEY: notverysecret
     INDY_GENESIS_PATH: /opt/app-root/.genesis
     TOB_API_URL: http://api:8080
