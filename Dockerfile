@@ -29,7 +29,7 @@ ENV FLASK_PORT 8000
 ENV INDY_GENESIS_PATH "${BUILD}/genesis"
 ENV RUST_LOG error
 
-HEALTHCHECK --interval=60s --timeout=5s --start-period=60s \
+HEALTHCHECK --interval=60s --timeout=5s --start-period=120s \
 	CMD wget -q --spider http://localhost:${FLASK_PORT}/health || exit 1
 
 # ENV INDY_LEDGER_URL http://138.197.170.136

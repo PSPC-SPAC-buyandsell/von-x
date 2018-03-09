@@ -12,22 +12,25 @@ import sys
 agent_url = os.environ.get('AGENT_URL', 'http://localhost:5000')
 
 if len(sys.argv) < 2:
-    raise ValueError("Expected JSON file path")
-claim_path = sys.argv[1]
+    raise ValueError("Expected JSON file path(s)")
+claim_paths = sys.argv[1:]
 
-with open(claim_path) as f:
-    claim = json.load(f)
+for claim_path in claim_paths:
+    with open(claim_path) as f:
+        claim = json.load(f)
 
-try:
-    response = requests.post(
-        '{}/submit_claim'.format(agent_url),
-        json=claim
-    )
-    result_json = response.json()
-except:
-    raise Exception(
-        'Could not submit claim. '
-        'Are von_connect_orgbook and TheOrgBook running?')
+        print('Submitting claim {}'.format(claim_path))
 
-print('\n\n Response from von_connect_orgbook:\n\n{}'.format(result_json))
+        try:
+            response = requests.post(
+                '{}/submit_claim'.format(agent_url),
+                json=claim
+            )
+            result_json = response.json()
+        except Exception as e:
+            raise Exception(
+                'Could not submit claim. '
+                'Are von_connect_orgbook and TheOrgBook running?') from e
+
+        print('Response from von_connect_orgbook:\n\n{}\n'.format(result_json))
 

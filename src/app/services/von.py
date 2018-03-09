@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 
 class VonClient:
     def __init__(self, config=None):
-        self.config = {}
+        self.config = {'id': None}
         self.issuer_did = None
         self.synced = False
         if config:
             self.config.update(config)
 
+    # Find our DID, and initialize our schemas and claim defs on the ledger
     async def sync(self):
         claims = self.config.get('claim_types')
         if not claims:
@@ -31,12 +32,13 @@ class VonClient:
 
         async with self.create_issuer() as issuer:
             self.issuer_did = issuer.did
-            logger.info("ISSUER DID: %s", self.issuer_did)
+            logger.info('{} Issuer DID: {}'.format(self.config['id'], self.issuer_did))
             for claim in claims:
                 await self.publish_schema(issuer, claim['schema'])
         self.synced = True
         logger.info('VON client synced: {}'.format(self.config['id']))
 
+    # Make sure that the genesis path is defined, and download the transaction file if needed
     def check_genesis_path(self):
         path = self.config.get('genesis_path')
         if not path:

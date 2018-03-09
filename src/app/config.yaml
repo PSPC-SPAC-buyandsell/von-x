@@ -5,9 +5,9 @@ server:
     TESTING: true
     SECRET_KEY: notverysecret
     INDY_GENESIS_PATH: /opt/app-root/.genesis
-    THE_ORG_BOOK_API_URL: http://api:8080
+    TOB_API_URL: http://api:8080
     # ISSUERS: SRI-REG SRI-INAC
-    VERSION: 0.1.0
+    VERSION: 0.5.0
 
 issuers:
   SRI-REG:
@@ -150,5 +150,5 @@ logging:
         handlers: [console]
         propagate: no
     root:
-      level: DEBUG
+      level: INFO
       handlers: [console]

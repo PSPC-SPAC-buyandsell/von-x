@@ -64,7 +64,7 @@ class ClaimHandler:
 
         def done_resolve(future):
             if future.exception():
-                raise future.exception()
+                raise RuntimeError('Error while resolving DID for TOB') from future.exception()
             else:
                 self.sync_issuers()
         asyncio.run_coroutine_threadsafe(
@@ -118,7 +118,8 @@ class ClaimHandler:
         self.synced = ok
         if ok and not old_ok:
             logger.info('Completed claim handler initialization')
-            # Could probably shut down sync thread at this point?
+            # shut down the event loop & thread if we have nothing more to sync
+            self.sync_loop.stop()
 
     # Sync with issuer VON client, then TOB client
     async def sync_issuer(self, spec):
@@ -150,7 +151,7 @@ class ClaimHandler:
     def init_tob_client(self, spec=None):
         cfg = spec.copy() if spec else {}
         if not 'api_url' in cfg:
-            cfg['api_url'] = self.config.get('THE_ORG_BOOK_API_URL')
+            cfg['api_url'] = self.config.get('TOB_API_URL')
         if not 'did' in cfg:
             cfg['did'] = self.issuer_status[spec['id']]['did']
         return TobClient(cfg)
@@ -259,7 +260,7 @@ class ClaimHandler:
             claim_offer_json = await issuer.create_claim_offer(schema_json, self.orgbook_did)
             claim_offer = json.loads(claim_offer_json)
 
-            self.__log_json('Requesting Claim Request:', {
+            self.__log_json('Requesting claim request:', {
                 'claim_offer': claim_offer,
                 'claim_def': json.loads(claim_def_json)
             })

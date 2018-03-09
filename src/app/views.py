@@ -1,7 +1,6 @@
 from flask import jsonify, render_template, request, Response
 
 from app import app
-#from . import connect
 from .services import eventloop
 
 
@@ -21,7 +20,11 @@ def status():
 @app.route('/submit_claim', methods=['POST'])
 def submit_claim():
 	body = request.get_json()
-	# {'success': True, 'result': claim}
 	submit = app.claim_handler.submit_claim(body)
-	return jsonify(eventloop.do(submit))
-
+	try:
+	    result = eventloop.do(submit)
+	    ret = {'success': True, 'result': result}
+	except Exception as e:
+	    app.logger.exception('Error while submitting claim:')
+	    ret = {'success': False, 'result': None, 'message': str(e)}
+	return jsonify(ret)

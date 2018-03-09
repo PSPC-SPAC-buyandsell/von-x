@@ -18,7 +18,7 @@ class TobClient:
 
     async def sync(self):
         if not self.api_url:
-            raise ValueError("Missing THE_ORG_BOOK_API_URL")
+            raise ValueError("Missing TOB_API_URL")
         if not self.issuer_did:
             raise ValueError("Missing issuer DID")
 
