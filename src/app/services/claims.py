@@ -257,6 +257,7 @@ class ClaimHandler:
 
             # We create a claim offer
             schema_json = json.dumps(ledger_schema)
+            logger.info('Creating claim offer for TOB at DID {}'.format(self.orgbook_did))
             claim_offer_json = await issuer.create_claim_offer(schema_json, self.orgbook_did)
             claim_offer = json.loads(claim_offer_json)
 

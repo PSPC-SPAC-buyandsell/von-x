@@ -3,7 +3,8 @@ services:
 
   sri-agent:
     build:
-      context: .
+      context: ..
+      dockerfile: docker/Dockerfile
     environment:
       PYTHON_ENV: development
       ENVIRONMENT: default

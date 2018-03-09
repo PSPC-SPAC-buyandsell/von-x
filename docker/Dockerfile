@@ -11,8 +11,8 @@ ADD src/requirements.txt $HOME/
 RUN source bin/activate && \
     pip --no-cache-dir install -r $HOME/requirements.txt
 
-ADD src $HOME
-ADD docker-entrypoint.sh $BUILD/
+ADD src $HOME/
+ADD docker/docker-entrypoint.sh $BUILD/
 
 USER root
 ARG wallet_path="${HOME}/.indy_client/wallet"
@@ -31,9 +31,6 @@ ENV RUST_LOG error
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=120s \
 	CMD wget -q --spider http://localhost:${FLASK_PORT}/health || exit 1
-
-# ENV INDY_LEDGER_URL http://138.197.170.136
-# RUN wget -O "${INDY_GENESIS_PATH}" "${INDY_LEDGER_URL}/genesis"
 
 WORKDIR $HOME
 ENTRYPOINT ["sh", "../docker-entrypoint.sh"]

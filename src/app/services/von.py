@@ -27,12 +27,10 @@ class VonClient:
         if not claims:
             raise ValueError("Missing issuer claims")
 
-        # retrieve genesis transaction if necessary
-        self.check_genesis_path()
-
+        logger.info('Init VON client {} with seed {}'.format(self.config['id'], self.config.get('wallet_seed')))
         async with self.create_issuer() as issuer:
             self.issuer_did = issuer.did
-            logger.info('{} Issuer DID: {}'.format(self.config['id'], self.issuer_did))
+            logger.info('{} issuer DID: {}'.format(self.config['id'], self.issuer_did))
             for claim in claims:
                 await self.publish_schema(issuer, claim['schema'])
         self.synced = True
@@ -108,17 +106,20 @@ class VonClient:
         return (ledger_schema, claim_def)
 
     def create_issuer(self):
+        # retrieve genesis transaction if necessary
+        self.check_genesis_path()
         return Agent(self.config, VonIssuer, 'Issuer')
 
     def create_verifier(self):
+        # retrieve genesis transaction if necessary
+        self.check_genesis_path()
         return Agent(self.config, VonVerifier, 'Verifier')
 
     async def resolve_did_from_seed(self, seed):
-        # retrieve genesis transaction if necessary
         cfg = {
             'genesis_path': self.check_genesis_path(),
-            'wallet_seed': seed,
-            'wallet_name': 'util'
+            'wallet_name': 'SeedResolve',
+            'wallet_seed': seed
         }
         async with Agent(cfg, _BaseAgent, 'Util') as agent:
             agent_did = agent.did
