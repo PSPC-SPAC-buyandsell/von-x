@@ -9,6 +9,7 @@ services:
       PYTHON_ENV: development
       ENVIRONMENT: default
       INDY_LEDGER_URL: ${LEDGER_URL:-http://localhost:9000}
+      TOB_INDY_DID: ${TOB_INDY_DID:-}
       TOB_INDY_SEED: ${TOB_INDY_SEED:-}
     external_links:
        - tob_tob-api_1:api
