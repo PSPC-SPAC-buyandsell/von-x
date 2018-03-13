@@ -1,5 +1,5 @@
 from app import app
-from app.services import issuers
+from app.services import issuer
 from concurrent.futures import TimeoutError
 from flask import abort, jsonify, render_template, request, Response
 
@@ -25,7 +25,7 @@ def submit_claim():
     try:
         body = request.get_json()
         schema = body.get('schema')
-        future = app.claim_executor.submit(issuers.SubmitClaimRequest(schema, body))
+        future = app.claim_executor.submit(issuer.SubmitClaimRequest(schema, body))
         result = future.result(timeout=REQUEST_TIMEOUT)
         ret = {'success': True, 'result': result}
     except TimeoutError:

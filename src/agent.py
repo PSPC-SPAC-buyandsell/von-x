@@ -1,5 +1,5 @@
 from app import app
-import app.services.claims as claims
+from app.services import claim
 
 import functools
 import logging
@@ -7,13 +7,13 @@ logger = logging.getLogger(__name__)
 
 
 # Create claim request handler instance
-app.claim_process = claims.init_claim_request_processor(app)
+app.claim_process = claim.init_claim_request_processor(app)
 
 # Run handler in a separate process
 app.claim_process.start_process()
 
 # Create an executor and run a thread to poll for results
-app.claim_executor = claims.init_claim_request_executor(app.claim_process)
+app.claim_executor = claim.init_claim_request_executor(app.claim_process)
 
 if __name__ == '__main__':
 

@@ -25,11 +25,11 @@ class StatusResponse(Response):
         self.value = value
 
 
-"""
-    Handle inputs and distribute to the appropriate handler.
-    This will normally run in a separate process.
-"""
 class RequestProcessor:
+    """
+        Handle inputs and distribute to the appropriate handler.
+        This will normally run in a separate process.
+    """
     def __init__(self):
         self._input_queue = multiprocessing.Queue()
         self._output_queue = multiprocessing.Queue()
@@ -87,11 +87,11 @@ class RequestProcessor:
                 logger.error('unrecognized request {}'.format(request))
 
 
-"""
-    Handle outputs and return to the requesting thread.
-    This will run in the application process.
-"""
 class RequestExecutor(Executor):
+    """
+        Handle outputs and return to the requesting thread.
+        This will run in the application process.
+    """
     def __init__(self, processor : RequestProcessor):
         self._requests = []
         self._processor = processor

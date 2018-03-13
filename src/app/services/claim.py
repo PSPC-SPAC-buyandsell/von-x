@@ -1,6 +1,6 @@
 from app.services import eventloop
-from app.services.issuers import IssuerRequest, IssuerResponse, IssuerService
-from app.services.requests import Request, RequestExecutor, RequestProcessor, StatusResponse
+from app.services.issuer import IssuerRequest, IssuerResponse, IssuerService
+from app.services.request import Request, RequestExecutor, RequestProcessor, StatusResponse
 from app.services.von import VonClient
 
 from concurrent.futures import ThreadPoolExecutor
