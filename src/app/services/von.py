@@ -3,10 +3,11 @@ import logging
 import pathlib
 import requests
 import uuid
-from von_agent.agents import _BaseAgent
-from von_agent.agents import Issuer as VonIssuer
-from von_agent.agents import Verifier as VonVerifier
-from von_agent.agents import HolderProver as VonHolderProver
+from von_agent.agents import \
+    _BaseAgent, \
+    Issuer as VonIssuer, \
+    Verifier as VonVerifier, \
+    HolderProver as VonHolderProver
 from von_agent.nodepool import NodePool
 from von_agent.schema import schema_key_for
 from von_agent.wallet import Wallet
@@ -110,11 +111,6 @@ class VonClient:
         self.check_genesis_path()
         return Agent(self.config, VonIssuer, 'Issuer')
 
-    def create_verifier(self):
-        # retrieve genesis transaction if necessary
-        self.check_genesis_path()
-        return Agent(self.config, VonVerifier, 'Verifier')
-
     async def resolve_did_from_seed(self, seed):
         cfg = {
             'genesis_path': self.check_genesis_path(),
@@ -138,15 +134,15 @@ class Agent:
         self.issuer_type = issuer_type
         wallet_seed = config.get('wallet_seed')
         if not wallet_seed:
-            raise ValueError("Missing wallet_seed")
+            raise ValueError('Missing wallet_seed')
         if len(wallet_seed) != 32:
-            raise ValueError("wallet_seed length is not 32 characters: %s" % (wallet_seed,))
+            raise ValueError('wallet_seed length is not 32 characters: {}'.format(wallet_seed))
         genesis_path = config.get('genesis_path')
         if not genesis_path:
-            raise ValueError("Missing genesis_path")
+            raise ValueError('Missing genesis_path')
         wallet_name = config.get('wallet_name', config.get('id'))
         if not wallet_name:
-            raise ValueError("Missing wallet_name")
+            raise ValueError('Missing wallet_name')
 
         self.pool = NodePool(
             wallet_name + '-' + issuer_type,
@@ -171,28 +167,8 @@ class Agent:
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
-            logger.exception("Exception in VON {}:".format(self.issuer_type))
+            logger.exception('Exception in VON {}:'.format(self.issuer_type))
 
         await self.instance.close()
         await self.pool.close()
-
-
-# Not used currently
-class Issuer(Agent):
-    def __init__(self, config):
-        self._instance = VonIssuer
-        self._name = 'Issuer'
-        super(Issuer, self).__init__(config)
-
-class Verifier:
-    def __init__(self, config):
-        self._instance = VonVerifier
-        self._name = 'Verifier'
-        super(Verifier, self).__init__(config)
-
-class Holder:
-    def __init__(self, config):
-        self._instance = VonHolderProver
-        self._name = 'Holder'
-        super(Holder, self).__init__(config)
 

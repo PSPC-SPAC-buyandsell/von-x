@@ -1,11 +1,9 @@
-import logging
 from app import settings
 
 # Load application config and set up logging
 global_config = settings.load_global_config()
 server_config = settings.load_server_config(global_config)
 settings.init_logging(global_config, server_config.get('LOGGING'))
-logger = logging.getLogger(__name__)
 
 # Initialize the app
 from flask import Flask

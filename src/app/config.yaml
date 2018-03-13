@@ -1,13 +1,11 @@
 server:
   default:
     # Enable Flask's debugging features. Should be false in production
-    DEBUG: true
-    TESTING: true
+    DEBUG: false
     LOGGER_NAME: webserver
     SECRET_KEY: notverysecret
     INDY_GENESIS_PATH: /opt/app-root/.genesis
     TOB_API_URL: http://api:8080
-    # ISSUERS: SRI-REG SRI-INAC
     VERSION: 0.5.0
 
 issuers:
@@ -149,7 +147,13 @@ logging:
       indy.libindy:
         level: ERROR
         handlers: [console]
-        propagate: no
+        propagate: false
+      asyncio:
+        level: WARNING
+      webserver:
+        level: DEBUG
+        handlers: [console]
+        propagate: false
     root:
       level: INFO
       handlers: [console]

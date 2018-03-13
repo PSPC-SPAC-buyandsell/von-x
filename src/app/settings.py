@@ -28,7 +28,9 @@ def load_server_config(global_config, env=True):
 		raise ValueError("Environment not defined by application config: {}".format(env_name))
 	config = global_config['server'][env_name]
 	# Inherit environment variables
-	config.update(env)
+	for k,v in env.items():
+		if v != '':
+			config[k] = v
 	return config
 
 def init_logging(global_config, logging_env=None):
