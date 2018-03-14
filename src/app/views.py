@@ -1,37 +1,48 @@
 from app import app
 from app.services import issuer
+
+import asyncio
 from concurrent.futures import TimeoutError
-from flask import abort, jsonify, render_template, request, Response
+import logging
+from sanic import response
+logger = logging.getLogger(__name__)
 
 
-REQUEST_TIMEOUT=10
+def response_status(status):
+    return response.raw(bytes(), status=status)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+async def process_request(action, value):
+    request = issuer.Request(action, value)
+    future = app.claim_executor.submit(request)
+    return await asyncio.wrap_future(future)
 
-@app.route('/health')
-def health():
+
+@app.route('/', methods=['GET', 'HEAD'])
+def index(request):
+    return response.file('index.html')
+
+@app.route('/health', methods=['GET', 'HEAD'])
+def health(request):
     ready = app.claim_executor.ready()
-    return Response(status = 200 if ready else 451)
+    return response_status(200 if ready else 451)
 
-@app.route('/status')
-def status():
+@app.route('/status', methods=['GET', 'HEAD'])
+def status(request):
     status = app.claim_executor.status()
-    return jsonify(status)
+    return response.json(status)
 
 @app.route('/submit_claim', methods=['POST'])
-def submit_claim():
+async def submit_claim(request):
     try:
-        body = request.get_json()
+        body = request.json
         schema = body.get('schema')
-        future = app.claim_executor.submit(issuer.SubmitClaimRequest(schema, body))
-        result = future.result(timeout=REQUEST_TIMEOUT)
+        result = await process_request(
+            issuer.REQUEST_SUBMIT_CLAIM,
+            {   'schema_name': schema,
+                'attributes': body
+            })
         ret = {'success': True, 'result': result}
-    except TimeoutError:
-        app.logger.exception('Timeout while submitting claim')
-        abort(504)
     except Exception as e:
-        app.logger.exception('Error while submitting claim')
+        logger.exception('Error while submitting claim')
         ret = {'success': False, 'message': str(e)}
-    return jsonify(ret)
+    return response.json(ret)

@@ -12,19 +12,25 @@ def run_coro(coro):
         asyncio.set_event_loop(event_loop)
     return event_loop.run_until_complete(coro)
 
-def run_in_thread(coro, executor=None):
+def run_in_thread(coro):
     loop = asyncio.new_event_loop()
-    loop.set_exception_handler(lambda: logger.exception('??'))
+    #loop.set_exception_handler(lambda: logger.exception('??'))
     def start_sync_loop(loop):
         asyncio.set_event_loop(loop)
         loop.run_forever()
-    if executor:
-        executor.submit(start_sync_loop, loop)
-    else:
-        t1 = threading.Thread(target=start_sync_loop, args=(loop,))
-        t1.start()
+    t1 = threading.Thread(target=start_sync_loop, args=(loop,))
+    t1.start()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     async def done(future):
         loop.stop()
     future.add_done_callback(done)
+    return future
+
+def run_in_executor(coro, executor):
+    loop = asyncio.new_event_loop()
+    #loop.set_exception_handler(lambda: logger.exception('??'))
+    def run_sync_loop(loop):
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(coro)
+    future = executor.submit(run_sync_loop, loop)
     return future

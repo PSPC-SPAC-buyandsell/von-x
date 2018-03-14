@@ -1,10 +1,11 @@
 from app.services import eventloop
-from app.services.issuer import IssuerRequest, IssuerResponse, IssuerService
-from app.services.request import Request, RequestExecutor, RequestProcessor, StatusResponse
+from app.services.issuer import IssuerService
+from app.services.request import Request, Response, RequestExecutor, RequestProcessor, REQUEST_STATUS
 from app.services.von import VonClient
 
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import os
 logger = logging.getLogger(__name__)
 
 
@@ -56,14 +57,17 @@ class ClaimRequestProcessor(RequestProcessor):
             'version': self._config.get('VERSION')
         }
 
-    def _run_services(self):
+    def _start_services(self):
         async def resolve():
             try:
                 await self.resolve_orgbook_did()
             except Exception as e:
                 raise RuntimeError('Error while resolving DID for TOB') from e
             self.start_issuers()
-        eventloop.run_in_thread(resolve(), self._executor)
+        eventloop.run_in_executor(resolve(), self._executor)
+
+    def _stop_services(self):
+        self._executor.shutdown()
 
     # Resolve DID for orgbook from given seed if necessary
     async def resolve_orgbook_did(self):
@@ -107,26 +111,30 @@ class ClaimRequestProcessor(RequestProcessor):
             service = IssuerService(self.extend_issuer_spec(spec), self._status_updated)
             self._issuers[service.id] = service
         for id, service in self._issuers.items():
-            future = eventloop.run_in_thread(service.sync(), self._executor)
+            eventloop.run_in_executor(service.sync(), self._executor)
 
-    def find_issuer_for_request(self, request : IssuerRequest):
+    def find_issuer_for_request(self, request : Request):
         for id, service in self._issuers.items():
             if service.supports_request(request):
                 return service
 
     def _handle_request(self, request : Request):
-        if not isinstance(request, IssuerRequest):
+        if not request.ident:
             return
         service = self.find_issuer_for_request(request)
         if service:
-            request.ident['issuer_id'] = service.id
-            try:
-                response = service.handle_request(request)
-            except Exception as e:
-                response = IssuerResponse(request.ident, None, e)
-            self._send_output(response)
+            eventloop.run_in_executor(
+                self._service_handle_request(service, request),
+                self._executor)
             return True
-        # empty response will raise an exception
+
+    async def _service_handle_request(self, service, request):
+        request.ident['issuer_id'] = service.id
+        try:
+            response = await service.handle_request(request)
+        except Exception as e:
+            response = Response(request.ident, request.action, None, e)
+        self._send_output(response)
 
     def _status_updated(self, id, status):
         self._issuer_status[id] = status
@@ -142,4 +150,4 @@ class ClaimRequestProcessor(RequestProcessor):
         self._ready = ok
         if ok and not old_ok:
             logger.info('Completed claim handler initialization')
-        self._send_output(StatusResponse(self.status()))
+        self._send_output(Response(None, REQUEST_STATUS, self.status()))

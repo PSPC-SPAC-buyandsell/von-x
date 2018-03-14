@@ -1,5 +1,5 @@
 from app.services import eventloop
-from app.services.request import Request, RequestResponse
+from app.services.request import Request, Response
 from app.services.tob import TobClient
 from app.services.von import VonClient
 
@@ -20,19 +20,7 @@ def encode_claim(claim):
             claim_value_pair("")
     return encoded_claim
 
-class IssuerRequest(Request):
-    pass
-
-class IssuerResponse(RequestResponse):
-    pass
-
-class SubmitClaimRequest(IssuerRequest):
-    def __init__(self, schema_name, attribs, schema_version=None, issuer_id=None):
-        super(SubmitClaimRequest, self).__init__()
-        self.schema_name = schema_name
-        self.schema_version = schema_version
-        self.attribs = attribs
-        self.issuer_id = issuer_id
+REQUEST_SUBMIT_CLAIM = 'submit_claim'
 
 
 class IssuerService:
@@ -43,13 +31,14 @@ class IssuerService:
         self._status_hook = status_hook
         self._orgbook_did = None
         self._update_config(spec)
+        self._von_client = None
         self._update_status({
             'did': None,
             'ledger': False,
             'orgbook': False,
             'ready': False,
             'syncing': False
-        })
+        }, True)
 
     def _update_config(self, spec):
         if spec:
@@ -61,10 +50,10 @@ class IssuerService:
         if 'api_did' in self._config:
             self._orgbook_did = self._config['api_did']
 
-    def _update_status(self, update=None):
+    def _update_status(self, update=None, silent=False):
         if update:
             self._status.update(update)
-        if self._status_hook:
+        if self._status_hook and not silent:
             self._status_hook(self.id, self._status)
 
     def ready(self):
@@ -97,8 +86,10 @@ class IssuerService:
             #raise e
 
     def init_von_client(self):
-        cfg = self._config.copy()
-        return VonClient(cfg)
+        if not self._von_client:
+            cfg = self._config.copy()
+            self._von_client = VonClient(cfg)
+        return self._von_client
 
     def init_tob_client(self, spec=None):
         cfg = self._config.copy()
@@ -110,34 +101,33 @@ class IssuerService:
         if ctypes:
             for ctype in ctypes:
                 if 'schema' in ctype and ctype['schema']['name'] == schema_name \
-                        and not schema_version or ctype['schema']['version'] == schema_version:
+                        and (not schema_version or ctype['schema']['version'] == schema_version):
                     return ctype
 
-    def supports_request(self, request : IssuerRequest):
+    def supports_request(self, request : Request):
         schema_name = None
-        if isinstance(request, SubmitClaimRequest):
-            schema_name = request.schema_name
+        if request.action == REQUEST_SUBMIT_CLAIM:
+            schema_name = request.value['schema_name']
         if schema_name and self.find_claim_type_for_schema(schema_name):
             return True
 
-    def handle_request(self, request : IssuerRequest):
+    async def handle_request(self, request : Request):
         try:
             if not self.ready():
                 raise RuntimeError('Issuer not ready')
-            if isinstance(request, SubmitClaimRequest):
+            if request.action == REQUEST_SUBMIT_CLAIM:
                 try:
-                    result = eventloop.run_coro(
-                        self.submit_claim(
-                            request.schema_name,
-                            request.attribs,
-                            schema_version=request.schema_version))
-                    return IssuerResponse(request.ident, result)
+                    result = await self.submit_claim(
+                            request.value.get('schema_name'),
+                            request.value.get('schema_version'),
+                            request.value.get('attributes'))
+                    return Response(request.ident, REQUEST_SUBMIT_CLAIM, result)
                 except Exception as e:
-                    return IssuerResponse(request.ident, None, e)
+                    return Response(request.ident, REQUEST_SUBMIT_CLAIM, None, e)
             else:
                 raise ValueError('Unrecognized request type')
         except Exception as e:
-            return IssuerResponse(request.ident, None, e)
+            return Response(request.ident, REQUEST_SUBMIT_CLAIM, None, e)
 
     def load_claim_request(self, claim_type, request):
         # Build schema body skeleton
@@ -203,7 +193,7 @@ class IssuerService:
             ledger_schema['seqNo'], issuer.did)
         return (ledger_schema, claim_def_json)
 
-    async def submit_claim(self, schema_name, attribs, schema_version=None):
+    async def submit_claim(self, schema_name, schema_version, attribs):
         if not self.ready():
             raise RuntimeError('Issuer service is not ready')
         if not schema_name:

@@ -1,9 +1,6 @@
 server:
   default:
-    # Enable Flask's debugging features. Should be false in production
-    DEBUG: false
-    LOGGER_NAME: webserver
-    SECRET_KEY: notverysecret
+    DEBUG: true
     INDY_GENESIS_PATH: /opt/app-root/.genesis
     TOB_API_URL: http://api:8080
     VERSION: 0.5.0
@@ -135,23 +132,38 @@ logging:
     version: 1
     disable_existing_loggers: false
     formatters:
+      access:
+        format: "%(asctime)s %(levelname)s [%(host)s]: %(request)s %(status)d %(message)s"
       simple:
-        format: '%(asctime)s %(levelname)s [%(name)s] %(message)s'
+        format: '%(asctime)s %(levelname)s [%(name)s]: %(message)s'
     handlers:
+      access:
+        class: logging.StreamHandler
+        level: DEBUG
+        formatter: access
+        stream: ext://sys.stdout
       console:
         class: logging.StreamHandler
         level: DEBUG
         formatter: simple
         stream: ext://sys.stdout
     loggers:
+      asyncio:
+        level: WARNING
       indy.libindy:
         level: ERROR
         handlers: [console]
         propagate: false
-      asyncio:
+      sanic.access:
+        level: INFO
+        handlers: [access]
+        propagate: false
+      sanic.error:
+        level: INFO
+        handlers: [access]
+        propagate: false
+      root:
         level: WARNING
-      webserver:
-        level: DEBUG
         handlers: [console]
         propagate: false
     root:

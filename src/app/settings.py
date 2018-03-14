@@ -39,6 +39,7 @@ def init_logging(global_config, logging_env=None):
 		return False
 	if not logging_env:
 		logging_env = 'default'
+	log_config = None
 	if 'logging' in global_config:
 		if logging_env in global_config['logging']:
 			log_config = global_config['logging'][logging_env]
@@ -50,4 +51,4 @@ def init_logging(global_config, logging_env=None):
 			print("Logger not defined: {}".format(logging_env))
 	else:
 		print("No loggers defined by application config")
-
+	return log_config

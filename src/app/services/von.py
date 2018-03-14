@@ -19,6 +19,7 @@ class VonClient:
         self.config = {'id': None}
         self.issuer_did = None
         self.synced = False
+        self._issuer = None
         if config:
             self.config.update(config)
 
@@ -109,7 +110,10 @@ class VonClient:
     def create_issuer(self):
         # retrieve genesis transaction if necessary
         self.check_genesis_path()
-        return Agent(self.config, VonIssuer, 'Issuer')
+        if not self._issuer:
+            self._issuer = Agent(self.config, VonIssuer, 'Issuer')
+            self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
+        return self._issuer
 
     async def resolve_did_from_seed(self, seed):
         cfg = {
@@ -156,19 +160,34 @@ class Agent:
                 wallet_name + '-' + issuer_type + '-Wallet',
             )
         )
+        self._opened = None
+        self._keep_open = False
 
-    async def __aenter__(self):
+    def keep_open(self):
+        self._keep_open = True
+
+    async def open(self):
+        if self._opened:
+            return self._opened
         await self.pool.open()
-        ret = await self.instance.open()
+        self._opened = await self.instance.open()
         if isinstance(self.instance, VonHolderProver):
             # seems odd
             await self.instance.create_master_secret(str(uuid.uuid4()))
-        return ret
+        return self._opened
+
+    async def close(self):
+        if self._opened:
+            await self.instance.close()
+            await self.pool.close()
+        self._opened = None
+        self._keep_open = False
+
+    async def __aenter__(self):
+        return await self.open()
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
             logger.exception('Exception in VON {}:'.format(self.issuer_type))
-
-        await self.instance.close()
-        await self.pool.close()
-
+        if not self._keep_open:
+            await self.close()
