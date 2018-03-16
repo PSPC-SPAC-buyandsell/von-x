@@ -30,6 +30,11 @@ class IssuerStatus:
     def __init__(self, status):
         self.value = status
 
+class ResolveSchemaRequest:
+    def __init__(self, schema_name, schema_version=None):
+        self.schema_name = schema_name
+        self.schema_version = schema_version
+
 class SubmitClaimRequest:
     def __init__(self, schema_name, schema_version, attributes):
         self.schema_name = schema_name
@@ -174,7 +179,7 @@ class IssuerManager(RequestProcessor):
     def find_issuer_for_schema(self, schema_name, schema_version=None):
         for id, service in self._issuers.items():
             if service.find_claim_type_for_schema(schema_name, schema_version):
-                return service.id
+                return service
 
     def process(self, from_pid, ident, message, ref):
         if isinstance(message, IssuerError):
@@ -182,6 +187,19 @@ class IssuerManager(RequestProcessor):
         elif isinstance(message, IssuerStatus):
             self._issuer_status[from_pid] = message.value
             self.update_status()
+        elif isinstance(message, ResolveSchemaRequest):
+            service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+            if service:
+                self.send_noreply(from_pid, service.id, ident)
+            else:
+                self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
+        elif isinstance(message, SubmitClaimRequest):
+            # need to find the issuer service and forward the request there
+            service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+            if service:
+                self.send(service.id, ident, message, ref, from_pid)
+            else:
+                self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif message == 'ready':
             self.send_noreply(from_pid, self.ready(), ident)
         elif message == 'status':
