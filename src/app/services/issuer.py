@@ -76,10 +76,13 @@ def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
         raise ValueError('No defined issuers referenced by ISSUERS')
 
 
-# There should only be one instance of this class in the application.
-# It is responsible for starting the issuer services and directing
-# schema requests to the right issuer
 class IssuerManager(RequestProcessor):
+    """
+    There should only be one instance of this class in the application.
+    It is responsible for starting the issuer services and directing schema requests
+    to the right issuer.
+    """
+
     def __init__(self, pid, exchange, env, issuer_specs):
         super(IssuerManager, self).__init__(pid, exchange)
         self._env = env or {}
@@ -219,9 +222,18 @@ class IssuerManager(RequestProcessor):
             logger.info('Completed issuer manager initialization')
 
 
-# These instances are normally initialized by the InstanceManager.
-# They listen for requests and perform each one in a thread pool.
 class IssuerService(RequestExecutor):
+    """
+    The IssuerService handles issuer initialization as well as processing of claim
+    submission and other requests surrounding the ledger or OrgBook services. It listens
+    for requests on the exchange and performs each one in a thread pool.
+    During synchronization it:
+        - Resolves the DID for the OrgBook if necessary
+        - Submits schemas and claim definitions to the ledger
+        - Initializes the OrgBook with our issuer information
+    These instances are normally initialized by the InstanceManager.
+    """
+
     def __init__(self, exchange, spec=None, manager_pid=None):
         self.id = None
         self._config = {}

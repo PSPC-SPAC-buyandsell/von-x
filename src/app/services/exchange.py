@@ -1,13 +1,15 @@
 import asyncio
 import collections
-from concurrent.futures import ThreadPoolExecutor
-import logging
-import multiprocessing as mp
 import os
-from threading import Condition, Lock, Thread, get_ident
 import sys
 import time
 import traceback
+
+import multiprocessing as mp
+from threading import Condition, Lock, Thread, get_ident
+from concurrent.futures import ThreadPoolExecutor
+
+import logging
 logger = logging.getLogger(__name__)
 
 
@@ -15,7 +17,7 @@ class ExchangeError:
     def __init__(self, value, exc_info=None):
         self.value = value
         if exc_info == True:
-            # cannot pass real exception or traceback through the pipe
+            # cannot pass real exception or traceback through the message pipe
             exc_info = traceback.format_exc()
         self.exc_info = exc_info
     def format(self):
@@ -25,11 +27,14 @@ class ExchangeError:
         return ret
 
 
-# Receive requests and pass them to processors which may live in
-# a different process, but have a known identifier. One or more
-# processors may respond to the same identifier.
-# Responses are optional and can be tied to the original request.
 class Exchange:
+    """
+    A central message exchange hub for receiving requests and passing them to processors
+    which may live in a different thread or process, but have a known identifier.
+    Multiple processors may also respond to the same identifier to split requests.
+    Responses are optional and can be tied to the original request.
+    """
+
     def __init__(self):
         self._cmd_pipe = mp.Pipe()
         self._cmd_lock = mp.Lock()
@@ -52,50 +57,37 @@ class Exchange:
             return self._cmd('status')
 
     def _cmd(self, *command):
+        # Lock ensures that each command send has a corresponding recv
         with self._cmd_lock:
-            # ensure that each command send has a corresponding recv
             self._cmd_pipe[1].send(command)
             return self._cmd_pipe[1].recv()
 
     def send(self, to_pid, from_pid, ident, message, ref=None):
-        #logger.debug('get cond send')
+        # Blocks until we have access to the message queues and command pipe
+        # FIXME add a maximum buffer size for the message queues and allow blocking
+        # until there is room in the buffer (optional blocking=True argument)
         with self._req_cond:
-            #logger.debug('in cond send')
-            # blocks until we have access to the command pipe and the queue
-            # if the queue gets a maximum buffer size, then we may want to block
-            # until there is room in the buffer (blocking=True)
-            logger.debug('> send to {}/{} {}'.format(to_pid, ref, message))
+            logger.debug('send to {}/{} {}'.format(to_pid, ref, message))
             status = self._cmd('send', to_pid, (from_pid, ident, message, ref))
-            logger.debug('< send {}'.format(status))
             # wake all threads waiting for an incoming message
-            #logger.debug('notify recv')
             self._req_cond.notify_all()
-            #logger.debug('release cond recv')
         return status
 
     def recv(self, to_pid, blocking=True, timeout=None):
         try:
-            logger.debug('> recv {}'.format(to_pid))
-            #logger.debug('get cond recv')
+            logger.debug('recv {}'.format(to_pid))
             locked = self._req_cond.acquire(blocking)
             message = None
             if locked:
-                #logger.debug('in cond recv')
                 message = self._cmd('recv', to_pid)
                 while message == None and (blocking or timeout != None):
-                    #logger.debug('sleep {} recv'.format(to_pid))
                     locked = self._req_cond.wait(timeout)
-                    #logger.debug('wake {} recv {}'.format(to_pid, locked))
                     if locked:
                         message = self._cmd('recv', to_pid)
-                    #logger.debug('got {} {}'.format(to_pid, message))
                     if not locked or message != None or timeout != None:
                         break
-                #logger.debug('release cond recv')
                 if locked:
                     self._req_cond.release()
-                #logger.debug('released {}'.format(self._req_cond))
-            logger.debug('< recv {} {}'.format(to_pid, message))
         except:
             logger.exception('Error in recv:')
             raise
@@ -116,7 +108,6 @@ class Exchange:
                     pending += 1
                     self._cmd_pipe[0].send(True)
                 elif command[0] == 'recv':
-                    # cond must be acquired externally
                     to_pid = command[1]
                     message = None
                     if to_pid in queue:
@@ -126,16 +117,16 @@ class Exchange:
                             pending -= 1
                         except IndexError:
                             pass
-                    # clean up expired requests here?
-                    # would want to return a message to the sender that the
-                    # message couldn't be delivered
+                    # FIXME clean up expired requests here?
+                    # might want to return a message to the sender that the
+                    # message couldn't be delivered (an ExchangeError)
                     self._cmd_pipe[0].send(message)
                 elif command[0] == 'status':
                     total = sum(processed.values())
                     self._cmd_pipe[0].send({'pending': pending, 'processed': processed, 'total': total})
                 elif command[0] == 'stop':
-                    # maybe block new requests and wait until remaining
-                    # messages are processed?
+                    # FIXME optionally block new requests and wait until remaining
+                    # messages are processed
                     self._cmd_pipe[0].send(True)
                     break
                 else:
@@ -145,9 +136,13 @@ class Exchange:
 
 
 
-# Polls the exchange for messages sent to this processor
-# and runs the 'process' method (must be customized)
 class RequestProcessor:
+    """
+    A generic message processor which polls the exchange for messages sent to
+    this endpoint and runs the abstract 'process' method to perform actions
+    and send responses.
+    """
+
     def __init__(self, pid, exchange : Exchange):
         self._pid = pid
         self._exchange = exchange
@@ -168,7 +163,7 @@ class RequestProcessor:
         try:
             while True:
                 from_pid, ident, message, ref = self._exchange.recv(self._pid)
-                logger.debug('got message {} {}'.format(self._pid, message))
+                logger.debug('{} processing message: {}'.format(self._pid, message))
                 # FIXME catch exception here and return it to the sender
                 try:
                     if self.process(from_pid, ident, message, ref) == False:
@@ -192,11 +187,15 @@ class RequestProcessor:
         pass
 
 
-# One of these should live in each process which wants to perform async
-# requests via the Exchange (like a webserver process). It assumes that
-# all incoming messages are simply responses to earlier requests.
-# Designed to run without blocking the current thread (too much).
 class RequestExecutor(RequestProcessor):
+    """
+    An implementation of RequestProcessor which starts a thread for each outgoing request
+    to wait for responses. One of these should live in each process which wants to perform
+    async requests via the Exchange (like a webserver process). It normally assumes that
+    all incoming messages are simply responses to earlier requests.
+    Should not block the main thread (much) to avoid breaking asyncio.
+    """
+
     def __init__(self, pid, exchange : Exchange, max_workers=10):
         super(RequestExecutor, self).__init__(pid, exchange)
         self._max_workers = max_workers
@@ -266,10 +265,14 @@ class RequestExecutor(RequestProcessor):
         return ret
 
 
-# Wrapper for sending to a single target
-# ie. manager = Endpoint(manager_pid, exchange, my_pid)
-# _ = manager.send_noreply('hello')
 class Endpoint:
+    """
+    A wrapper for sending messages to a single target.
+    Sample usage:
+        manager = Endpoint(manager_pid, exchange, my_pid)
+        _ = manager.send_noreply('hello')
+    """
+
     def __init__(self, pid, exchange, from_pid=None):
         self._pid = pid
         self._from_pid = from_pid
@@ -291,8 +294,10 @@ class Endpoint:
         return self.send(None, message, ref, from_pid)
 
 
-# Simple processor for testing responses
 class HelloProcessor(RequestProcessor):
+    """
+    A simple request processor for testing response functionality or stress testing
+    """
     def __init__(self, pid, exchange):
         super(HelloProcessor, self).__init__(pid, exchange)
     def start(self):
@@ -300,8 +305,10 @@ class HelloProcessor(RequestProcessor):
     def process(self, from_pid, ident, message, ref):
         self.send_noreply(from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), ident)
 
-# More complicated processor for testing delayed, blocking and non-blocking responses
 class ThreadedHelloProcessor(HelloProcessor):
+    """
+    A threaded request processor for testing delayed, blocking and non-blocking responses
+    """
     def __init__(self, pid, exchange, blocking=False, max_workers=5):
         super(ThreadedHelloProcessor, self).__init__(pid, exchange)
         self._blocking = blocking
@@ -323,7 +330,7 @@ class ThreadedHelloProcessor(HelloProcessor):
         time.sleep(1)
         return super(ThreadedHelloProcessor, self).process(*message)
 
-# Test two workers dividing requests:
+# Testing two workers dividing requests:
 # hello = ThreadedHelloProcessor('hello', exchange, blocking=True)
 # hello.start_process()
 # hello.start_process()
