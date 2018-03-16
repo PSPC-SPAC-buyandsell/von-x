@@ -15,17 +15,29 @@ if len(sys.argv) < 2:
     raise ValueError("Expected JSON file path(s)")
 claim_paths = sys.argv[1:]
 
-for claim_path in claim_paths:
+def submit_claim(claim_path):
     with open(claim_path) as f:
         claim = json.load(f)
+        if not claim:
+            raise ValueError('Claim could not be parsed')
+        schema = claim.get('schema')
+        if not schema:
+            raise ValueError('No schema defined')
+        version = claim.get('version')
+        attrs = claim.get('attributes')
+        if not attrs:
+            raise ValueError('No schema attributes defined')
 
         print('Submitting claim {}'.format(claim_path))
 
         try:
             response = requests.post(
                 '{}/submit_claim'.format(agent_url),
-                json=claim
+                params={'schema': schema, 'version': version},
+                json=attrs
             )
+            if response.status_code != 200:
+                raise RuntimeError('Claim could not be processed: {}'.format(response.text))
             result_json = response.json()
         except Exception as e:
             raise Exception(
@@ -33,4 +45,7 @@ for claim_path in claim_paths:
                 'Are von_connect_orgbook and TheOrgBook running?') from e
 
         print('Response from von_connect_orgbook:\n\n{}\n'.format(result_json))
+
+for claim_path in claim_paths:
+    submit_claim(claim_path)
 

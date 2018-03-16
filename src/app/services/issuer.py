@@ -1,11 +1,12 @@
 from app.services import eventloop
-from app.services.request import Request, Response
+from app.services.exchange import Exchange, ExchangeError, RequestProcessor, RequestExecutor
 from app.services.tob import TobClient
 from app.services.von import VonClient
 
 from von_agent.schema import schema_key_for
 from von_agent.util import encode
 import json
+import os
 import logging
 logger = logging.getLogger(__name__)
 
@@ -20,25 +21,207 @@ def encode_claim(claim):
             claim_value_pair("")
     return encoded_claim
 
-REQUEST_SUBMIT_CLAIM = 'submit_claim'
+
+class IssuerError(ExchangeError):
+    def __init__(self, value, exc_info=None):
+        super(IssuerError, self).__init__(value, exc_info)
+
+class IssuerStatus:
+    def __init__(self, status):
+        self.value = status
+
+class SubmitClaimRequest:
+    def __init__(self, schema_name, schema_version, attributes):
+        self.schema_name = schema_name
+        self.schema_version = schema_version
+        self.attributes = attributes
+
+class SubmitClaimResponse:
+    def __init__(self, value):
+        self.value = value
 
 
-class IssuerService:
-    def __init__(self, spec=None, status_hook=None):
+def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
+    if not config:
+        raise ValueError('Missing configuration for issuer manager')
+    if not 'issuers' in config:
+        raise ValueError('No issuers defined by configuration')
+    if not env:
+        env = os.environ
+    if not exchange:
+        logger.info('Starting new Exchange service for issuer manager')
+        exchange = Exchange()
+        exchange.start()
+    issuers = []
+    issuer_ids = []
+    limit_issuers = env.get('ISSUERS')
+    limit_issuers = limit_issuers.split() \
+        if (limit_issuers and limit_issuers != 'all') \
+        else None
+    for issuer_key, issuer in config['issuers'].items():
+        if not 'id' in issuer:
+            issuer['id'] = issuer_key
+        if not limit_issuers or issuer['id'] in limit_issuers:
+            issuers.append(issuer)
+            issuer_ids.append(issuer['id'])
+    if len(issuers):
+        logger.info('Initializing processor for services: {}'.format(', '.join(issuer_ids)))
+        return IssuerManager(pid, exchange, env, issuers)
+    else:
+        raise ValueError('No defined issuers referenced by ISSUERS')
+
+
+# There should only be one instance of this class in the application.
+# It is responsible for starting the issuer services and directing
+# schema requests to the right issuer
+class IssuerManager(RequestProcessor):
+    def __init__(self, pid, exchange, env, issuer_specs):
+        super(IssuerManager, self).__init__(pid, exchange)
+        self._env = env or {}
+        self._issuers = {}
+        self._issuer_specs = issuer_specs
+        self._issuer_status = {}
+        self._orgbook_did = None
+        self._ready = False
+
+    def ready(self):
+        return self._ready
+
+    def status(self):
+        return {
+            'issuers': self._issuer_status.copy(),
+            'orgbook_did': self._orgbook_did,
+            'ready': self._ready,
+            'version': self._env.get('VERSION')
+        }
+
+    def start(self):
+        ret = super(IssuerManager, self).start()
+        self._start_services()
+        return ret
+
+    def stop(self):
+        self._stop_services()
+        super(IssuerManager, self).stop()
+
+    def _start_services(self):
+        async def resolve():
+            try:
+                await self.resolve_orgbook_did()
+            except:
+                errmsg = IssuerError('Error while resolving DID for TOB', True)
+                self.send_noreply(self.get_pid(), errmsg)
+                raise
+            try:
+                self.start_issuers()
+            except:
+                errmsg = IssuerError('Error while starting issuer services', True)
+                self.send_noreply(self.get_pid(), errmsg)
+                raise
+        eventloop.run_in_thread(resolve())
+
+    def _stop_services(self):
+        self.stop_issuers()
+
+    # Resolve DID for orgbook from given seed if necessary
+    async def resolve_orgbook_did(self):
+        if not self._orgbook_did:
+            tob_did = self._env.get('TOB_INDY_DID')
+            if not tob_did:
+                tob_seed = self._env.get('TOB_INDY_SEED')
+                if not tob_seed:
+                    raise ValueError('Either TOB_INDY_SEED or TOB_INDY_DID must be defined')
+                logger.info('Resolving TOB DID from seed {}'.format(tob_seed))
+                # create 'blank' client with no issuer information
+                von_client = self.init_von_client()
+                tob_did = await von_client.resolve_did_from_seed(tob_seed)
+                if not tob_did:
+                    raise ValueError('DID for TOB could not be resolved')
+                self._orgbook_did = tob_did
+                logger.info('Resolved TOB DID to {}'.format(tob_did))
+        return self._orgbook_did
+
+    def extend_issuer_spec(self, spec):
+        spec = spec.copy() if spec else {}
+        if not 'genesis_path' in spec:
+            spec['genesis_path'] = self._env.get('INDY_GENESIS_PATH')
+        if not 'ledger_url' in spec:
+            spec['ledger_url'] = self._env.get('INDY_LEDGER_URL')
+        if not 'api_url' in spec:
+            spec['api_url'] = self._env.get('TOB_API_URL')
+        spec['api_did'] = self._orgbook_did
+        return spec
+
+    def init_von_client(self):
+        cfg = {
+            'genesis_path': self._env.get('INDY_GENESIS_PATH'),
+            'ledger_url': self._env.get('INDY_LEDGER_URL')
+        }
+        return VonClient(cfg)
+
+    def start_issuers(self):
+        logger.info('Starting issuers')
+        for spec in self._issuer_specs:
+            service = IssuerService(self.get_exchange(), self.extend_issuer_spec(spec), self.get_pid())
+            self._issuers[service.id] = service
+        for id, service in self._issuers.items():
+            service.start() # or start_process()
+
+    def stop_issuers(self):
+        for id, service in self._issuers.items():
+            service.stop()
+
+    def find_issuer_for_schema(self, schema_name, schema_version=None):
+        for id, service in self._issuers.items():
+            if service.find_claim_type_for_schema(schema_name, schema_version):
+                return service.id
+
+    def process(self, from_pid, ident, message, ref):
+        if isinstance(message, IssuerError):
+            logger.error(message.format())
+        elif isinstance(message, IssuerStatus):
+            self._issuer_status[from_pid] = message.value
+            self.update_status()
+        elif message == 'ready':
+            self.send_noreply(from_pid, self.ready(), ident)
+        elif message == 'status':
+            self.send_noreply(from_pid, self.status(), ident)
+        else:
+            raise ValueError('Unexpected message from {}: {}'.format(from_pid, message))
+
+    def update_status(self):
+        ok = True
+        old_ok = self._ready
+        for id, handle in self._issuers.items():
+            if not self._issuer_status.get(id, {}).get('ready'):
+                ok = False
+                break
+        self._ready = ok
+        if ok and not old_ok:
+            logger.info('Completed issuer manager initialization')
+
+
+# These instances are normally initialized by the InstanceManager.
+# They listen for requests and perform each one in a thread pool.
+class IssuerService(RequestExecutor):
+    def __init__(self, exchange, spec=None, manager_pid=None):
         self.id = None
         self._config = {}
         self._status = {}
-        self._status_hook = status_hook
+        self._manager_pid = manager_pid
         self._orgbook_did = None
         self._update_config(spec)
         self._von_client = None
+
+        super(IssuerService, self).__init__(self.id, exchange)
         self._update_status({
+            'id': self.id,
             'did': None,
             'ledger': False,
             'orgbook': False,
             'ready': False,
             'syncing': False
-        }, True)
+        })
 
     def _update_config(self, spec):
         if spec:
@@ -53,11 +236,29 @@ class IssuerService:
     def _update_status(self, update=None, silent=False):
         if update:
             self._status.update(update)
-        if self._status_hook and not silent:
-            self._status_hook(self.id, self._status)
+        if self._manager_pid and not silent:
+            self.send_noreply(self._manager_pid, IssuerStatus(self._status))
 
     def ready(self):
         return self._status['ready']
+
+    def start(self):
+        try:
+            ret = super(IssuerService, self).start()
+            async def init():
+                try:
+                    await self.sync()
+                except:
+                    if self._manager_pid:
+                        errmsg = IssuerError('Exception during issuer sync', True)
+                        self.send_noreply(self._manager_pid, errmsg)
+                    else:
+                        logger.exception('Exception during issuer sync:')
+            # Start another thread to perform initial sync
+            eventloop.run_in_executor(self.get_pool(), init())
+            return ret
+        except:
+            logger.exception('Error starting issuer service:')
 
     # Sync with issuer VON client, then TOB client
     async def sync(self):
@@ -80,10 +281,9 @@ class IssuerService:
             if self._status['ledger'] and self._status['orgbook']:
                 self._update_status({'ready': True, 'syncing': False})
             return self._status['ready']
-        except Exception as e:
-            logger.exception('Exception during issuer sync process:')
+        except:
             self._update_status({'ready': False, 'syncing': False})
-            #raise e
+            raise
 
     def init_von_client(self):
         if not self._von_client:
@@ -104,30 +304,26 @@ class IssuerService:
                         and (not schema_version or ctype['schema']['version'] == schema_version):
                     return ctype
 
-    def supports_request(self, request : Request):
-        schema_name = None
-        if request.action == REQUEST_SUBMIT_CLAIM:
-            schema_name = request.value['schema_name']
-        if schema_name and self.find_claim_type_for_schema(schema_name):
-            return True
+    def process(self, from_pid, ident, message, ref):
+        eventloop.run_in_executor(self.get_pool(), self.handle_request(from_pid, ident, message))
 
-    async def handle_request(self, request : Request):
+    async def handle_request(self, from_pid, ident, message):
         try:
-            if not self.ready():
-                raise RuntimeError('Issuer not ready')
-            if request.action == REQUEST_SUBMIT_CLAIM:
+            if isinstance(message, SubmitClaimRequest):
                 try:
                     result = await self.submit_claim(
-                            request.value.get('schema_name'),
-                            request.value.get('schema_version'),
-                            request.value.get('attributes'))
-                    return Response(request.ident, REQUEST_SUBMIT_CLAIM, result)
-                except Exception as e:
-                    return Response(request.ident, REQUEST_SUBMIT_CLAIM, None, e)
+                            message.schema_name,
+                            message.schema_version,
+                            message.attributes)
+                    return self.send_noreply(from_pid, SubmitClaimResponse(result), ident)
+                except:
+                    errmsg = IssuerError('Exception during claim submission', True)
+                    self.send_noreply(from_pid, errmsg, ident)
             else:
                 raise ValueError('Unrecognized request type')
-        except Exception as e:
-            return Response(request.ident, REQUEST_SUBMIT_CLAIM, None, e)
+        except:
+            errmsg = IssuerError('Exception during issuer request handling', True)
+            return self.send_noreply(from_pid, errmsg, ident)
 
     def load_claim_request(self, claim_type, request):
         # Build schema body skeleton

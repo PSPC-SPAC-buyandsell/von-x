@@ -3,11 +3,26 @@ import collections
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import multiprocessing as mp
+import os
 from threading import Condition, Lock, Thread, get_ident
+import sys
 import time
+import traceback
 logger = logging.getLogger(__name__)
 
-import os
+
+class ExchangeError:
+    def __init__(self, value, exc_info=None):
+        self.value = value
+        if exc_info == True:
+            # cannot pass real exception or traceback through the pipe
+            exc_info = traceback.format_exc()
+        self.exc_info = exc_info
+    def format(self):
+        ret = '{}'.format(self.value)
+        if self.exc_info:
+            ret += "\n" + str(self.exc_info)
+        return ret
 
 
 # Receive requests and pass them to processors which may live in
@@ -81,9 +96,9 @@ class Exchange:
                     self._req_cond.release()
                 #logger.debug('released {}'.format(self._req_cond))
             logger.debug('< recv {} {}'.format(to_pid, message))
-        except Exception as e:
+        except:
             logger.exception('Error in recv:')
-            raise e
+            raise
         return message
 
     def run(self):
@@ -125,8 +140,9 @@ class Exchange:
                     break
                 else:
                     raise ValueError('Unrecognized command: {}'.format(command[0]))
-        except Exception as e:
+        except:
             logger.exception('Error in exchange:')
+
 
 
 # Polls the exchange for messages sent to this processor
@@ -136,8 +152,17 @@ class RequestProcessor:
         self._pid = pid
         self._exchange = exchange
 
+    def get_pid(self):
+        return self._pid
+
+    def get_exchange(self):
+        return self._exchange
+
     def start(self):
-        Thread(target=self.run).start()
+        # FIXME start exchange here if it's not running? need to track running status
+        th = Thread(target=self.run)
+        th.start()
+        return th
 
     def run(self):
         try:
@@ -145,16 +170,23 @@ class RequestProcessor:
                 from_pid, ident, message, ref = self._exchange.recv(self._pid)
                 logger.debug('got message {} {}'.format(self._pid, message))
                 # FIXME catch exception here and return it to the sender
-                if self.process(from_pid, ident, message, ref) == False:
-                    break
-        except Exception as e:
+                try:
+                    if self.process(from_pid, ident, message, ref) == False:
+                        break
+                except:
+                    if isinstance(message, ExchangeError):
+                        logger.error(message.format())
+                    else:
+                        errmsg = ExchangeError('Exception during message processing', True)
+                        self.send_noreply(from_pid, errmsg, ident)
+        except:
             logger.exception('Exception while processing message:')
 
-    def send(self, to_pid, ident, message, ref=None):
-        return self._exchange.send(to_pid, self._pid, ident, message, ref)
+    def send(self, to_pid, ident, message, ref=None, from_pid=None):
+        return self._exchange.send(to_pid, from_pid or self._pid, ident, message, ref)
 
-    def send_noreply(self, to_pid, message, ref=None):
-        return self._exchange.send(to_pid, self._pid, None, message, ref)
+    def send_noreply(self, to_pid, message, ref=None, from_pid=None):
+        return self._exchange.send(to_pid, from_pid or self._pid, None, message, ref)
 
     def process(self, from_pid, ident, message, ref):
         pass
@@ -183,6 +215,9 @@ class RequestExecutor(RequestProcessor):
         proc = mp.Process(target=lambda: self.start().result())
         proc.start()
         return proc
+
+    def get_pool(self):
+        return self._pool
 
     def stop(self, wait=True):
         self._pool.shutdown(wait)
@@ -229,6 +264,31 @@ class RequestExecutor(RequestProcessor):
                 logger.debug('Ident not found in requests')
             del self._requests[ident]
         return ret
+
+
+# Wrapper for sending to a single target
+# ie. manager = Endpoint(manager_pid, exchange, my_pid)
+# _ = manager.send_noreply('hello')
+class Endpoint:
+    def __init__(self, pid, exchange, from_pid=None):
+        self._pid = pid
+        self._from_pid = from_pid
+        self._exchange = exchange
+    def get_pid(self):
+        return self._pid
+    def get_exchange(self):
+        return self._exchange
+    def get_from_pid(self):
+        return self._from_pid
+    def send(self, ident, message, ref, from_pid=None):
+        return self._exchange.send(
+            self._pid,
+            from_pid or self._from_pid,
+            ident,
+            message,
+            ref)
+    def send_noreply(self, message, ref, from_pid=None):
+        return self.send(None, message, ref, from_pid)
 
 
 # Simple processor for testing responses

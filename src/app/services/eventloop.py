@@ -26,7 +26,7 @@ def run_in_thread(coro):
     future.add_done_callback(done)
     return future
 
-def run_in_executor(coro, executor):
+def run_in_executor(executor, coro):
     loop = asyncio.new_event_loop()
     #loop.set_exception_handler(lambda: logger.exception('??'))
     def run_sync_loop(loop):

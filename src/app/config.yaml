@@ -163,6 +163,7 @@ logging:
         handlers: [access]
         propagate: false
       root:
+        # sanic root logger
         level: WARNING
         handlers: [console]
         propagate: false
