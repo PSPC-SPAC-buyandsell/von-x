@@ -43,6 +43,7 @@ app.issuer_manager = issuer.init_issuer_manager(app.global_config, app.config, a
 app.issuer_manager.start()
 
 
+# Corresponds with testing code in views.py
 #app.hello = exchange.ThreadedHelloProcessor('hello', app.exchange, blocking=False)
 #app.hello.start_process()
 #app.hello.start_process()
@@ -55,6 +56,8 @@ async def init_executor(app, loop):
     ident = 'sanic-' + str(os.getpid())
     app.executor = exchange.RequestExecutor(ident, app.exchange)
     app.executor.start()
+    app.issuer_endp = app.executor.get_endpoint(app.issuer_manager.get_pid(), True)
+
 
 # Load the views
 from app import views

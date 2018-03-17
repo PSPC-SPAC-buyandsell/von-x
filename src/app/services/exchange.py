@@ -169,6 +169,9 @@ class RequestProcessor:
     def get_exchange(self):
         return self._exchange
 
+    def get_endpoint(self, pid):
+        return Endpoint(pid, self._exchange, self._pid)
+
     def start(self):
         # FIXME start exchange here if it's not running? need to track running status
         th = Thread(target=self.run)
@@ -237,6 +240,9 @@ class RequestExecutor(RequestProcessor):
     def stop(self, wait=True):
         self._pool.shutdown(wait)
 
+    def get_endpoint(self, pid, async_loop=None):
+        return ExecutorEndpoint(self, pid, async_loop)
+
     def submit(self, to_pid, message, async_loop=None, timeout=None):
         request = {'result': None}
         ident = id(request)
@@ -293,21 +299,53 @@ class Endpoint:
         self._pid = pid
         self._from_pid = from_pid
         self._exchange = exchange
+
     def get_pid(self):
         return self._pid
+
     def get_exchange(self):
         return self._exchange
+
     def get_from_pid(self):
         return self._from_pid
+
     def send(self, ident, message, ref, from_pid=None):
         return self._exchange.send(
             self._pid,
-            from_pid or self._from_pid,
+            from_pid if from_pid != None else self._from_pid,
             ident,
             message,
             ref)
+
     def send_noreply(self, message, ref, from_pid=None):
         return self.send(None, message, ref, from_pid)
+
+
+class ExecutorEndpoint(Endpoint):
+    """
+    An endpoint for a RequestExecutor which uses submit() to poll
+    for responses to requests.
+    """
+
+    def __init__(self, executor, pid, async_loop=None):
+        self._executor = executor
+        self._async_loop = async_loop
+        super(ExecutorEndpoint, self).__init__(
+            pid,
+            self._executor.get_exchange(),
+            self._executor.get_pid()
+        )
+
+    def get_executor(self):
+        return self._executor
+
+    def request(self, message, async_loop=None, timeout=None):
+        return self._executor.submit(
+            self.get_pid(),
+            message,
+            async_loop=async_loop if async_loop != None else self._async_loop,
+            timeout=timeout)
+
 
 
 class HelloProcessor(RequestProcessor):
@@ -316,10 +354,13 @@ class HelloProcessor(RequestProcessor):
     """
     def __init__(self, pid, exchange):
         super(HelloProcessor, self).__init__(pid, exchange)
+
     def start(self):
         return super(HelloProcessor, self).start()
+
     def process(self, from_pid, ident, message, ref):
         self.send_noreply(from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), ident)
+
 
 class ThreadedHelloProcessor(HelloProcessor):
     """
@@ -330,21 +371,26 @@ class ThreadedHelloProcessor(HelloProcessor):
         self._blocking = blocking
         self._pool = None
         self._max_workers = max_workers
+
     def start(self):
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
         return self._pool.submit(self.run)
+
     def start_process(self):
         proc = mp.Process(target=lambda: self.start().result())
         proc.start()
         return proc
+
     def process(self, *message):
         if self._blocking:
             self._delayed_process(message)
         else:
             self._pool.submit(self._delayed_process, message)
+
     def _delayed_process(self, message):
         time.sleep(1)
         return super(ThreadedHelloProcessor, self).process(*message)
+
 
 # Testing two workers dividing requests:
 # hello = ThreadedHelloProcessor('hello', exchange, blocking=True)
