@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,17 +18,20 @@
 import json
 import logging
 import pathlib
-import requests
 import uuid
+
+import requests
 from von_agent.agents import \
     _BaseAgent, \
     Issuer as VonIssuer, \
-    Verifier as VonVerifier, \
     HolderProver as VonHolderProver
 from von_agent.nodepool import NodePool
 from von_agent.schema import schema_key_for
 from von_agent.wallet import Wallet
-logger = logging.getLogger(__name__)
+
+from app.util import log_json
+
+LOGGER = logging.getLogger(__name__)
 
 
 class VonClient:
@@ -45,14 +49,16 @@ class VonClient:
         if not claims:
             raise ValueError("Missing issuer claims")
 
-        logger.info('Init VON client {} with seed {}'.format(self.config['id'], self.config.get('wallet_seed')))
+        LOGGER.info('Init VON client %s with seed %s',
+                    self.config['id'],
+                    self.config.get('wallet_seed'))
         async with self.create_issuer() as issuer:
             self.issuer_did = issuer.did
-            logger.info('{} issuer DID: {}'.format(self.config['id'], self.issuer_did))
+            LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
             for claim in claims:
                 await self.publish_schema(issuer, claim['schema'])
         self.synced = True
-        logger.info('VON client synced: {}'.format(self.config['id']))
+        LOGGER.info('VON client synced: %s', self.config['id'])
 
     # Make sure that the genesis path is defined, and download the transaction file if needed
     def check_genesis_path(self):
@@ -64,20 +70,22 @@ class VonClient:
             ledger_url = self.config.get('ledger_url')
             if not ledger_url:
                 raise ValueError("Cannot retrieve genesis transaction without ledger_url")
-            if not genesis_path.parent.exists():
-              genesis_path.parent.mkdir(parents = True)
+            parent_path = pathlib.Path(genesis_path.parent)
+            if not parent_path.exists():
+                parent_path.mkdir(parents=True)
 
             # download genesis transaction file
-            logger.info('Fetching genesis transaction file from {}/genesis'.format(ledger_url))
+            LOGGER.info('Fetching genesis transaction file from %s/genesis', ledger_url)
             response = requests.get('{}/genesis'.format(ledger_url), timeout=10)
             if response.status_code != 200:
-                raise RuntimeError('Error downloading genesis file: status {}'.format(response.status))
+                raise RuntimeError('Error downloading genesis file: status {}'.format(
+                    response.status))
             data = response.text
 
             # check data is valid json
-            logger.debug('Genesis transaction response: {}'.format(data))
+            LOGGER.debug('Genesis transaction response: %s', data)
             lines = data.splitlines()
-            if not len(lines) or not json.loads(lines[0]):
+            if not lines or not json.loads(lines[0]):
                 raise RuntimeError('Genesis transaction file is not valid JSON')
 
             # write result to provided path
@@ -101,13 +109,13 @@ class VonClient:
 
         # If not found, send the schema to the ledger
         if ledger_schema:
-            self.__log_json('Schema found on ledger:', ledger_schema)
+            log_json('Schema found on ledger:', ledger_schema, LOGGER)
         else:
             schema_json = await issuer.send_schema(json.dumps(schema))
             ledger_schema = json.loads(schema_json)
             if not ledger_schema or not ledger_schema.get('seqNo'):
                 raise RuntimeError('Schema was not published to ledger, check DID is registered')
-            self.__log_json('Published schema:', ledger_schema)
+            log_json('Published schema:', ledger_schema, LOGGER)
 
         # Check if claim definition has been published
         claim_def_json = await issuer.get_claim_def(
@@ -116,11 +124,11 @@ class VonClient:
 
         # If claim definition is not found then publish it
         if claim_def:
-            self.__log_json('Claim def found on ledger:', claim_def)
+            log_json('Claim def found on ledger:', claim_def, LOGGER)
         else:
             claim_def_json = await issuer.send_claim_def(schema_json)
             claim_def = json.loads(claim_def_json)
-            self.__log_json('Published claim def:', claim_def)
+            log_json('Published claim def:', claim_def, LOGGER)
         return (ledger_schema, claim_def)
 
     def create_issuer(self):
@@ -140,13 +148,6 @@ class VonClient:
         async with Agent(cfg, _BaseAgent, 'Util') as agent:
             agent_did = agent.did
         return agent_did
-
-    def __log_json(self, heading, data):
-        logger.debug(
-            "\n============================================================================\n" +
-            "{0}\n".format(heading) +
-            "{0}\n".format(json.dumps(data, indent=2)) +
-            "============================================================================\n")
 
 
 class Agent:
@@ -204,6 +205,6 @@ class Agent:
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
-            logger.exception('Exception in VON {}:'.format(self.issuer_type))
+            LOGGER.exception('Exception in VON %s:', self.issuer_type)
         if not self._keep_open:
             await self.close()

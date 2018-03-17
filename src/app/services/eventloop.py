@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +18,9 @@
 import asyncio
 import threading
 import logging
-logger = logging.getLogger(__name__)
+
+LOGGER = logging.getLogger(__name__)
+
 
 def run_coro(coro):
     event_loop = None
@@ -28,18 +31,20 @@ def run_coro(coro):
         asyncio.set_event_loop(event_loop)
     return event_loop.run_until_complete(coro)
 
+
 def run_in_thread(coro):
     loop = asyncio.new_event_loop()
     def start_sync_loop(loop):
         asyncio.set_event_loop(loop)
         loop.run_forever()
-    t1 = threading.Thread(target=start_sync_loop, args=(loop,))
-    t1.start()
+    thread = threading.Thread(target=start_sync_loop, args=(loop,))
+    thread.start()
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    async def done(future):
+    async def done(_future):
         loop.stop()
     future.add_done_callback(done)
     return future
+
 
 def run_in_executor(executor, coro):
     loop = asyncio.new_event_loop()

@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +16,14 @@
 #
 
 from datetime import datetime
-import json
 import logging
 import requests
-logger = logging.getLogger(__name__)
+
+LOGGER = logging.getLogger(__name__)
+
+
+def current_date():
+    return datetime.now().strftime("%Y-%m-%d")
 
 
 class TobClient:
@@ -43,7 +48,7 @@ class TobClient:
         self.sync_claim_types()
 
         self.synced = True
-        logger.info('TOB client synced: {}'.format(self.config['id']))
+        LOGGER.info('TOB client synced: %s', self.config['id'])
 
     def sync_jurisdiction(self):
         jurisdiction_spec = self.config.get('jurisdiction')
@@ -64,7 +69,7 @@ class TobClient:
                 'abbrv': jurisdiction_spec.get('abbreviation'),
                 'displayOrder':   0,
                 'isOnCommonList': True,
-                'effectiveDate':  self.current_date()
+                'effectiveDate':  current_date()
             })
             self.jurisdiction_id = jurisdiction['id']
         return self.jurisdiction_id
@@ -74,7 +79,7 @@ class TobClient:
             raise ValueError("Cannot sync issuer service: jurisdiction_id not populated")
         issuer_name = self.config.get('name', '')
         issuer_abbr = self.config.get('abbreviation', '')
-        issuer_url  = self.config.get('url', '')
+        issuer_url = self.config.get('url', '')
         if not issuer_name:
             raise ValueError('Missing issuer name')
 
@@ -93,9 +98,9 @@ class TobClient:
                 'DID':            self.issuer_did,
                 'issuerOrgTLA':   issuer_abbr,
                 'issuerOrgURL':   issuer_url,
-                'effectiveDate':  self.current_date(),
+                'effectiveDate':  current_date(),
                 'jurisdictionId': self.jurisdiction_id
-              })
+            })
             self.issuer_service_id = issuer_service['id']
         return self.issuer_service_id
 
@@ -124,13 +129,10 @@ class TobClient:
                     'claimType':        type_spec.get('description', schema_def['name']),
                     'issuerServiceId':  self.issuer_service_id,
                     'issuerURL':        type_spec.get('issuer_url', issuer_url),
-                    'effectiveDate':    self.current_date(),
+                    'effectiveDate':    current_date(),
                     'schemaName':       schema_def['name'],
                     'schemaVersion':    schema_def['version']
                 })
-
-    def current_date(self):
-        return datetime.now().strftime("%Y-%m-%d")
 
     def get_api_url(self, module=None):
         url = self.api_url + '/api/v1/'
@@ -149,11 +151,3 @@ class TobClient:
             raise RuntimeError("Bad response ({}) from create_record: {}".format(
                 response.status_code, response.text))
         return response.json()
-
-    def __log_json(self, heading, data):
-        logger.info(
-            "\n============================================================================\n" +
-            "{0}\n".format(heading) +
-            "{0}\n".format(json.dumps(data, indent=2)) +
-            "============================================================================\n")
-

@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,23 +17,22 @@
 
 import asyncio
 import collections
+import logging
 import os
-import sys
 import time
 import traceback
 
 import multiprocessing as mp
-from threading import Condition, Lock, Thread, get_ident
+from threading import Condition, Thread, get_ident
 from concurrent.futures import ThreadPoolExecutor
 
-import logging
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class ExchangeError:
     def __init__(self, value, exc_info=None):
         self.value = value
-        if exc_info == True:
+        if exc_info is True:
             # cannot pass real exception or traceback through the message pipe
             exc_info = traceback.format_exc()
         self.exc_info = exc_info
@@ -83,20 +83,21 @@ class Exchange:
         # FIXME add a maximum buffer size for the message queues and allow blocking
         # until there is room in the buffer (optional blocking=True argument)
         with self._req_cond:
-            logger.debug('send to {}/{} {}'.format(to_pid, ref, message))
+            LOGGER.debug('send to %s/%s %s', to_pid, ref, message)
             status = self._cmd('send', to_pid, (from_pid, ident, message, ref))
             # wake all threads waiting for an incoming message
             self._req_cond.notify_all()
         return status
 
     def recv(self, to_pid, blocking=True, timeout=None):
+        #pylint: disable=broad-except
         try:
-            logger.debug('recv {}'.format(to_pid))
+            LOGGER.debug('recv %s', to_pid)
             locked = self._req_cond.acquire(blocking)
             message = None
             if locked:
                 message = self._cmd('recv', to_pid)
-                while message == None and (blocking or timeout != None):
+                while message is None and (blocking or timeout != None):
                     locked = self._req_cond.wait(timeout)
                     if locked:
                         message = self._cmd('recv', to_pid)
@@ -104,12 +105,13 @@ class Exchange:
                         break
                 if locked:
                     self._req_cond.release()
-        except:
-            logger.exception('Error in recv:')
+        except Exception:
+            LOGGER.exception('Error in recv:')
             raise
         return message
 
     def run(self):
+        #pylint: disable=broad-except
         pending = 0
         processed = {}
         queue = {}
@@ -139,7 +141,10 @@ class Exchange:
                     self._cmd_pipe[0].send(message)
                 elif command[0] == 'status':
                     total = sum(processed.values())
-                    self._cmd_pipe[0].send({'pending': pending, 'processed': processed, 'total': total})
+                    self._cmd_pipe[0].send({
+                        'pending': pending,
+                        'processed': processed,
+                        'total': total})
                 elif command[0] == 'stop':
                     # FIXME optionally block new requests and wait until remaining
                     # messages are processed
@@ -147,8 +152,8 @@ class Exchange:
                     break
                 else:
                     raise ValueError('Unrecognized command: {}'.format(command[0]))
-        except:
-            logger.exception('Error in exchange:')
+        except Exception:
+            LOGGER.exception('Error in exchange:')
 
 
 
@@ -159,7 +164,7 @@ class RequestProcessor:
     and send responses.
     """
 
-    def __init__(self, pid, exchange : Exchange):
+    def __init__(self, pid, exchange: Exchange):
         self._pid = pid
         self._exchange = exchange
 
@@ -174,27 +179,33 @@ class RequestProcessor:
 
     def start(self):
         # FIXME start exchange here if it's not running? need to track running status
-        th = Thread(target=self.run)
-        th.start()
-        return th
+        thread = Thread(target=self.run)
+        thread.start()
+        return thread
+
+    def stop(self, _wait=True):
+        return self.send_noreply(self._pid, 'stop')
 
     def run(self):
+        #pylint: disable=broad-except
         try:
             while True:
                 from_pid, ident, message, ref = self._exchange.recv(self._pid)
-                logger.debug('{} processing message: {}'.format(self._pid, message))
+                LOGGER.debug('%s processing message: %s', self._pid, message)
+                if message == 'stop':
+                    break
                 # FIXME catch exception here and return it to the sender
                 try:
-                    if self.process(from_pid, ident, message, ref) == False:
+                    if self.process(from_pid, ident, message, ref) is False:
                         break
-                except:
+                except Exception:
                     if isinstance(message, ExchangeError):
-                        logger.error(message.format())
+                        LOGGER.error(message.format())
                     else:
                         errmsg = ExchangeError('Exception during message processing', True)
                         self.send_noreply(from_pid, errmsg, ident)
-        except:
-            logger.exception('Exception while processing message:')
+        except Exception:
+            LOGGER.exception('Exception while processing message:')
 
     def send(self, to_pid, ident, message, ref=None, from_pid=None):
         return self._exchange.send(to_pid, from_pid or self._pid, ident, message, ref)
@@ -215,7 +226,7 @@ class RequestExecutor(RequestProcessor):
     Should not block the main thread (much) to avoid breaking asyncio.
     """
 
-    def __init__(self, pid, exchange : Exchange, max_workers=10):
+    def __init__(self, pid, exchange: Exchange, max_workers=10):
         super(RequestExecutor, self).__init__(pid, exchange)
         self._max_workers = max_workers
         self._pool = None
@@ -239,9 +250,10 @@ class RequestExecutor(RequestProcessor):
 
     def stop(self, wait=True):
         self._pool.shutdown(wait)
+        super(RequestExecutor, self).stop(wait)
 
-    def get_endpoint(self, pid, async_loop=None):
-        return ExecutorEndpoint(self, pid, async_loop)
+    def get_endpoint(self, pid):
+        return ExecutorEndpoint(self, pid)
 
     def submit(self, to_pid, message, async_loop=None, timeout=None):
         request = {'result': None}
@@ -253,7 +265,7 @@ class RequestExecutor(RequestProcessor):
         if not result:
             raise RuntimeError('Request could not be processed')
         if async_loop:
-            if async_loop == True:
+            if async_loop is True:
                 async_loop = asyncio.get_event_loop()
             result = async_loop.run_in_executor(self._pool, self._receive, ident, timeout)
         else:
@@ -266,23 +278,24 @@ class RequestExecutor(RequestProcessor):
                 self._requests[ref]['result'] = message
                 self._req_cond.notify_all()
             else:
-                logger.debug('unhandled message to {}/{} from {}: {}'.format(self._pid, ref, from_pid, message))
+                LOGGER.debug('unhandled message to %s/%s from %s: %s',
+                             self._pid, ref, from_pid, message)
 
     def _receive(self, ident, timeout=None):
         with self._req_cond:
             ret = None
             if ident in self._requests:
                 ret = self._requests[ident]['result']
-                while ret == None:
+                while ret is None:
                     self._req_cond.wait(timeout)
                     if ident not in self._requests:
-                        logger.debug('Ident not found in requests')
+                        LOGGER.debug('Ident not found in requests')
                         break
                     ret = self._requests[ident]['result']
                     if ret != None or timeout != None:
                         break
             else:
-                logger.debug('Ident not found in requests')
+                LOGGER.debug('Ident not found in requests')
             del self._requests[ident]
         return ret
 
@@ -336,6 +349,12 @@ class ExecutorEndpoint(Endpoint):
             self._executor.get_pid()
         )
 
+    def get_async_loop(self):
+        return self._async_loop
+
+    def set_async_loop(self, async_loop):
+        self._async_loop = async_loop
+
     def get_executor(self):
         return self._executor
 
@@ -352,12 +371,6 @@ class HelloProcessor(RequestProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """
-    def __init__(self, pid, exchange):
-        super(HelloProcessor, self).__init__(pid, exchange)
-
-    def start(self):
-        return super(HelloProcessor, self).start()
-
     def process(self, from_pid, ident, message, ref):
         self.send_noreply(from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), ident)
 
@@ -381,9 +394,9 @@ class ThreadedHelloProcessor(HelloProcessor):
         proc.start()
         return proc
 
-    def process(self, *message):
+    def process(self, from_pid, ident, message, ref):
         if self._blocking:
-            self._delayed_process(message)
+            self._delayed_process((from_pid, ident, message, ref))
         else:
             self._pool.submit(self._delayed_process, message)
 
@@ -397,4 +410,3 @@ class ThreadedHelloProcessor(HelloProcessor):
 # hello.start_process()
 # hello.start_process()
 # .. exchange.send('hello', None, None, 'poke') ..
-

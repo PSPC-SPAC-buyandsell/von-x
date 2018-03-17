@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,21 +15,25 @@
 # limitations under the License.
 #
 
+import json
+import os
+import logging
+
+from von_agent.schema import schema_key_for
+from von_agent.util import encode
+
 from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestProcessor, RequestExecutor
 from app.services.tob import TobClient
 from app.services.von import VonClient
+from app.util import log_json
 
-from von_agent.schema import schema_key_for
-from von_agent.util import encode
-import json
-import os
-import logging
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 def claim_value_pair(plain):
     return [str(plain), encode(plain)]
+
 
 def encode_claim(claim):
     encoded_claim = {}
@@ -38,24 +43,74 @@ def encode_claim(claim):
     return encoded_claim
 
 
+def load_claim_request(claim_type, request):
+    # Build schema body skeleton
+    claim = {}
+    for attr in claim_type['schema']['attr_names']:
+        claim[attr] = None
+
+    mapping = claim_type.get('mapping')
+    if not mapping:
+        # Default to copying schema attributes by name if no mapping is provided
+        for attr in claim_type['schema']['attr_names']:
+            claim[attr] = request.get(attr)
+    else:
+        # Build claim data from schema mapping
+        for attribute in mapping:
+            attr_name = attribute.get('name')
+            from_type = attribute.get('from', 'request')
+            # Handle getting value from request data
+            if from_type == 'request':
+                source = attribute.get('source', attr_name)
+                claim[attr_name] = request.get(source)
+            # Handle getting value from helpers (function defined in config)
+            elif from_type == 'helper':
+                #try:
+                #    helpers = import_module('von_connector.helpers')
+                #    helper = getattr(helpers, attribute['source'])
+                #    claim[attribute['name']] = helper()
+                #except AttributeError:
+                #    raise Exception(
+                #        'Cannot find helper "%s"' % attribute['source'])
+                pass
+            # Handle setting value with string literal or None
+            elif from_type == 'literal':
+                claim[attr_name] = attribute.get('source')
+            # Handle getting value already set on schema skeleton
+            elif from_type == 'previous':
+                source = attribute.get('source')
+                if source:
+                    try:
+                        claim[attr_name] = claim[source]
+                    except KeyError:
+                        raise ValueError(
+                            'Cannot find previous value "%s"' % source)
+            else:
+                raise ValueError('Unkown mapping type "%s"' % attribute['from'])
+    return claim
+
+
 class IssuerError(ExchangeError):
-    def __init__(self, value, exc_info=None):
-        super(IssuerError, self).__init__(value, exc_info)
+    pass
+
 
 class IssuerStatus:
     def __init__(self, status):
         self.value = status
+
 
 class ResolveSchemaRequest:
     def __init__(self, schema_name, schema_version=None):
         self.schema_name = schema_name
         self.schema_version = schema_version
 
+
 class SubmitClaimRequest:
     def __init__(self, schema_name, schema_version, attributes):
         self.schema_name = schema_name
         self.schema_version = schema_version
         self.attributes = attributes
+
 
 class SubmitClaimResponse:
     def __init__(self, value):
@@ -70,7 +125,7 @@ def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
     if not env:
         env = os.environ
     if not exchange:
-        logger.info('Starting new Exchange service for issuer manager')
+        LOGGER.info('Starting new Exchange service for issuer manager')
         exchange = Exchange()
         exchange.start()
     issuers = []
@@ -85,8 +140,8 @@ def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
         if not limit_issuers or issuer['id'] in limit_issuers:
             issuers.append(issuer)
             issuer_ids.append(issuer['id'])
-    if len(issuers):
-        logger.info('Initializing processor for services: {}'.format(', '.join(issuer_ids)))
+    if issuers:
+        LOGGER.info('Initializing processor for services: %s', ', '.join(issuer_ids))
         return IssuerManager(pid, exchange, env, issuers)
     else:
         raise ValueError('No defined issuers referenced by ISSUERS')
@@ -124,21 +179,22 @@ class IssuerManager(RequestProcessor):
         self._start_services()
         return ret
 
-    def stop(self):
+    def stop(self, wait=True):
         self._stop_services()
-        super(IssuerManager, self).stop()
+        super(IssuerManager, self).stop(wait)
 
     def _start_services(self):
+        #pylint: disable=broad-except
         async def resolve():
             try:
                 await self.resolve_orgbook_did()
-            except:
+            except Exception:
                 errmsg = IssuerError('Error while resolving DID for TOB', True)
                 self.send_noreply(self.get_pid(), errmsg)
                 raise
             try:
                 self.start_issuers()
-            except:
+            except Exception:
                 errmsg = IssuerError('Error while starting issuer services', True)
                 self.send_noreply(self.get_pid(), errmsg)
                 raise
@@ -155,14 +211,14 @@ class IssuerManager(RequestProcessor):
                 tob_seed = self._env.get('TOB_INDY_SEED')
                 if not tob_seed:
                     raise ValueError('Either TOB_INDY_SEED or TOB_INDY_DID must be defined')
-                logger.info('Resolving TOB DID from seed {}'.format(tob_seed))
+                LOGGER.info('Resolving TOB DID from seed %s', tob_seed)
                 # create 'blank' client with no issuer information
                 von_client = self.init_von_client()
                 tob_did = await von_client.resolve_did_from_seed(tob_seed)
                 if not tob_did:
                     raise ValueError('DID for TOB could not be resolved')
                 self._orgbook_did = tob_did
-                logger.info('Resolved TOB DID to {}'.format(tob_did))
+                LOGGER.info('Resolved TOB DID to %s', tob_did)
         return self._orgbook_did
 
     def extend_issuer_spec(self, spec):
@@ -184,39 +240,43 @@ class IssuerManager(RequestProcessor):
         return VonClient(cfg)
 
     def start_issuers(self):
-        logger.info('Starting issuers')
+        LOGGER.info('Starting issuers')
         for spec in self._issuer_specs:
-            service = IssuerService(self.get_exchange(), self.extend_issuer_spec(spec), self.get_pid())
-            self._issuers[service.id] = service
-        for id, service in self._issuers.items():
+            service = IssuerService(
+                self.get_exchange(),
+                self.extend_issuer_spec(spec),
+                self.get_pid())
+            self._issuers[service.get_pid()] = service
+        for _id, service in self._issuers.items():
             service.start() # or start_process()
 
     def stop_issuers(self):
-        for id, service in self._issuers.items():
+        for _id, service in self._issuers.items():
             service.stop()
 
     def find_issuer_for_schema(self, schema_name, schema_version=None):
-        for id, service in self._issuers.items():
+        for _id, service in self._issuers.items():
             if service.find_claim_type_for_schema(schema_name, schema_version):
                 return service
+        return None
 
     def process(self, from_pid, ident, message, ref):
         if isinstance(message, IssuerError):
-            logger.error(message.format())
+            LOGGER.error(message.format())
         elif isinstance(message, IssuerStatus):
             self._issuer_status[from_pid] = message.value
             self.update_status()
         elif isinstance(message, ResolveSchemaRequest):
             service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
             if service:
-                self.send_noreply(from_pid, service.id, ident)
+                self.send_noreply(from_pid, service.get_pid(), ident)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif isinstance(message, SubmitClaimRequest):
             # need to find the issuer service and forward the request there
             service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
             if service:
-                self.send(service.id, ident, message, ref, from_pid)
+                self.send(service.get_pid(), ident, message, ref, from_pid)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif message == 'ready':
@@ -229,13 +289,13 @@ class IssuerManager(RequestProcessor):
     def update_status(self):
         ok = True
         old_ok = self._ready
-        for id, handle in self._issuers.items():
-            if not self._issuer_status.get(id, {}).get('ready'):
+        for service_id, _service in self._issuers.items():
+            if not self._issuer_status.get(service_id, {}).get('ready'):
                 ok = False
                 break
         self._ready = ok
         if ok and not old_ok:
-            logger.info('Completed issuer manager initialization')
+            LOGGER.info('Completed issuer manager initialization')
 
 
 class IssuerService(RequestExecutor):
@@ -251,7 +311,7 @@ class IssuerService(RequestExecutor):
     """
 
     def __init__(self, exchange, spec=None, manager_pid=None):
-        self.id = None
+        self._pid = None
         self._config = {}
         self._status = {}
         self._manager_pid = manager_pid
@@ -259,9 +319,9 @@ class IssuerService(RequestExecutor):
         self._update_config(spec)
         self._von_client = None
 
-        super(IssuerService, self).__init__(self.id, exchange)
+        super(IssuerService, self).__init__(self._pid, exchange)
         self._update_status({
-            'id': self.id,
+            'id': self._pid,
             'did': None,
             'ledger': False,
             'orgbook': False,
@@ -273,7 +333,7 @@ class IssuerService(RequestExecutor):
         if spec:
             self._config.update(spec)
         if 'id' in self._config:
-            self.id = self._config['id']
+            self._pid = self._config['id']
         if 'did' in self._config:
             self._status['did'] = self._config['did']
         if 'api_did' in self._config:
@@ -289,25 +349,27 @@ class IssuerService(RequestExecutor):
         return self._status['ready']
 
     def start(self):
+        #pylint: disable=broad-except
         try:
             ret = super(IssuerService, self).start()
             async def init():
                 try:
                     await self.sync()
-                except:
+                except Exception:
                     if self._manager_pid:
                         errmsg = IssuerError('Exception during issuer sync', True)
                         self.send_noreply(self._manager_pid, errmsg)
                     else:
-                        logger.exception('Exception during issuer sync:')
+                        LOGGER.exception('Exception during issuer sync:')
             # Start another thread to perform initial sync
             eventloop.run_in_executor(self.get_pool(), init())
             return ret
-        except:
-            logger.exception('Error starting issuer service:')
+        except Exception:
+            LOGGER.exception('Error starting issuer service:')
 
     # Sync with issuer VON client, then TOB client
     async def sync(self):
+        #pylint: disable=broad-except
         self._update_status({
             'syncing': True
         })
@@ -327,7 +389,7 @@ class IssuerService(RequestExecutor):
             if self._status['ledger'] and self._status['orgbook']:
                 self._update_status({'ready': True, 'syncing': False})
             return self._status['ready']
-        except:
+        except Exception:
             self._update_status({'ready': False, 'syncing': False})
             raise
 
@@ -337,7 +399,7 @@ class IssuerService(RequestExecutor):
             self._von_client = VonClient(cfg)
         return self._von_client
 
-    def init_tob_client(self, spec=None):
+    def init_tob_client(self):
         cfg = self._config.copy()
         cfg['did'] = self._status['did']
         return TobClient(cfg)
@@ -349,76 +411,32 @@ class IssuerService(RequestExecutor):
                 if 'schema' in ctype and ctype['schema']['name'] == schema_name \
                         and (not schema_version or ctype['schema']['version'] == schema_version):
                     return ctype
+        return None
 
     def process(self, from_pid, ident, message, ref):
         eventloop.run_in_executor(self.get_pool(), self.handle_request(from_pid, ident, message))
 
     async def handle_request(self, from_pid, ident, message):
+        #pylint: disable=broad-except
         try:
             if isinstance(message, SubmitClaimRequest):
                 try:
                     result = await self.submit_claim(
-                            message.schema_name,
-                            message.schema_version,
-                            message.attributes)
+                        message.schema_name,
+                        message.schema_version,
+                        message.attributes)
                     return self.send_noreply(from_pid, SubmitClaimResponse(result), ident)
-                except:
+                except Exception:
                     errmsg = IssuerError('Exception during claim submission', True)
                     self.send_noreply(from_pid, errmsg, ident)
             else:
                 raise ValueError('Unrecognized request type')
-        except:
+        except Exception:
             errmsg = IssuerError('Exception during issuer request handling', True)
             return self.send_noreply(from_pid, errmsg, ident)
 
-    def load_claim_request(self, claim_type, request):
-        # Build schema body skeleton
-        claim = {}
-        for attr in claim_type['schema']['attr_names']:
-            claim[attr] = None
-
-        mapping = claim_type.get('mapping')
-        if not mapping:
-            # Default to copying schema attributes by name if no mapping is provided
-            for attr in claim_type['schema']['attr_names']:
-                claim[attr] = request.get(attr)
-        else:
-            # Build claim data from schema mapping
-            for attribute in mapping:
-                attr_name = attribute.get('name')
-                from_type = attribute.get('from', 'request')
-                # Handle getting value from request data
-                if from_type == 'request':
-                    source = attribute.get('source', attr_name)
-                    claim[attr_name] = request.get(source)
-                # Handle getting value from helpers (function defined in config)
-                elif from_type == 'helper':
-                    #try:
-                    #    helpers = import_module('von_connector.helpers')
-                    #    helper = getattr(helpers, attribute['source'])
-                    #    claim[attribute['name']] = helper()
-                    #except AttributeError:
-                    #    raise Exception(
-                    #        'Cannot find helper "%s"' % attribute['source'])
-                    pass
-                # Handle setting value with string literal or None
-                elif from_type == 'literal':
-                    claim[attr_name] = attribute.get('source')
-                # Handle getting value already set on schema skeleton
-                elif from_type == 'previous':
-                    source = attribute.get('source')
-                    if source:
-                        try:
-                            claim[attr_name] = claim[source]
-                        except KeyError:
-                            raise ValueError(
-                                'Cannot find previous value "%s"' % source)
-                else:
-                    raise ValueError('Unkown mapping type "%s"' % attribute['from'])
-        return claim
-
     async def _create_issuer_claim_def(self, issuer, schema_def):
-        self.__log_json('Schema definition:', schema_def)
+        log_json('Schema definition:', schema_def, LOGGER)
 
         # We need schema from ledger
         schema_json = await issuer.get_schema(
@@ -429,11 +447,50 @@ class IssuerService(RequestExecutor):
             }))
         ledger_schema = json.loads(schema_json)
 
-        self.__log_json('Schema:', ledger_schema)
+        log_json('Schema:', ledger_schema, LOGGER)
 
         claim_def_json = await issuer.get_claim_def(
             ledger_schema['seqNo'], issuer.did)
         return (ledger_schema, claim_def_json)
+
+    async def store_claim(self, claim_type, encoded_claim):
+        #pylint: disable=too-many-locals
+        von_client = self.init_von_client()
+        tob_client = self.init_tob_client()
+
+        async with von_client.create_issuer() as von_issuer:
+            (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
+                von_issuer, claim_type['schema'])
+
+            # We create a claim offer
+            schema_json = json.dumps(ledger_schema)
+            LOGGER.info('Creating claim offer for TOB at DID %s', self._orgbook_did)
+            claim_offer_json = await von_issuer.create_claim_offer(schema_json, self._orgbook_did)
+            claim_offer = json.loads(claim_offer_json)
+
+            log_json('Requesting claim request:', {
+                'claim_offer': claim_offer,
+                'claim_def': json.loads(claim_def_json)
+            }, LOGGER)
+
+            claim_req = tob_client.create_record('bcovrin/generate-claim-request', {
+                'claim_offer': claim_offer_json,
+                'claim_def': claim_def_json
+            })
+            log_json('Got claim request:', claim_req, LOGGER)
+
+            claim_request_json = json.dumps(claim_req)
+
+            (_, claim_json) = await von_issuer.create_claim(
+                claim_request_json, encoded_claim)
+
+        log_json('Created claim:', json.loads(claim_json), LOGGER)
+
+        # Store claim
+        return tob_client.create_record('bcovrin/store-claim', {
+            'claim_type': ledger_schema['data']['name'],
+            'claim_data': json.loads(claim_json)
+        })
 
     async def submit_claim(self, schema_name, schema_version, attribs):
         if not self.ready():
@@ -448,52 +505,8 @@ class IssuerService(RequestExecutor):
         if not claim_type:
             raise RuntimeError('Error locating claim type')
 
-        claim = self.load_claim_request(claim_type, attribs)
+        claim = load_claim_request(claim_type, attribs)
         encoded_claim = encode_claim(claim)
-        self.__log_json('Claim:', encoded_claim)
+        log_json('Claim:', encoded_claim, LOGGER)
 
-        von_client = self.init_von_client()
-        tob_client = self.init_tob_client()
-
-        async with von_client.create_issuer() as von_issuer:
-            (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
-                von_issuer, claim_type['schema'])
-
-            # We create a claim offer
-            schema_json = json.dumps(ledger_schema)
-            logger.info('Creating claim offer for TOB at DID {}'.format(self._orgbook_did))
-            claim_offer_json = await von_issuer.create_claim_offer(schema_json, self._orgbook_did)
-            claim_offer = json.loads(claim_offer_json)
-
-            self.__log_json('Requesting claim request:', {
-                'claim_offer': claim_offer,
-                'claim_def': json.loads(claim_def_json)
-            })
-
-            claim_req = tob_client.create_record('bcovrin/generate-claim-request', {
-                'claim_offer': claim_offer_json,
-                'claim_def': claim_def_json
-            })
-            self.__log_json('Got claim request:', claim_req)
-
-            claim_request_json = json.dumps(claim_req)
-
-            (_, claim_json) = await von_issuer.create_claim(
-                claim_request_json, encoded_claim)
-
-        self.__log_json('Created claim:', json.loads(claim_json))
-
-        # Store claim
-        return tob_client.create_record('bcovrin/store-claim', {
-            'claim_type': ledger_schema['data']['name'],
-            'claim_data': json.loads(claim_json)
-        })
-
-    def __log_json(self, heading, data):
-        logger.debug(
-            "\n============================================================================\n" +
-            "{0}\n".format(heading) +
-            "{0}\n".format(json.dumps(data, indent=2)) +
-            "============================================================================\n")
-
-
+        return await self.store_claim(claim_type, encoded_claim)

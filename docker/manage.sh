@@ -28,7 +28,7 @@ SCRIPT_HOME="$( cd "$( dirname "$0" )" && pwd )"
 usage() {
   cat <<-EOF
 
-  Usage: $0 {start|stop|build|rm}
+  Usage: $0 {start|stop|build|rm|lint}
 
   Options:
 
@@ -46,6 +46,8 @@ usage() {
          are not deleted so they will be reused the next time you run start.
 
   rm - Removes any existing application containers.
+
+  lint - Apply pylint to Python source code.
 
 EOF
 exit 1
@@ -132,6 +134,25 @@ build() {
   docker-compose build $@
 }
 
+pylint() {
+  PYTHON=$(which python3.5 || which python)
+  if [ -z "$PYTHON" ]; then
+    echo -e "python executable could not be located"
+  fi
+  PIP=$(which pip3.5 || which pip)
+  if [ -z "$PIP" ]; then
+    echo -e "pip executable could not be located"
+  fi
+  PYLINT=$(which pylint)
+  if [ -z "$PYLINT" ]; then
+    echo -e "Installing pylint ..."
+    $PIP install pylint
+  fi
+  $PIP install -q -r ../src/requirements.txt
+  cd ..
+  $PYLINT src/*.py src/app
+}
+
 # =================================================================================================================
 
 pushd ${SCRIPT_HOME} >/dev/null
@@ -156,6 +177,9 @@ case "$COMMAND" in
     _startupParams=$(getStartupParams $@)
     configureEnvironment $@
     build ${_startupParams}
+    ;;
+  lint)
+    pylint
     ;;
   *)
     usage
