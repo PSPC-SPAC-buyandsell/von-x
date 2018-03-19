@@ -91,7 +91,7 @@ configureEnvironment () {
     fi
   fi
 
-  export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-"vonconnect"}
+  export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-"vonx"}
   export LEDGER_URL=${LEDGER_URL-http://$DOCKERHOST:9000}
 }
 
