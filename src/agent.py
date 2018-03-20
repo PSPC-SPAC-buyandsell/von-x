@@ -21,7 +21,7 @@ Standard entry point for the application
 """
 
 try:
-    from app import APP
+    from app import APP, get_issuer_manager
 except Exception:
     import logging
     import sys
@@ -41,3 +41,7 @@ if __name__ == '__main__':
     except Exception:
         LOGGER.exception('Error while running server:')
         sys.exit(1)
+
+    MGR = get_issuer_manager()
+    if MGR:
+        MGR.join()

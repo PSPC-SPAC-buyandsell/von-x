@@ -168,6 +168,7 @@ class RequestProcessor:
     def __init__(self, pid, exchange: Exchange):
         self._pid = pid
         self._exchange = exchange
+        self._thread = None
 
     def get_pid(self):
         return self._pid
@@ -180,9 +181,14 @@ class RequestProcessor:
 
     def start(self):
         # FIXME start exchange here if it's not running? need to track running status
-        thread = Thread(target=self.run)
-        thread.start()
-        return thread
+        self._thread = Thread(target=self.run)
+        self._thread.start()
+        return self._thread
+
+    def join(self):
+        if self._thread:
+            return self._thread.join()
+        return None
 
     def stop(self, _wait=True):
         return self.send_noreply(self._pid, 'stop')
