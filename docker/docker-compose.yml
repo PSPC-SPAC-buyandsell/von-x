@@ -1,7 +1,7 @@
 version: '3'
 services:
 
-  bcreg-agent:
+  sri-agent:
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -22,12 +22,12 @@ services:
     networks:
       - orgbook
     volumes:
-      - bcreg-agent-wallet:/opt/app-root/src/.indy_client/wallet
+      - sri-agent-wallet:/opt/app-root/src/.indy_client/wallet
     ports:
       - 5000:8000
 
 volumes:
-  bcreg-agent-wallet:
+  sri-agent-wallet:
 networks:
   orgbook:
     external:
