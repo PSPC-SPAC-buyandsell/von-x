@@ -18,6 +18,7 @@
 import logging
 import logging.config
 import os
+import re
 import yaml
 
 
@@ -33,8 +34,8 @@ def load_global_config(path=None):
 
 def load_server_config(global_config, env=True):
     """
-        Extract the server configuration from the app config and apply optional
-        overrides from the environment.
+    Extract the server configuration from the app config and apply optional
+    overrides from the environment.
     """
     if env is True:
         env = os.environ
@@ -49,6 +50,44 @@ def load_server_config(global_config, env=True):
         if v != '':
             config[k] = v
     return config
+
+def expand_string_variables(input, env, warn=True):
+    """
+    Expand environment variables of form $var and ${var} in a string.
+    """
+    if not isinstance(input, str):
+        return input
+    logger = logging.getLogger(__name__)
+    def replace_var(m):
+        default = None
+        var = m.group(1)
+        if m.group(2):
+            var = m.group(2)
+            default = m.group(4)
+        found = env.get(var)
+        if found is None or found == '':
+            found = default
+        if found is None and warn:
+            logger.warn('Configuration variable not defined: %s', var)
+            found = ''
+        return found
+    return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, input)
+
+def map_tree(tree, fn):
+    if isinstance(tree, dict):
+        return {key: map_tree(value, fn) for (key, value) in tree.items()}
+    elif isinstance(tree, (list, tuple)):
+        return [map_tree(value, fn) for value in tree]
+    else:
+        return fn(tree)
+
+def expand_tree_variables(input, env, warn=True):
+    """
+    Expand environment variables of form $var and ${var} in a configuration tree.
+    This is used in the 'issuers' section of the config to allow variable overrides.
+    """
+    return map_tree(input, lambda val: expand_string_variables(val, env, warn))
+
 
 def init_logging(global_config, logging_env=None):
     """Initialize the application logger using dictConfig."""

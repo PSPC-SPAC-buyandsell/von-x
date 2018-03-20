@@ -66,7 +66,11 @@ DEFAULT_CONTAINERS=""
 configureEnvironment () {
 
   if [ -f .env ]; then
-  	export $(cat .env | xargs)
+    while read line; do
+      if [[ ! "$line" =~ ^\# ]] && [[ "$line" =~ .*= ]]; then
+        export $line
+      fi
+    done < .env
   fi
 
   for arg in $@; do

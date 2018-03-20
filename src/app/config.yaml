@@ -5,6 +5,10 @@ server:
     TOB_API_URL: http://api:8080
     VERSION: 0.5.0
 
+    WALLET_SEED_PSPC: pspc-ab-sri000000000000000000000
+    WALLET_SEED_CISD: pspc-cisd-sri0000000000000000000
+    WALLET_SEED_INAC: aandc-inac0000000000000000000000
+
 issuers:
   SRI-REG:
     jurisdiction:
@@ -16,7 +20,7 @@ issuers:
     abbreviation: AB
     url: "https://www.canada.ca/en/public-services-procurement.html"
 
-    wallet_seed: pspc-ab-sri000000000000000000000
+    wallet_seed: $WALLET_SEED_PSPC
     claim_types:
 
     - description: Vendor Credential
@@ -79,7 +83,7 @@ issuers:
     abbreviation: CISD
     url: "https://www.tpsgc-pwgsc.gc.ca/esc-src/index-eng.html"
 
-    wallet_seed: pspc-cisd-sri0000000000000000000
+    wallet_seed: $WALLET_SEED_CISD
     claim_types:
 
     - description: Designated Organization Screening
@@ -114,7 +118,7 @@ issuers:
     abbreviation: INAC
     url: "https://www.canada.ca/en/indigenous-northern-affairs.html"
 
-    wallet_seed: aandc-inac0000000000000000000000
+    wallet_seed: $WALLET_SEED_INAC
     claim_types:
 
     - description: Aboriginal Business

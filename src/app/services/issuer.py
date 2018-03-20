@@ -26,6 +26,7 @@ from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestProcessor, RequestExecutor
 from app.services.tob import TobClient
 from app.services.von import VonClient
+from app.settings import expand_tree_variables
 from app.util import log_json
 
 LOGGER = logging.getLogger(__name__)
@@ -90,6 +91,40 @@ def load_claim_request(claim_type, request):
     return claim
 
 
+def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
+    if not config:
+        raise ValueError('Missing configuration for issuer manager')
+    if not 'issuers' in config:
+        raise ValueError('No issuers defined by configuration')
+    if not env:
+        env = os.environ
+    if not exchange:
+        LOGGER.info('Starting new Exchange service for issuer manager')
+        exchange = Exchange()
+        exchange.start()
+    issuers = []
+    issuer_ids = []
+    limit_issuers = env.get('ISSUERS')
+    limit_issuers = limit_issuers.split() \
+        if (limit_issuers and limit_issuers != 'all') \
+        else None
+    replace_vars = os.environ.copy()
+    replace_vars.update(env)
+    config_issuers = expand_tree_variables(config['issuers'], replace_vars)
+    for issuer_key, issuer in config_issuers.items():
+        if not 'id' in issuer:
+            issuer['id'] = issuer_key
+        if not limit_issuers or issuer['id'] in limit_issuers:
+            issuers.append(issuer)
+            issuer_ids.append(issuer['id'])
+    if issuers:
+        LOGGER.info('Initializing processor for services: %s', ', '.join(issuer_ids))
+        return IssuerManager(pid, exchange, env, issuers)
+    else:
+        raise ValueError('No defined issuers referenced by ISSUERS')
+
+
+
 class IssuerError(ExchangeError):
     pass
 
@@ -115,36 +150,6 @@ class SubmitClaimRequest:
 class SubmitClaimResponse:
     def __init__(self, value):
         self.value = value
-
-
-def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
-    if not config:
-        raise ValueError('Missing configuration for issuer manager')
-    if not 'issuers' in config:
-        raise ValueError('No issuers defined by configuration')
-    if not env:
-        env = os.environ
-    if not exchange:
-        LOGGER.info('Starting new Exchange service for issuer manager')
-        exchange = Exchange()
-        exchange.start()
-    issuers = []
-    issuer_ids = []
-    limit_issuers = env.get('ISSUERS')
-    limit_issuers = limit_issuers.split() \
-        if (limit_issuers and limit_issuers != 'all') \
-        else None
-    for issuer_key, issuer in config['issuers'].items():
-        if not 'id' in issuer:
-            issuer['id'] = issuer_key
-        if not limit_issuers or issuer['id'] in limit_issuers:
-            issuers.append(issuer)
-            issuer_ids.append(issuer['id'])
-    if issuers:
-        LOGGER.info('Initializing processor for services: %s', ', '.join(issuer_ids))
-        return IssuerManager(pid, exchange, env, issuers)
-    else:
-        raise ValueError('No defined issuers referenced by ISSUERS')
 
 
 class IssuerManager(RequestProcessor):

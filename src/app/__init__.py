@@ -44,6 +44,7 @@ _ISSUER_MANAGER = issuer.init_issuer_manager(
     GLOBAL_CONFIG,
     APP.config,
     _EXCHANGE)
+
 # Listen for requests to the issuer manager (like ready and status)
 _ISSUER_MANAGER.start()
 
