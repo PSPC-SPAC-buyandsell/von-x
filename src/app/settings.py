@@ -51,42 +51,40 @@ def load_server_config(global_config, env=True):
             config[k] = v
     return config
 
-def expand_string_variables(input, env, warn=True):
+def expand_string_variables(value, env, warn=True):
     """
     Expand environment variables of form $var and ${var} in a string.
     """
-    if not isinstance(input, str):
-        return input
-    logger = logging.getLogger(__name__)
-    def replace_var(m):
+    if not isinstance(value, str):
+        return value
+    def replace_var(matched):
         default = None
-        var = m.group(1)
-        if m.group(2):
-            var = m.group(2)
-            default = m.group(4)
+        var = matched.group(1)
+        if matched.group(2):
+            var = matched.group(2)
+            default = matched.group(4)
         found = env.get(var)
         if found is None or found == '':
             found = default
         if found is None and warn:
-            logger.warn('Configuration variable not defined: %s', var)
+            logging.getLogger(__name__).warning('Configuration variable not defined: %s', var)
             found = ''
         return found
-    return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, input)
+    return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, value)
 
-def map_tree(tree, fn):
+def map_tree(tree, map_fn):
     if isinstance(tree, dict):
-        return {key: map_tree(value, fn) for (key, value) in tree.items()}
-    elif isinstance(tree, (list, tuple)):
-        return [map_tree(value, fn) for value in tree]
-    else:
-        return fn(tree)
+        return {key: map_tree(value, map_fn) for (key, value) in tree.items()}
+    if isinstance(tree, (list, tuple)):
+        return [map_tree(value, map_fn) for value in tree]
+    return map_fn(tree)
 
-def expand_tree_variables(input, env, warn=True):
+def expand_tree_variables(tree, env, warn=True):
     """
     Expand environment variables of form $var and ${var} in a configuration tree.
     This is used in the 'issuers' section of the config to allow variable overrides.
     """
-    return map_tree(input, lambda val: expand_string_variables(val, env, warn))
+    return map_tree(tree, lambda val: expand_string_variables(val, env, warn))
 
 
 def init_logging(global_config, logging_env=None):
