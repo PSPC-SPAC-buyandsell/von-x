@@ -61,6 +61,7 @@ class Exchange:
             runner = mp.Process(target=self.run)
         else:
             runner = Thread(target=self.run)
+        runner.daemon = True
         runner.start()
         return runner
 
