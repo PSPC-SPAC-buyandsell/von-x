@@ -14,9 +14,7 @@ services:
       TOB_API_URL: ${TOB_API_URL:-}
       TOB_INDY_DID: ${TOB_INDY_DID:-}
       TOB_INDY_SEED: ${TOB_INDY_SEED:-}
-      WALLET_SEED_PSPC: ${WALLET_SEED_PSPC:-}
-      WALLET_SEED_CISD: ${WALLET_SEED_CISD:-}
-      WALLET_SEED_INAC: ${WALLET_SEED_INAC:-}
+      WALLET_SEED_BCREG: ${WALLET_SEED_BCREG:-}
     external_links:
        - tob_tob-api_1:api
     networks:

@@ -3,34 +3,30 @@ server:
     DEBUG: true
     INDY_GENESIS_PATH: /opt/app-root/.genesis
     TOB_API_URL: http://api:8080
-    VERSION: 0.5.0
-
-    WALLET_SEED_PSPC: pspc-ab-sri000000000000000000000
-    WALLET_SEED_CISD: pspc-cisd-sri0000000000000000000
-    WALLET_SEED_INAC: aandc-inac0000000000000000000000
+    VERSION: 0.5.8
+    # additional variables used in this file
+    WALLET_SEED_BCREG: bc_registries_dev_00000000000000
 
 issuers:
-  SRI-REG:
+  BCREG:
     jurisdiction:
-      name: Public Services and Procurement Canada
-      abbreviation: PSPC
-      # url: https://canada.ca/organizations/tpsgc-pspc
+      name: British Columbia
+      abbreviation: BC
 
-    name: Acquisitions Branch
-    abbreviation: AB
-    url: "https://www.canada.ca/en/public-services-procurement.html"
+    name: BC Corporate Registry
+    abbreviation: BCReg
+    url: "https://www2.gov.bc.ca/gov/content/governments/organizational-structure/ministries-organizations/ministries/citizens-services/bc-registries-online-services"
 
-    wallet_seed: $WALLET_SEED_PSPC
+    wallet_seed: $WALLET_SEED_BCREG
     claim_types:
 
-    - description: Vendor Credential
+    - description: Incorporation
       schema:
-        name: pspc-sri.gc-vendor-credential
-        version: 1.0.5
+        name: incorporation.bc_registries
+        version: 1.0.0
         attr_names:
         - legal_entity_id
-        - sri_record_id
-        - status
+        - corp_num
         - legal_name
         - org_type
         - addressee
@@ -40,94 +36,6 @@ issuers:
         - province
         - postal_code
         - country
-        - effective_date
-        - end_date
-
-    - description: Green Supplier
-      schema:
-        name: pspc-sri.green-supplier
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - status
-        - effective_date
-        - end_date
-
-    - description: Women-Owned Supplier
-      schema:
-        name: pspc-sri.women-owned-supplier
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - status
-        - effective_date
-        - end_date
-
-    - description: Vendor Performance Evaluation
-      schema:
-        name: pspc-sri.gc-vendor-performance
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - score
-        - status
-        - effective_date
-        - end_date
-
-  SRI-CISD:
-    jurisdiction:
-      name: Public Services and Procurement Canada
-      abbreviation: PSPC
-
-    name: Canadian Industrial Security Directorate
-    abbreviation: CISD
-    url: "https://www.tpsgc-pwgsc.gc.ca/esc-src/index-eng.html"
-
-    wallet_seed: $WALLET_SEED_CISD
-    claim_types:
-
-    - description: Designated Organization Screening
-      schema:
-        name: pspc-sri.designated-organization-screening
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - type
-        - status
-        - effective_date
-        - end_date
-
-    - description: Facility Security Clearance
-      schema:
-        name: pspc-sri.facility-security-clearance
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - level
-        - status
-        - effective_date
-        - end_date
-
-  SRI-INAC:
-    jurisdiction:
-      name:  Aboriginal Affairs and Northern Development Canada
-      abbreviation: AANDC
-      # url: http://www.aadnc-aandc.gc.ca
-
-    name: Indigenous and Northern Affairs Canada
-    abbreviation: INAC
-    url: "https://www.canada.ca/en/indigenous-northern-affairs.html"
-
-    wallet_seed: $WALLET_SEED_INAC
-    claim_types:
-
-    - description: Aboriginal Business
-      schema:
-        name: isc-inac.aboriginal-business
-        version: 1.0.0
-        attr_names:
-        - legal_entity_id
-        - status
         - effective_date
         - end_date
 
