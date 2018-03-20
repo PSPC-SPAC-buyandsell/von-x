@@ -152,7 +152,6 @@ class VonClient:
 
 class Agent:
     def __init__(self, config, instance_cls, issuer_type):
-        self.issuer_type = issuer_type
         wallet_seed = config.get('wallet_seed')
         if not wallet_seed:
             raise ValueError('Missing wallet_seed')
@@ -165,18 +164,16 @@ class Agent:
         if not wallet_name:
             raise ValueError('Missing wallet_name')
 
-        self.pool = NodePool(
+        self._pool = NodePool(
             wallet_name + '-' + issuer_type,
             genesis_path)
 
-        self.instance = instance_cls(
-            self.pool,
-            Wallet(
-                self.pool.name,
-                wallet_seed,
-                wallet_name + '-' + issuer_type + '-Wallet',
-            )
-        )
+        self._instance_cls = instance_cls
+        self._instance = None
+        self._wallet = Wallet(
+            self._pool,
+            wallet_seed,
+            wallet_name + '-' + issuer_type + '-Wallet')
         self._opened = None
         self._keep_open = False
 
@@ -186,17 +183,19 @@ class Agent:
     async def open(self):
         if self._opened:
             return self._opened
-        await self.pool.open()
-        self._opened = await self.instance.open()
-        if isinstance(self.instance, VonHolderProver):
+        await self._pool.open()
+        self._instance = self._instance_cls(
+            await self._wallet.create())
+        self._opened = await self._instance.open()
+        if isinstance(self._instance, VonHolderProver):
             # seems odd
-            await self.instance.create_master_secret(str(uuid.uuid4()))
+            await self._instance.create_master_secret(str(uuid.uuid4()))
         return self._opened
 
     async def close(self):
         if self._opened:
-            await self.instance.close()
-            await self.pool.close()
+            await self._instance.close()
+            await self._pool.close()
         self._opened = None
         self._keep_open = False
 
@@ -205,6 +204,6 @@ class Agent:
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if exc_type is not None:
-            LOGGER.exception('Exception in VON %s:', self.issuer_type)
+            LOGGER.exception('Exception in VON %s:', self._wallet.name)
         if not self._keep_open:
             await self.close()

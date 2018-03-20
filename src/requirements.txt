@@ -1,4 +1,4 @@
 sanic~=0.7.0
 PyYAML>=3.12
 requests~=2.18.0
-von-agent==0.5.0
+von-agent==0.5.8
