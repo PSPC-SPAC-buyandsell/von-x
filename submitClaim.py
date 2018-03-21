@@ -47,7 +47,7 @@ def submit_claim(claim_path):
 
         try:
             response = requests.post(
-                '{}/submit_claim'.format(agent_url),
+                '{}/submit-claim'.format(agent_url),
                 params={'schema': schema, 'version': version},
                 json=attrs
             )
@@ -57,9 +57,9 @@ def submit_claim(claim_path):
         except Exception as e:
             raise Exception(
                 'Could not submit claim. '
-                'Are von_connect_orgbook and TheOrgBook running?') from e
+                'Are von-x and TheOrgBook running?') from e
 
-        print('Response from von_connect_orgbook:\n\n{}\n'.format(result_json))
+        print('Response from von-x:\n\n{}\n'.format(result_json))
 
 for claim_path in claim_paths:
     submit_claim(claim_path)

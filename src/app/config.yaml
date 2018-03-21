@@ -3,12 +3,12 @@ server:
     DEBUG: true
     INDY_GENESIS_PATH: /opt/app-root/.genesis
     TOB_API_URL: http://api:8080
-    VERSION: 0.5.8
+    VERSION: '0.5.8'
     # additional variables used in this file
     WALLET_SEED_BCREG: bc_registries_dev_00000000000000
 
 issuers:
-  BCREG:
+  BC-REG:
     jurisdiction:
       name: British Columbia
       abbreviation: BC
@@ -23,8 +23,8 @@ issuers:
     - description: Incorporation
       schema:
         name: incorporation.bc_registries
-        version: 1.0.0
-        attr_names:
+        version: '1.0.31'
+        attributes:
         - legal_entity_id
         - corp_num
         - legal_name
@@ -39,15 +39,162 @@ issuers:
         - effective_date
         - end_date
 
+    - description: Doing Business As
+      schema:
+        name: doing_business_as.bc_registries
+        version: '1.0.31'
+        attributes:
+        - legal_entity_id
+        - corp_num
+        - legal_name
+        - doing_business_as_name
+        - addressee
+        - address_line_1
+        - address_line_2
+        - city
+        - province
+        - postal_code
+        - country
+        - effective_date
+        - end_date
+
+static:
+  assets:
+    target: ../bcreg/assets
+
+forms:
+  bcreg-incorp:
+    path: /incorporation
+    type: submit-claim
+    schema_name: incorporation.bc_registries
+    page_title: BC Corporate Registry
+    title: Incorporation
+    template: bcgov.index.html
+    description: >
+      BC Registries and Online Services administers and supports the legal framework
+      used for operating a business, not-for-profit society, cooperative association
+      or financial institution in B.C. Organizations need to register, file documents
+      and update records, which are kept as a matter of public record.
+    explanation: Use the form below to register a BC corporation.
+
+    js_includes:
+    - src: js/bc_registries.js
+
+    fields:
+    - name: legal_name
+      label: Legal Name
+      type: text
+      required: true
+
+    - name: address
+      label: Mailing Address
+      type: address
+      required: true
+
+    mapping:
+      attributes:
+      - name: legal_entity_id
+        from: helper
+        source: uuid
+
+      - name: corp_num
+        from: previous
+        source: legal_entity_id
+
+      - name: org_type
+        from: literal
+        source: CO
+
+      - name: effective_date
+        from: helper
+        source: now
+
+      - name: end_date
+        from: literal
+        source: null
+
+  bcreg-dba:
+    path: /dba
+    type: submit-claim
+    schema_name: doing_business_as.bc_registries
+    page_title: BC Corporate Registry
+    title: Doing Business As
+    template: bcgov.index.html
+    description: >
+      BC Registries and Online Services administers and supports the legal framework
+      used for operating a business, not-for-profit society, cooperative association
+      or financial institution in B.C. Organizations need to register, file documents
+      and update records, which are kept as a matter of public record.
+    explanation: Use the form below to add a Doing Business As name for your business.
+
+    proof_request:
+      name: registration
+
+    js_includes:
+    - src: js/bc_registries.js
+
+    fields:
+    - name: doing_business_as_name
+      label: Doing Business As Name
+      type: text
+      required: true
+
+    - name: address
+      label: Mailing Address
+      type: address
+      required: true
+
+    mapping:
+      attributes:
+      - name: legal_entity_id
+        from: proof
+
+      - name: effective_date
+        from: helper
+        source: now
+
+      - name: end_date
+        from: literal
+        source: null
+
+
+proof_requests:
+  registration:
+    version: '1.0.0'
+    filters:
+    - legal_entity_id
+    schemas:
+    - key:
+        # did: DtjQTjwNq7ZyStCE7zwL4r
+        name: incorporation.bc_registries
+        version: '1.0.31'
+      attributes:
+      - legal_entity_id
+      - corp_num
+      - legal_name
+      - org_type
+      - addressee
+      - address_line_1
+      - address_line_2
+      - city
+      - province
+      - postal_code
+      - country
+      - effective_date
+      - end_date
+
+
 logging:
   default:
     version: 1
     disable_existing_loggers: false
+
     formatters:
       access:
         format: "%(asctime)s %(levelname)s [%(host)s]: %(request)s %(status)d %(message)s"
       simple:
         format: '%(asctime)s %(levelname)s [%(name)s]: %(message)s'
+
     handlers:
       access:
         class: logging.StreamHandler
@@ -59,11 +206,16 @@ logging:
         level: DEBUG
         formatter: simple
         stream: ext://sys.stdout
+
     loggers:
       asyncio:
         level: WARNING
       indy.libindy:
         level: ERROR
+        handlers: [console]
+        propagate: false
+      app.services.prover:
+        level: DEBUG
         handlers: [console]
         propagate: false
       sanic.access:
@@ -79,6 +231,7 @@ logging:
         level: WARNING
         handlers: [console]
         propagate: false
+
     root:
       level: INFO
       handlers: [console]

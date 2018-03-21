@@ -45,49 +45,9 @@ def encode_claim(claim):
 
 
 def load_claim_request(claim_type, request):
-    # Build schema body skeleton
     claim = {}
-    for attr in claim_type['schema']['attr_names']:
-        claim[attr] = None
-
-    mapping = claim_type.get('mapping')
-    if not mapping:
-        # Default to copying schema attributes by name if no mapping is provided
-        for attr in claim_type['schema']['attr_names']:
-            claim[attr] = request.get(attr)
-    else:
-        # Build claim data from schema mapping
-        for attribute in mapping:
-            attr_name = attribute.get('name')
-            from_type = attribute.get('from', 'request')
-            # Handle getting value from request data
-            if from_type == 'request':
-                source = attribute.get('source', attr_name)
-                claim[attr_name] = request.get(source)
-            # Handle getting value from helpers (function defined in config)
-            elif from_type == 'helper':
-                #try:
-                #    helpers = import_module('von_connector.helpers')
-                #    helper = getattr(helpers, attribute['source'])
-                #    claim[attribute['name']] = helper()
-                #except AttributeError:
-                #    raise Exception(
-                #        'Cannot find helper "%s"' % attribute['source'])
-                pass
-            # Handle setting value with string literal or None
-            elif from_type == 'literal':
-                claim[attr_name] = attribute.get('source')
-            # Handle getting value already set on schema skeleton
-            elif from_type == 'previous':
-                source = attribute.get('source')
-                if source:
-                    try:
-                        claim[attr_name] = claim[source]
-                    except KeyError:
-                        raise ValueError(
-                            'Cannot find previous value "%s"' % source)
-            else:
-                raise ValueError('Unkown mapping type "%s"' % attribute['from'])
+    for attr in claim_type['schema']['attributes']:
+        claim[attr] = request.get(attr)
     return claim
 
 
@@ -114,7 +74,7 @@ def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
     for issuer_key, issuer in config_issuers.items():
         if not 'id' in issuer:
             issuer['id'] = issuer_key
-        if not limit_issuers or issuer['id'] in limit_issuers:
+        if limit_issuers is None or issuer['id'] in limit_issuers:
             issuers.append(issuer)
             issuer_ids.append(issuer['id'])
     if issuers:
@@ -167,6 +127,7 @@ class IssuerManager(RequestProcessor):
         self._issuer_status = {}
         self._orgbook_did = None
         self._ready = False
+        self._init_services()
 
     def ready(self):
         return self._ready
@@ -188,6 +149,9 @@ class IssuerManager(RequestProcessor):
         self._stop_services()
         super(IssuerManager, self).stop(wait)
 
+    def _init_services(self):
+        self._init_issuers()
+
     def _start_services(self):
         #pylint: disable=broad-except
         async def resolve():
@@ -198,7 +162,7 @@ class IssuerManager(RequestProcessor):
                 self.send_noreply(self.get_pid(), errmsg)
                 raise
             try:
-                self.start_issuers()
+                self._start_issuers()
             except Exception:
                 errmsg = IssuerError('Error while starting issuer services', True)
                 self.send_noreply(self.get_pid(), errmsg)
@@ -206,7 +170,7 @@ class IssuerManager(RequestProcessor):
         eventloop.run_in_thread(resolve())
 
     def _stop_services(self):
-        self.stop_issuers()
+        self._stop_issuers()
 
     # Resolve DID for orgbook from given seed if necessary
     async def resolve_orgbook_did(self):
@@ -226,6 +190,10 @@ class IssuerManager(RequestProcessor):
                 LOGGER.info('Resolved TOB DID to %s', tob_did)
         return self._orgbook_did
 
+    @property
+    def issuer_specs(self):
+        return self._issuer_specs
+
     def extend_issuer_spec(self, spec):
         spec = spec.copy() if spec else {}
         if not 'genesis_path' in spec:
@@ -244,25 +212,29 @@ class IssuerManager(RequestProcessor):
         }
         return VonClient(cfg)
 
-    def start_issuers(self):
-        LOGGER.info('Starting issuers')
+    def _init_issuers(self):
         for spec in self._issuer_specs:
             service = IssuerService(
                 self.get_exchange(),
                 self.extend_issuer_spec(spec),
                 self.get_pid())
             self._issuers[service.get_pid()] = service
+
+    def _start_issuers(self):
+        LOGGER.info('Starting issuers')
         for _id, service in self._issuers.items():
+            service.set_api_did(self._orgbook_did)
             service.start() # or start_process()
 
-    def stop_issuers(self):
+    def _stop_issuers(self):
         for _id, service in self._issuers.items():
             service.stop()
 
     def find_issuer_for_schema(self, schema_name, schema_version=None):
         for _id, service in self._issuers.items():
-            if service.find_claim_type_for_schema(schema_name, schema_version):
-                return service
+            claim_type = service.find_claim_type_for_schema(schema_name, schema_version)
+            if claim_type:
+                return (service, claim_type)
         return None
 
     def process(self, from_pid, ident, message, ref):
@@ -272,16 +244,16 @@ class IssuerManager(RequestProcessor):
             self._issuer_status[from_pid] = message.value
             self.update_status()
         elif isinstance(message, ResolveSchemaRequest):
-            service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
-            if service:
-                self.send_noreply(from_pid, service.get_pid(), ident)
+            found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+            if found:
+                self.send_noreply(from_pid, found[0].get_pid(), ident)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif isinstance(message, SubmitClaimRequest):
             # need to find the issuer service and forward the request there
-            service = self.find_issuer_for_schema(message.schema_name, message.schema_version)
-            if service:
-                self.send(service.get_pid(), ident, message, ref, from_pid)
+            found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+            if found:
+                self.send(found[0].get_pid(), ident, message, ref, from_pid)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif message == 'ready':
@@ -343,6 +315,9 @@ class IssuerService(RequestExecutor):
             self._status['did'] = self._config['did']
         if 'api_did' in self._config:
             self._orgbook_did = self._config['api_did']
+
+    def set_api_did(self, did):
+        self._orgbook_did = did
 
     def _update_status(self, update=None, silent=False):
         if update:
@@ -460,12 +435,17 @@ class IssuerService(RequestExecutor):
 
     async def store_claim(self, claim_type, encoded_claim):
         #pylint: disable=too-many-locals
+        schema_def = {
+            'name': claim_type['schema']['name'],
+            'version': claim_type['schema']['version'],
+            'attr_names': claim_type['schema']['attributes']
+        }
         von_client = self.init_von_client()
         tob_client = self.init_tob_client()
 
         async with von_client.create_issuer() as von_issuer:
             (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
-                von_issuer, claim_type['schema'])
+                von_issuer, schema_def)
 
             # We create a claim offer
             schema_json = json.dumps(ledger_schema)

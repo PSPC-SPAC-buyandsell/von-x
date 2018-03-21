@@ -22,6 +22,14 @@ import requests
 LOGGER = logging.getLogger(__name__)
 
 
+class TobClientError(Exception):
+    def __init__(self, status_code, message, response):
+        super(TobClientError, self).__init__(message)
+        self.status_code = status_code
+        self.message = message
+        self.response = response
+
+
 def current_date():
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -142,12 +150,24 @@ class TobClient:
 
     def fetch_list(self, module):
         url = self.get_api_url(module)
-        return requests.get(url).json()
+        response = requests.get(url)
+        if response.status_code != 200:
+            raise TobClientError(
+                response.status_code,
+                'Bad response from fetch_list: ({}) {}'.format(
+                    response.status_code,
+                    response.text),
+                response)
+        return response.json()
 
     def create_record(self, module, data):
         url = self.get_api_url(module)
         response = requests.post(url, json=data)
         if response.status_code != 200 and response.status_code != 201:
-            raise RuntimeError("Bad response ({}) from create_record: {}".format(
-                response.status_code, response.text))
+            raise TobClientError(
+                response.status_code,
+                'Bad response from create_record: ({}) {}'.format(
+                    response.status_code,
+                    response.text),
+                response)
         return response.json()
