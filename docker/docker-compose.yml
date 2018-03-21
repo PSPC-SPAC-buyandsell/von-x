@@ -12,7 +12,7 @@ services:
       ISSUERS: ${ISSUERS:-}
       LOGGING: ${LOGGING:-}
       PYTHON_ENV: ${PYTHON_ENV:-development}
-      TEMPLATE_PATH: ${TEMPLATE_PATH:-../bcreg/templates}
+      TEMPLATE_PATH: ${TEMPLATE_PATH:-../sri/templates}
       TOB_API_URL: ${TOB_API_URL:-}
       TOB_INDY_DID: ${TOB_INDY_DID:-}
       TOB_INDY_SEED: ${TOB_INDY_SEED:-}

@@ -11,6 +11,20 @@ server:
 
 issuers:
   SRI-REG:
+    jurisdiction:
+       name: Public Services and Procurement Canada
+       abbreviation: PSPC
+       # url: https://canada.ca/organizations/tpsgc-pspc
+
+    name: Acquisitions Branch
+    abbreviation: AB
+    url: "https://www.canada.ca/en/public-services-procurement.html"
+
+    wallet_seed: $WALLET_SEED_PSPC
+    claim_types:
+
+    - description: Vendor Credential
+      schema:
         name: pspc-sri.gc-vendor-credential
         version: 1.0.5
         attributes:
@@ -33,7 +47,7 @@ issuers:
       schema:
         name: pspc-sri.green-supplier
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - status
         - effective_date
@@ -43,7 +57,7 @@ issuers:
       schema:
         name: pspc-sri.women-owned-supplier
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - status
         - effective_date
@@ -53,7 +67,7 @@ issuers:
       schema:
         name: pspc-sri.gc-vendor-performance
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - score
         - status
@@ -76,7 +90,7 @@ issuers:
       schema:
         name: pspc-sri.designated-organization-screening
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - type
         - status
@@ -87,7 +101,7 @@ issuers:
       schema:
         name: pspc-sri.facility-security-clearance
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - level
         - status
@@ -111,7 +125,7 @@ issuers:
       schema:
         name: isc-inac.aboriginal-business
         version: 1.0.0
-        attr_names:
+        attributes:
         - legal_entity_id
         - status
         - effective_date
@@ -128,15 +142,18 @@ forms:
     schema_name: pspc-sri.women-owned-supplier
     page_title: Women-Owned Supplier
     title: Woman-Owned Business Certification
-    template: gcweb.index.html
-    description: ""
-    explanation: Use the form below to register a BC corporation.
+    template: sri.index.html
+    description: "Use the form below to obtain a Women-Owned Business Certification for your business."
+    explanation: ""
 
     proof_request:
       name: registration
 
     js_includes:
     - src: js/sri.js
+
+    hidden_fields:
+    - name: legal_entity_id
 
     fields:
     - name: contact_first_name
