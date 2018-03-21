@@ -48,6 +48,16 @@ _ISSUER_MANAGER = issuer.init_issuer_manager(
 # Listen for requests to the issuer manager (like ready and status)
 _ISSUER_MANAGER.start()
 
+# Create our global prover manager
+from .services import prover
+_PROVER_MANAGER = prover.init_prover_manager(
+    GLOBAL_CONFIG,
+    APP.config,
+    _EXCHANGE)
+
+# Listen for proof requests
+_PROVER_MANAGER.start()
+
 # Define global variable to be populated on a per-process basis
 _PROCESS_EXECUTOR = None
 
@@ -57,12 +67,21 @@ def get_exchange():
 def get_issuer_manager():
     return _ISSUER_MANAGER
 
+def get_prover_manager():
+    return _PROVER_MANAGER
+
 def get_executor():
     return _PROCESS_EXECUTOR
 
 def get_issuer_endpoint(async_loop=None):
     endpt = get_executor().get_endpoint(
         get_issuer_manager().get_pid())
+    endpt.set_async_loop(async_loop)
+    return endpt
+
+def get_prover_endpoint(async_loop=None):
+    endpt = get_executor().get_endpoint(
+        get_prover_manager().get_pid())
     endpt.set_async_loop(async_loop)
     return endpt
 

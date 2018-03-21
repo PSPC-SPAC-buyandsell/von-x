@@ -20,17 +20,17 @@
 Standard entry point for the application
 """
 
+import logging
+import sys
+
 try:
     from app import APP, get_issuer_manager
 except Exception:
-    import logging
-    import sys
     LOGGER = logging.getLogger(__name__)
     LOGGER.exception('Error while loading application:')
     sys.exit(1)
 
 if __name__ == '__main__':
-    import logging
     LOGGER = logging.getLogger(__name__)
 
     try:

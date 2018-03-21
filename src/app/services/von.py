@@ -24,7 +24,8 @@ import requests
 from von_agent.agents import \
     _BaseAgent, \
     Issuer as VonIssuer, \
-    HolderProver as VonHolderProver
+    HolderProver as VonHolderProver, \
+    Verifier as VonVerifier
 from von_agent.nodepool import NodePool
 from von_agent.schema import schema_key_for
 from von_agent.wallet import Wallet
@@ -40,13 +41,14 @@ class VonClient:
         self.issuer_did = None
         self.synced = False
         self._issuer = None
+        self._verifier = None
         if config:
             self.config.update(config)
 
     # Find our DID, and initialize our schemas and claim defs on the ledger
     async def sync(self):
-        claims = self.config.get('claim_types')
-        if not claims:
+        claim_types = self.config.get('claim_types')
+        if not claim_types:
             raise ValueError("Missing issuer claims")
 
         LOGGER.info('Init VON client %s with seed %s',
@@ -55,8 +57,13 @@ class VonClient:
         async with self.create_issuer() as issuer:
             self.issuer_did = issuer.did
             LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
-            for claim in claims:
-                await self.publish_schema(issuer, claim['schema'])
+            for claim_type in claim_types:
+                schema_def = {
+                    'name': claim_type['schema']['name'],
+                    'version': claim_type['schema']['version'],
+                    'attr_names': claim_type['schema']['attributes']
+                }
+                await self.publish_schema(issuer, schema_def)
         self.synced = True
         LOGGER.info('VON client synced: %s', self.config['id'])
 
@@ -138,6 +145,14 @@ class VonClient:
             self._issuer = Agent(self.config, VonIssuer, 'Issuer')
             self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
         return self._issuer
+
+    def create_verifier(self):
+        # retrieve genesis transaction if necessary
+        self.check_genesis_path()
+        if not self._verifier:
+            self._verifier = Agent(self.config, VonVerifier, 'Verifier')
+            # self._verifier.keep_open() # !! keeps the pool and wallet open for this instance
+        return self._verifier
 
     async def resolve_did_from_seed(self, seed):
         cfg = {

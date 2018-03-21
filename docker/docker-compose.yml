@@ -8,9 +8,11 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-default}
       INDY_LEDGER_URL: ${LEDGER_URL:-http://localhost:9000}
+      FORMS: ${FORMS:-}
       ISSUERS: ${ISSUERS:-}
       LOGGING: ${LOGGING:-}
       PYTHON_ENV: ${PYTHON_ENV:-development}
+      TEMPLATE_PATH: ${TEMPLATE_PATH:-../bcreg/templates}
       TOB_API_URL: ${TOB_API_URL:-}
       TOB_INDY_DID: ${TOB_INDY_DID:-}
       TOB_INDY_SEED: ${TOB_INDY_SEED:-}
@@ -22,6 +24,7 @@ services:
     networks:
       - orgbook
     volumes:
+      - ../sri:/opt/app-root/sri
       - sri-agent-wallet:/opt/app-root/src/.indy_client/wallet
     ports:
       - 5000:8000

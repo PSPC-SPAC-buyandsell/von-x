@@ -14,28 +14,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
-import json
-import logging
-
-
-class JsonRepr:
-    """Utility class to avoid JSON encoding debug output unless needed"""
-    def __init__(self, value, indent=2):
-        self.value = value
-        self.indent = indent
-
-    def __repr__(self):
-        return json.dumps(self.value, indent=self.indent)
-
-
-def log_json(heading, data, logger=None):
-    if not logger:
-        logger = logging.getLogger()
-    msg = """
-============================================================================
-%s
-%s
-============================================================================
-"""
-    logger.debug(msg, heading, JsonRepr(data))
