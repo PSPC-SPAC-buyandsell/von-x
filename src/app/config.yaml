@@ -189,7 +189,7 @@ forms:
     mapping:
       attributes:
       - name: legal_entity_id
-        from: proof
+        from: request
 
       - name: status
         from: literal
