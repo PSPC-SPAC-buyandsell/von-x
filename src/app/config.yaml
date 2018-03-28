@@ -62,6 +62,10 @@ static:
   assets:
     target: ../bcreg/assets
 
+proxy:
+  bc-tob:
+    url: $TOB_API_URL/api/v1
+
 forms:
   bcreg-incorp:
     path: /incorporation

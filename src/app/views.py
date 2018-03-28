@@ -21,11 +21,13 @@ from sanic import response
 
 from app import APP, get_issuer_endpoint, get_prover_endpoint
 from app.forms import config as forms_config
+from app.proxy import handler as proxy_handler
 from app.services import issuer, prover
 
 LOGGER = logging.getLogger(__name__)
 
 FORMS = forms_config.auto_register_forms(APP)
+proxy_handler.register_proxies(APP)
 
 
 if not FORMS.path_defined('/'):
