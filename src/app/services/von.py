@@ -27,7 +27,7 @@ from von_agent.agents import \
     HolderProver as VonHolderProver, \
     Verifier as VonVerifier
 from von_agent.nodepool import NodePool
-from von_agent.schema import schema_key_for
+from von_agent.schemakey import schema_key_for
 from von_agent.wallet import Wallet
 
 from app.util import log_json

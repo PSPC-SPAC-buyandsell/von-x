@@ -20,7 +20,7 @@ import os
 import logging
 
 import aiohttp
-from von_agent.schema import schema_key_for
+from von_agent.schemakey import schema_key_for
 from von_agent.util import encode
 
 from app.services import eventloop
