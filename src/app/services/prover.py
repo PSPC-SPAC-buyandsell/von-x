@@ -19,6 +19,8 @@ import os
 import logging
 from random import randint
 
+import aiohttp
+
 from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestExecutor
 from app.services.tob import TobClient, TobClientError
@@ -126,7 +128,7 @@ class ProverManager(RequestExecutor):
         request_json['requested_predicates'] = {}
         return request_json
 
-    async def construct_proof(self, name, filters):
+    async def construct_proof(self, http_client, name, filters):
         proof_request = self._prepare_request_json(name)
 
         tob_client = self.init_tob_client()
@@ -138,10 +140,13 @@ class ProverManager(RequestExecutor):
         }, LOGGER)
 
         try:
-            proof_response = tob_client.create_record('bcovrin/construct-proof', {
-                'filters': filters,
-                'proof_request': proof_request
-            })
+            proof_response = await tob_client.post_json(
+                http_client,
+                'bcovrin/construct-proof',
+                {
+                    'filters': filters,
+                    'proof_request': proof_request
+                })
             log_json('Got proof response:', proof_response, LOGGER)
         except TobClientError as e:
             if e.status_code == 406:
@@ -155,7 +160,7 @@ class ProverManager(RequestExecutor):
             parsed_proof[attr] = \
                 proof['requested_proof']['revealed_attrs'][attr][1]
 
-        async with von_client.create_verifier() as von_verifier:
+        async with await von_client.create_verifier() as von_verifier:
             verified = await von_verifier.verify_proof(
                 proof_request,
                 proof
@@ -171,8 +176,10 @@ class ProverManager(RequestExecutor):
         }
 
     async def _process_construct_proof(self, from_pid, ident, message):
+        #pylint: disable=broad-except
         try:
-            result = await self.construct_proof(message.name, message.filters)
+            async with aiohttp.ClientSession() as http_client:
+                result = await self.construct_proof(http_client, message.name, message.filters)
             if result['success']:
                 reply = ConstructProofResponse(result['value'])
             else:

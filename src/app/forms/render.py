@@ -15,11 +15,12 @@
 # limitations under the License.
 #
 
-from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
-from jinja2.ext import Extension
 import json
 import logging
 import os
+
+from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
+from jinja2.ext import Extension
 from sanic import response
 
 from app import SERVER_CONFIG, get_prover_manager, get_prover_endpoint
@@ -45,7 +46,6 @@ class StaticExtension(Extension):
 
 def init_env():
     tpl_path = SERVER_CONFIG.get('TEMPLATE_PATH')
-    LOGGER.error("%s  %s", tpl_path, os.getcwd())
     loader = PackageLoader('app', 'templates')
     if tpl_path:
         loader = ChoiceLoader([
@@ -62,12 +62,15 @@ def init_env():
 JINJA_ENV = init_env()
 
 
-def render_template(name, variables={}):
+def render_template(name, variables=None):
+    if not variables:
+        variables = {}
     template = JINJA_ENV.get_template(name)
     return template.render(**variables)
 
 
 async def render_form(form, request):
+    #pylint: disable=broad-except
     proof_req = form.get('proof_request')
     proof_response = None
     if proof_req:
@@ -95,23 +98,21 @@ async def render_form(form, request):
                 #raise ValueError('Unexpected result from prover')
                 LOGGER.error('Unexpected result from prover')
                 proof_response = {'success': False}
-        except Exception as e:
+        except Exception:
             LOGGER.exception('Error while requesting proof')
             return response.html('A communcation error occurred')
 
     tpl_name = form.get('template', 'index.html')
-    vars = {
+    tpl_vars = {
         'inputs': {},
         'request': {},
         'proof_response': proof_response,
         'THE_ORG_BOOK_APP_URL': SERVER_CONFIG.get('TOB_APP_URL')
     }
-    vars['inputs'].update(request.raw_args)
-    vars['request'].update(request.raw_args)
+    tpl_vars['inputs'].update(request.raw_args)
+    tpl_vars['request'].update(request.raw_args)
     if proof_response and proof_response['success']:
-        vars['inputs'].update(proof_response['parsed_proof'])
-    vars.update(form)
+        tpl_vars['inputs'].update(proof_response['parsed_proof'])
+    tpl_vars.update(form)
     return response.html(
-        render_template(tpl_name, vars))
-
-
+        render_template(tpl_name, tpl_vars))

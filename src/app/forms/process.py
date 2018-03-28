@@ -66,6 +66,7 @@ def load_claim_request(form, request):
 
 
 async def process_form(form, request):
+    #pylint: disable=broad-except
     if form['type'] == 'submit-claim':
         schema_name = form['schema_name']
         schema_version = form.get('schema-version')
@@ -97,4 +98,3 @@ async def process_form(form, request):
         #    return response.html('<h3>Registration could not be completed</h3>')
         return response.json(ret)
     return response.html('Method not supported', status=405)
-

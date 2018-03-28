@@ -15,15 +15,13 @@
 #
 
 export BUILD=${BUILD:-/opt/app-root}
-# activate virtualenv
-source "$BUILD/bin/activate"
 
 export HOST_IP=${HOST_IP:-0.0.0.0}
 export HOST_PORT=${HOST_PORT:-8000}
 
 CMD="$@"
 if [ -z "$CMD" ]; then
-	CMD="python ${APP_NAME}.py"
+	CMD="$BUILD/bin/python ${APP_NAME}.py"
 fi
 
 echo "Starting server ..."

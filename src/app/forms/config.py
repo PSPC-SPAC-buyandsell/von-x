@@ -46,7 +46,6 @@ class LoadedForms:
 def load_form_definitions(app):
     ret = LoadedForms()
     disallow_paths = ['health', 'status']
-    supported_types = ['submit-claim']
     limit_forms = app.config.get('FORMS')
     limit_forms = limit_forms.split() \
         if (limit_forms and limit_forms != 'all') \
@@ -55,13 +54,15 @@ def load_form_definitions(app):
     static = GLOBAL_CONFIG.get('static') or {}
     for static_id, static in static.items():
         if not 'target' in static:
-            raise ValueError('Missing target path for static resource: %s', static_id)
+            raise ValueError('Missing target path for static resource: {}'.format(static_id))
         if not 'id' in static:
             static['id'] = static_id
         if not 'name' in static:
             static['name'] = static['id']
         if not 'path' in static:
             static['path'] = '/' + static['name']
+        if ret.path_defined(static['path']) or static['path'] in disallow_paths:
+            raise ValueError('Duplicate resource path defined: {}'.format(static['path']))
         ret.add_static(static)
 
     forms = GLOBAL_CONFIG.get('forms') or {}
@@ -72,33 +73,40 @@ def load_form_definitions(app):
 
         path = form.get('path')
         if not path:
-            raise ValueError('Path not defined for form: %s', form_id)
+            raise ValueError('Path not defined for form: {}'.format(form_id))
         if ret.path_defined(path) or path in disallow_paths:
-            raise ValueError('Duplicate form path defined: %s', path)
-        form_type = form.get('type')
-        if not form_type:
-            raise ValueError('Type not defined for form: %s', form_id)
-        if form_type not in supported_types:
-            raise ValueError('Unknown form type for %s: %s', form_id, form_type)
+            raise ValueError('Duplicate form path defined: {}'.format(path))
         form_id = form['id'] = form.get('id', form_id)
 
-        if form_type == 'submit-claim':
-            schema = form.get('schema_name')
-            version = form.get('schema_version')
-            mgr = get_issuer_manager()
-            if not mgr:
-                raise RuntimeError('Issuer manager is not loaded')
-            found = mgr.find_issuer_for_schema(schema, version)
-            if not found:
-                raise ValueError('Issuer for schema \'%s\' is not defined or not loaded', schema)
-            service, claim_type = found
-            form['schema'] = claim_type['schema']
-            form['issuer_id'] = service.get_pid()
-            #LOGGER.error(form)
-
+        expand_form_definition(form)
         ret.add_form(form)
 
     return ret
+
+def expand_form_definition(form):
+    supported_types = ['submit-claim']
+
+    form_id = form.get('id')
+    form_type = form.get('type')
+    if not form_type:
+        raise ValueError('Type not defined for form: {}'.format(form_id))
+    if form_type not in supported_types:
+        raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
+
+    if form_type == 'submit-claim':
+        schema = form.get('schema_name')
+        version = form.get('schema_version')
+        mgr = get_issuer_manager()
+        if not mgr:
+            raise RuntimeError('Issuer manager is not loaded')
+        found = mgr.find_issuer_for_schema(schema, version)
+        if not found:
+            raise ValueError(
+                'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
+        service, claim_type = found
+        form['schema'] = claim_type['schema']
+        form['issuer_id'] = service.get_pid()
+
 
 def do_render_form(form):
     async def do_render(request):
@@ -129,4 +137,3 @@ def auto_register_forms(app):
             name=form['id']+'_process')
 
     return loaded
-

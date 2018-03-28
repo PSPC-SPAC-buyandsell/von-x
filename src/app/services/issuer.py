@@ -19,6 +19,7 @@ import json
 import os
 import logging
 
+import aiohttp
 from von_agent.schema import schema_key_for
 from von_agent.util import encode
 
@@ -433,7 +434,7 @@ class IssuerService(RequestExecutor):
             ledger_schema['seqNo'], issuer.did)
         return (ledger_schema, claim_def_json)
 
-    async def store_claim(self, claim_type, encoded_claim):
+    async def store_claim(self, http_client, claim_type, encoded_claim):
         #pylint: disable=too-many-locals
         schema_def = {
             'name': claim_type['schema']['name'],
@@ -443,14 +444,17 @@ class IssuerService(RequestExecutor):
         von_client = self.init_von_client()
         tob_client = self.init_tob_client()
 
-        async with von_client.create_issuer() as von_issuer:
+        async with await von_client.create_issuer() as von_issuer:
             (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
-                von_issuer, schema_def)
+                von_issuer,
+                schema_def)
 
             # We create a claim offer
             schema_json = json.dumps(ledger_schema)
             LOGGER.info('Creating claim offer for TOB at DID %s', self._orgbook_did)
-            claim_offer_json = await von_issuer.create_claim_offer(schema_json, self._orgbook_did)
+            claim_offer_json = await von_issuer.create_claim_offer(
+                schema_json,
+                self._orgbook_did)
             claim_offer = json.loads(claim_offer_json)
 
             log_json('Requesting claim request:', {
@@ -458,24 +462,31 @@ class IssuerService(RequestExecutor):
                 'claim_def': json.loads(claim_def_json)
             }, LOGGER)
 
-            claim_req = tob_client.create_record('bcovrin/generate-claim-request', {
-                'claim_offer': claim_offer_json,
-                'claim_def': claim_def_json
-            })
+            claim_req = await tob_client.post_json(
+                http_client,
+                'bcovrin/generate-claim-request',
+                {
+                    'claim_offer': claim_offer_json,
+                    'claim_def': claim_def_json
+                })
             log_json('Got claim request:', claim_req, LOGGER)
 
             claim_request_json = json.dumps(claim_req)
 
             (_, claim_json) = await von_issuer.create_claim(
-                claim_request_json, encoded_claim)
+                claim_request_json,
+                encoded_claim)
 
         log_json('Created claim:', json.loads(claim_json), LOGGER)
 
         # Store claim
-        return tob_client.create_record('bcovrin/store-claim', {
-            'claim_type': ledger_schema['data']['name'],
-            'claim_data': json.loads(claim_json)
-        })
+        return await tob_client.post_json(
+            http_client,
+            'bcovrin/store-claim',
+            {
+                'claim_type': ledger_schema['data']['name'],
+                'claim_data': json.loads(claim_json)
+            })
 
     async def submit_claim(self, schema_name, schema_version, attribs):
         if not self.ready():
@@ -494,4 +505,5 @@ class IssuerService(RequestExecutor):
         encoded_claim = encode_claim(claim)
         log_json('Claim:', encoded_claim, LOGGER)
 
-        return await self.store_claim(claim_type, encoded_claim)
+        async with aiohttp.ClientSession(read_timeout=30) as http_client:
+            return await self.store_claim(http_client, claim_type, encoded_claim)

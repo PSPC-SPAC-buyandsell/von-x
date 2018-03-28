@@ -17,7 +17,8 @@
 
 from datetime import datetime
 import logging
-import requests
+
+import aiohttp
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,20 +52,23 @@ class TobClient:
         if not self.issuer_did:
             raise ValueError("Missing issuer DID")
 
-        self.sync_jurisdiction()
-        self.sync_issuer_service()
-        self.sync_claim_types()
+        async with aiohttp.ClientSession(read_timeout=30) as http_client:
+            await self.sync_jurisdiction(http_client)
+            LOGGER.debug('synced jurisdiction')
+            await self.sync_issuer_service(http_client)
+            await self.sync_claim_types(http_client)
 
         self.synced = True
         LOGGER.info('TOB client synced: %s', self.config['id'])
 
-    def sync_jurisdiction(self):
+    async def sync_jurisdiction(self, client):
         jurisdiction_spec = self.config.get('jurisdiction')
         if not jurisdiction_spec or not 'name' in jurisdiction_spec:
             raise ValueError('Missing jurisdiction.name')
 
         # Check if my jurisdiction exists by name
-        jurisdictions = self.fetch_list('jurisdictions')
+        jurisdictions = await self.fetch_list(client, 'jurisdictions')
+
         for jurisdiction in jurisdictions:
             if jurisdiction['name'] == jurisdiction_spec['name']:
                 self.jurisdiction_id = jurisdiction['id']
@@ -72,7 +76,7 @@ class TobClient:
 
         # If it doesn't, then create it
         if not self.jurisdiction_id:
-            jurisdiction = self.create_record('jurisdictions', {
+            jurisdiction = await self.post_json(client, 'jurisdictions', {
                 'name':  jurisdiction_spec['name'],
                 'abbrv': jurisdiction_spec.get('abbreviation'),
                 'displayOrder':   0,
@@ -82,7 +86,7 @@ class TobClient:
             self.jurisdiction_id = jurisdiction['id']
         return self.jurisdiction_id
 
-    def sync_issuer_service(self):
+    async def sync_issuer_service(self, client):
         if not self.jurisdiction_id:
             raise ValueError("Cannot sync issuer service: jurisdiction_id not populated")
         issuer_name = self.config.get('name', '')
@@ -92,7 +96,7 @@ class TobClient:
             raise ValueError('Missing issuer name')
 
         # Check if my issuer record exists by name
-        issuer_services = self.fetch_list('issuerservices')
+        issuer_services = await self.fetch_list(client, 'issuerservices')
         for issuer_service in issuer_services:
             if issuer_service['name'] == issuer_name and \
                     issuer_service['DID'] == self.issuer_did:
@@ -101,7 +105,7 @@ class TobClient:
 
         # If it doesn't, then create it
         if not self.issuer_service_id:
-            issuer_service = self.create_record('issuerservices', {
+            issuer_service = await self.post_json(client, 'issuerservices', {
                 'name':           issuer_name,
                 'DID':            self.issuer_did,
                 'issuerOrgTLA':   issuer_abbr,
@@ -112,7 +116,7 @@ class TobClient:
             self.issuer_service_id = issuer_service['id']
         return self.issuer_service_id
 
-    def sync_claim_types(self):
+    async def sync_claim_types(self, http_client):
         if not self.issuer_service_id:
             raise ValueError("Cannot sync claim types: issuer_service_id not populated")
         claim_type_specs = self.config.get('claim_types')
@@ -122,25 +126,23 @@ class TobClient:
 
         # Register in TheOrgBook
         # Check if my schema record exists by claimType
-        claim_types = self.fetch_list('verifiableclaimtypes')
+        claim_types = await self.fetch_list(http_client, 'verifiableclaimtypes')
         for type_spec in claim_type_specs:
             schema_def = type_spec['schema']
             for claim_type in claim_types:
-                claim_type_exists = False
                 if claim_type['schemaName'] == schema_def['name'] and \
                         claim_type['schemaVersion'] == schema_def['version'] and \
                         claim_type['issuerServiceId'] == self.issuer_service_id:
-                    claim_type_exists = True
+                    # skip creation
                     break
-            if not claim_type_exists:
-                self.create_record('verifiableclaimtypes', {
-                    'claimType':        type_spec.get('description', schema_def['name']),
-                    'issuerServiceId':  self.issuer_service_id,
-                    'issuerURL':        type_spec.get('issuer_url', issuer_url),
-                    'effectiveDate':    current_date(),
-                    'schemaName':       schema_def['name'],
-                    'schemaVersion':    schema_def['version']
-                })
+            await self.post_json(http_client, 'verifiableclaimtypes', {
+                'claimType':        type_spec.get('description', schema_def['name']),
+                'issuerServiceId':  self.issuer_service_id,
+                'issuerURL':        type_spec.get('issuer_url', issuer_url),
+                'effectiveDate':    current_date(),
+                'schemaName':       schema_def['name'],
+                'schemaVersion':    schema_def['version']
+            })
 
     def get_api_url(self, module=None):
         url = self.api_url + '/api/v1/'
@@ -148,26 +150,30 @@ class TobClient:
             url = url + module
         return url
 
-    def fetch_list(self, module):
+    async def fetch_list(self, client, module):
         url = self.get_api_url(module)
-        response = requests.get(url)
-        if response.status_code != 200:
+        # Would be better practice to use one ClientSession globally, but
+        # these requests are only performed once, at startup.
+        LOGGER.debug('fetch_list: %s', url)
+        response = await client.get(url)
+        if response.status != 200:
             raise TobClientError(
-                response.status_code,
+                response.status,
                 'Bad response from fetch_list: ({}) {}'.format(
-                    response.status_code,
-                    response.text),
+                    response.status,
+                    await response.text()),
                 response)
-        return response.json()
+        return await response.json()
 
-    def create_record(self, module, data):
+    async def post_json(self, client, module, data):
         url = self.get_api_url(module)
-        response = requests.post(url, json=data)
-        if response.status_code != 200 and response.status_code != 201:
+        LOGGER.debug('post_json: %s', url)
+        response = await client.post(url, json=data)
+        if response.status != 200 and response.status != 201:
             raise TobClientError(
-                response.status_code,
-                'Bad response from create_record: ({}) {}'.format(
-                    response.status_code,
-                    response.text),
+                response.status,
+                'Bad response from post_json: ({}) {}'.format(
+                    response.status,
+                    await response.text()),
                 response)
-        return response.json()
+        return await response.json()

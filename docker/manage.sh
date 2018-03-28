@@ -170,12 +170,12 @@ case "$COMMAND" in
     docker-compose up ${_startupParams}
     ;;
   stop)
-    configureEnvironment
+    configureEnvironment $@
     docker-compose stop
     ;;
   rm)
-    configureEnvironment
-    docker-compose rm
+    configureEnvironment $@
+    docker-compose rm -v
     ;;
   build)
     _startupParams=$(getStartupParams $@)

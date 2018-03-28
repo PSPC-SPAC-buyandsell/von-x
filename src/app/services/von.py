@@ -20,7 +20,7 @@ import logging
 import pathlib
 import uuid
 
-import requests
+import aiohttp
 from von_agent.agents import \
     _BaseAgent, \
     Issuer as VonIssuer, \
@@ -45,8 +45,10 @@ class VonClient:
         if config:
             self.config.update(config)
 
-    # Find our DID, and initialize our schemas and claim defs on the ledger
     async def sync(self):
+        """
+        Find our DID, and initialize our schemas and claim defs on the ledger.
+        """
         claim_types = self.config.get('claim_types')
         if not claim_types:
             raise ValueError("Missing issuer claims")
@@ -54,7 +56,7 @@ class VonClient:
         LOGGER.info('Init VON client %s with seed %s',
                     self.config['id'],
                     self.config.get('wallet_seed'))
-        async with self.create_issuer() as issuer:
+        async with await self.create_issuer() as issuer:
             self.issuer_did = issuer.did
             LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
             for claim_type in claim_types:
@@ -67,8 +69,10 @@ class VonClient:
         self.synced = True
         LOGGER.info('VON client synced: %s', self.config['id'])
 
-    # Make sure that the genesis path is defined, and download the transaction file if needed
-    def check_genesis_path(self):
+    async def check_genesis_path(self):
+        """
+        Make sure that the genesis path is defined, and download the transaction file if needed.
+        """
         path = self.config.get('genesis_path')
         if not path:
             raise ValueError("Missing genesis_path")
@@ -80,31 +84,39 @@ class VonClient:
             parent_path = pathlib.Path(genesis_path.parent)
             if not parent_path.exists():
                 parent_path.mkdir(parents=True)
-
-            # download genesis transaction file
-            LOGGER.info('Fetching genesis transaction file from %s/genesis', ledger_url)
-            response = requests.get('{}/genesis'.format(ledger_url), timeout=10)
-            if response.status_code != 200:
-                raise RuntimeError('Error downloading genesis file: status {}'.format(
-                    response.status))
-            data = response.text
-
-            # check data is valid json
-            LOGGER.debug('Genesis transaction response: %s', data)
-            lines = data.splitlines()
-            if not lines or not json.loads(lines[0]):
-                raise RuntimeError('Genesis transaction file is not valid JSON')
-
-            # write result to provided path
-            with genesis_path.open('x') as output_file:
-                output_file.write(data)
-            path = str(genesis_path)
-            self.config['genesis_path'] = path
+            await self.fetch_genesis_txn(ledger_url, genesis_path)
+            self.config['genesis_path'] = str(genesis_path)
         elif genesis_path.is_dir():
             raise ValueError("genesis_path must not point to a directory")
         return path
 
+    async def fetch_genesis_txn(self, ledger_url, target_path):
+        """
+        Download the genesis transaction file from the ledger server.
+        """
+        LOGGER.info('Fetching genesis transaction file from %s/genesis', ledger_url)
+        async with aiohttp.ClientSession(read_timeout=30) as client:
+            response = await client.get('{}/genesis'.format(ledger_url))
+        if response.status != 200:
+            raise RuntimeError('Error downloading genesis file: status {}'.format(
+                response.status))
+        data = await response.text()
+
+        # check data is valid json
+        LOGGER.debug('Genesis transaction response: %s', data)
+        lines = data.splitlines()
+        if not lines or not json.loads(lines[0]):
+            raise RuntimeError('Genesis transaction file is not valid JSON')
+
+        # write result to provided path
+        with target_path.open('x') as output_file:
+            output_file.write(data)
+        return True
+
     async def publish_schema(self, issuer, schema):
+        """
+        Check the ledger for a specific schema and version, and publish it if not found.
+        """
         # Check if schema exists on ledger
         schema_json = await issuer.get_schema(
             schema_key_for({
@@ -138,17 +150,17 @@ class VonClient:
             log_json('Published claim def:', claim_def, LOGGER)
         return (ledger_schema, claim_def)
 
-    def create_issuer(self):
+    async def create_issuer(self):
         # retrieve genesis transaction if necessary
-        self.check_genesis_path()
+        await self.check_genesis_path()
         if not self._issuer:
             self._issuer = Agent(self.config, VonIssuer, 'Issuer')
             self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
         return self._issuer
 
-    def create_verifier(self):
+    async def create_verifier(self):
         # retrieve genesis transaction if necessary
-        self.check_genesis_path()
+        await self.check_genesis_path()
         if not self._verifier:
             self._verifier = Agent(self.config, VonVerifier, 'Verifier')
             # self._verifier.keep_open() # !! keeps the pool and wallet open for this instance
@@ -156,7 +168,7 @@ class VonClient:
 
     async def resolve_did_from_seed(self, seed):
         cfg = {
-            'genesis_path': self.check_genesis_path(),
+            'genesis_path': await self.check_genesis_path(),
             'wallet_name': 'SeedResolve',
             'wallet_seed': seed
         }

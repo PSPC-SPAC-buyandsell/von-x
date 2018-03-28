@@ -13,15 +13,12 @@ def pst():
 
 
 def now():
-    return int(time.mktime(datetime.datetime.now().timetuple()))
+    return int(time.mktime(
+        datetime.datetime.now().timetuple()
+    ))
 
 
 def one_year():
-    return int(
-      time.mktime(
-        (
-          datetime.datetime.now() +
-          datetime.timedelta(days=365)
-        ).timetuple()
-      )
-    )
+    return int(time.mktime(
+        (datetime.datetime.now() + datetime.timedelta(days=365)).timetuple()
+    ))
