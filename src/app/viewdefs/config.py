@@ -20,68 +20,101 @@ import logging
 from app import GLOBAL_CONFIG, get_issuer_manager
 from app.settings import expand_tree_variables
 from .process import process_form
+from .proxy import get_proxy_handler, ProxyConnHandler
 from .render import render_form
 
 LOGGER = logging.getLogger(__name__)
 
 
-class LoadedForms:
+class ViewDefinitions:
     def __init__(self):
         self.forms = []
         self.paths = []
+        self.proxies = []
         self.static = []
 
+    def add_paths(self, *paths, overwrite=False):
+        for path in paths:
+            if self.path_defined(path):
+                if not overwrite:
+                    raise RuntimeError('Duplicate view path defined: {}'.format(path))
+            else:
+                self.paths.append(path)
+
     def add_form(self, form):
-        self.paths.append(form['path'])
+        self.add_paths(form['path'])
         self.forms.append(form)
 
+    def add_proxy(self, proxy):
+        self.add_paths(proxy['path'])
+        self.proxies.append(proxy)
+
     def add_static(self, static):
-        self.paths.append(static['path'])
+        self.add_paths(static['path'])
         self.static.append(static)
 
     def path_defined(self, path):
         return path in self.paths
 
 
-def load_form_definitions(app):
-    ret = LoadedForms()
-    disallow_paths = ['health', 'status']
+def load_view_definitions(app):
+    view_defs = ViewDefinitions()
+
     limit_forms = app.config.get('FORMS')
     limit_forms = limit_forms.split() \
         if (limit_forms and limit_forms != 'all') \
         else None
-
-    static = GLOBAL_CONFIG.get('static') or {}
-    for static_id, static in static.items():
-        if not 'target' in static:
-            raise ValueError('Missing target path for static resource: {}'.format(static_id))
-        if not 'id' in static:
-            static['id'] = static_id
-        if not 'name' in static:
-            static['name'] = static['id']
-        if not 'path' in static:
-            static['path'] = '/' + static['name']
-        if ret.path_defined(static['path']) or static['path'] in disallow_paths:
-            raise ValueError('Duplicate resource path defined: {}'.format(static['path']))
-        ret.add_static(static)
-
     forms = GLOBAL_CONFIG.get('forms') or {}
     forms = expand_tree_variables(forms, app.config)
-    for form_id, form in forms.items():
+    load_form_definitions(forms, view_defs, limit_forms)
+
+    proxy = GLOBAL_CONFIG.get('proxy') or {}
+    proxy = expand_tree_variables(proxy, app.config)
+    load_proxy_definitions(proxy, view_defs)
+
+    static = GLOBAL_CONFIG.get('static') or {}
+    static = expand_tree_variables(static, app.config)
+    load_static_definitions(static, view_defs)
+
+    return view_defs
+
+
+def load_form_definitions(config: dict, view_defs: ViewDefinitions, limit_forms=None):
+    for form_id, form in config.items():
         if limit_forms is not None and form_id not in limit_forms:
             continue
-
-        path = form.get('path')
-        if not path:
-            raise ValueError('Path not defined for form: {}'.format(form_id))
-        if ret.path_defined(path) or path in disallow_paths:
-            raise ValueError('Duplicate form path defined: {}'.format(path))
         form_id = form['id'] = form.get('id', form_id)
-
+        if not 'name' in form:
+            form['name'] = form_id
+        if not form.get('path'):
+            form['path'] = '/' + form['name']
         expand_form_definition(form)
-        ret.add_form(form)
+        view_defs.add_form(form)
 
-    return ret
+
+def load_static_definitions(config: dict, view_defs: ViewDefinitions):
+    for static_id, static in config.items():
+        static_id = static['id'] = static.get('id', static_id)
+        if not 'target' in static:
+            raise ValueError('Missing target path for static resource: {}'.format(static_id))
+        if not 'name' in static:
+            static['name'] = static_id
+        if not static.get('path'):
+            static['path'] = '/' + static['name']
+        view_defs.add_static(static)
+
+
+def load_proxy_definitions(config: dict, view_defs: ViewDefinitions):
+    for proxy_id, proxy in config.items():
+        proxy_id = proxy['id'] = proxy.get('id', proxy_id)
+        if not 'url' in proxy:
+            raise ValueError('Missing url for proxy: {}'.format(proxy_id))
+        if not 'name' in proxy:
+            proxy['name'] = proxy_id
+        if not proxy.get('path'):
+            proxy['path'] = '/' + proxy['name']
+        view_defs.add_proxy(proxy)
+
 
 def expand_form_definition(form):
     supported_types = ['submit-claim']
@@ -118,13 +151,9 @@ def do_process_form(form):
         return await process_form(form, request)
     return do_process
 
-def auto_register_forms(app):
-    loaded = load_form_definitions(app)
 
-    for static in loaded.static:
-        app.static(static['path'], static['target'], name=static['id'])
-
-    for form in loaded.forms:
+def register_views(app, view_defs: ViewDefinitions):
+    for form in view_defs.forms:
         app.add_route(
             do_render_form(form),
             form['path'],
@@ -136,4 +165,12 @@ def auto_register_forms(app):
             methods=['POST'],
             name=form['id']+'_process')
 
-    return loaded
+    # shared connection pool for proxies
+    conn_handler = ProxyConnHandler()
+    for proxy in view_defs.proxies:
+        app.add_route(get_proxy_handler(proxy, conn_handler), proxy['path']+'/<path:path>')
+
+    for static in view_defs.static:
+        app.static(static['path'], static['target'], name=static['id'])
+
+    return view_defs

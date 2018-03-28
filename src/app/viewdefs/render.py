@@ -17,7 +17,6 @@
 
 import json
 import logging
-import os
 
 from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
 from jinja2.ext import Extension

@@ -20,17 +20,17 @@ import logging
 from sanic import response
 
 from app import APP, get_issuer_endpoint, get_prover_endpoint
-from app.forms import config as forms_config
-from app.proxy import handler as proxy_handler
 from app.services import issuer, prover
+from app.viewdefs import config as views_config
 
 LOGGER = logging.getLogger(__name__)
 
-FORMS = forms_config.auto_register_forms(APP)
-proxy_handler.register_proxies(APP)
+VIEWS = views_config.load_view_definitions(APP)
+VIEWS.add_paths('/health', '/status', '/construct-proof', '/submit-claim')
+views_config.register_views(APP, VIEWS)
 
 
-if not FORMS.path_defined('/'):
+if not VIEWS.path_defined('/'):
     @APP.route('/', methods=['GET', 'HEAD'])
     def index(_request):
         return response.file('app/templates/index.html')

@@ -20,13 +20,10 @@ import logging
 import aiohttp
 from sanic import response
 
-from app import GLOBAL_CONFIG
-from app.settings import expand_tree_variables
-
 LOGGER = logging.getLogger(__name__)
 
 
-class ConnHandler:
+class ProxyConnHandler:
     """
     Maintain a single connection pool to support keepalives
     """
@@ -45,24 +42,7 @@ class ConnHandler:
         return aiohttp.ClientSession(*args, **kwargs)
 
 
-# FIXME - refactor into a generic view manager for forms, proxies, static resources
-def register_proxies(app):
-    defs = GLOBAL_CONFIG.get('proxy') or {}
-    defs = expand_tree_variables(defs, app.config)
-    conn_handler = ConnHandler()
-    for proxy_id, proxy in defs.items():
-        if not 'url' in proxy:
-            raise ValueError('Missing url for proxy: {}'.format(proxy_id))
-        if not 'id' in proxy:
-            proxy['id'] = proxy_id
-        if not 'name' in proxy:
-            proxy['name'] = proxy['id']
-        if not 'path' in proxy:
-            proxy['path'] = '/' + proxy['name']
-
-        app.add_route(get_handler(proxy, conn_handler), proxy['path']+'/<path:path>')
-
-def get_handler(proxy, conn_handler):
+def get_proxy_handler(proxy, conn_handler):
 
     async def handle_request(request, path):
         target_url = proxy['url']
@@ -84,14 +64,13 @@ def get_handler(proxy, conn_handler):
             params=request.args,
             data=request.body)
 
-        async def stream_content(response):
+        async def stream_content(client_response):
             while True:
                 chunk = await data.content.read(4096)
                 if not chunk:
                     break
-                response.write(chunk)
+                client_response.write(chunk)
             #await session.close()
         return response.stream(stream_content, headers=dict(data.headers))
 
     return handle_request
-
