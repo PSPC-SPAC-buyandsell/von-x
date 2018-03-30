@@ -21,7 +21,7 @@ RUN mkdir -p "${wallet_path}" \
     && chmod ug+rwx "${BUILD}/docker-entrypoint.sh"
 USER indy
 
-ENV APP_NAME  agent
+ENV APP_NAME runner
 ENV HOST_IP 0.0.0.0
 ENV HOST_PORT 8000
 ENV INDY_GENESIS_PATH "${BUILD}/genesis"

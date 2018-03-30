@@ -256,7 +256,8 @@ class RequestExecutor(RequestProcessor):
         return self._pool
 
     def stop(self, wait=True):
-        self._pool.shutdown(wait)
+        if self._pool:
+            self._pool.shutdown(wait)
         super(RequestExecutor, self).stop(wait)
 
     def get_endpoint(self, pid):

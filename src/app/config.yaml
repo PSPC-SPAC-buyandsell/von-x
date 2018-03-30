@@ -222,14 +222,6 @@ logging:
         level: DEBUG
         handlers: [console]
         propagate: false
-      sanic.access:
-        level: INFO
-        handlers: [access]
-        propagate: false
-      sanic.error:
-        level: INFO
-        handlers: [access]
-        propagate: false
       root:
         # sanic root logger
         level: WARNING

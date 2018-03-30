@@ -15,8 +15,6 @@
 # limitations under the License.
 #
 
-import logging
-import logging.config
 import os
 import re
 import yaml
@@ -26,7 +24,7 @@ def load_global_config(path=None):
     """Load the application config file."""
     if not path:
         app_path = os.path.dirname(__file__)
-        path = os.environ.get('CONFIG_PATH', os.path.join(app_path, 'config.yaml'))
+        path = os.environ.get('CONFIG_PATH', os.path.join(app_path, '..', 'config.yaml'))
     # Load the config file
     with open(path) as config_file:
         global_config = yaml.load(config_file)
@@ -50,6 +48,22 @@ def load_server_config(global_config, env=True):
         if v != '':
             config[k] = v
     return config
+
+def load_logging_config(global_config, logging_env=None):
+    """Initialize the application logger using dictConfig."""
+    if not global_config:
+        return False
+    if not logging_env:
+        logging_env = 'default'
+    log_config = None
+    if 'logging' in global_config:
+        if logging_env in global_config['logging']:
+            log_config = global_config['logging'][logging_env]
+        else:
+            print("Logger not defined: {}".format(logging_env))
+    else:
+        print("No loggers defined by application config")
+    return log_config
 
 def expand_string_variables(value, env, warn=True):
     """
@@ -85,24 +99,3 @@ def expand_tree_variables(tree, env, warn=True):
     This is used in the 'issuers' section of the config to allow variable overrides.
     """
     return map_tree(tree, lambda val: expand_string_variables(val, env, warn))
-
-
-def init_logging(global_config, logging_env=None):
-    """Initialize the application logger using dictConfig."""
-    if not global_config:
-        return False
-    if not logging_env:
-        logging_env = 'default'
-    log_config = None
-    if 'logging' in global_config:
-        if logging_env in global_config['logging']:
-            log_config = global_config['logging'][logging_env]
-            try:
-                logging.config.dictConfig(log_config)
-            except ValueError as err:
-                raise ValueError("Invalid logging configuration") from err
-        else:
-            print("Logger not defined: {}".format(logging_env))
-    else:
-        print("No loggers defined by application config")
-    return log_config

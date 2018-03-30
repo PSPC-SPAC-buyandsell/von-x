@@ -16,18 +16,20 @@
 #
 
 import json
-import os
 import logging
+import os
 
 import aiohttp
+import asyncio
 from von_agent.schemakey import schema_key_for
 from von_agent.util import encode
 
+import app
 from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestProcessor, RequestExecutor
+from app.services.manager import ServiceManager
 from app.services.tob import TobClient
 from app.services.von import VonClient
-from app.settings import expand_tree_variables
 from app.util import log_json
 
 LOGGER = logging.getLogger(__name__)
@@ -52,26 +54,17 @@ def load_claim_request(claim_type, request):
     return claim
 
 
-def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
-    if not config:
-        raise ValueError('Missing configuration for issuer manager')
-    if not 'issuers' in config:
-        raise ValueError('No issuers defined by configuration')
-    if not env:
-        env = os.environ
-    if not exchange:
-        LOGGER.info('Starting new Exchange service for issuer manager')
-        exchange = Exchange()
-        exchange.start()
+def init_issuer_manager(service_manager: ServiceManager, pid='issuer-manager'):
+    env = service_manager.env
     issuers = []
     issuer_ids = []
     limit_issuers = env.get('ISSUERS')
     limit_issuers = limit_issuers.split() \
         if (limit_issuers and limit_issuers != 'all') \
         else None
-    replace_vars = os.environ.copy()
-    replace_vars.update(env)
-    config_issuers = expand_tree_variables(config['issuers'], replace_vars)
+    config_issuers = service_manager.expand_config('issuers')
+    if not config_issuers:
+        raise ValueError('No issuers defined by configuration')
     for issuer_key, issuer in config_issuers.items():
         if not 'id' in issuer:
             issuer['id'] = issuer_key
@@ -80,7 +73,7 @@ def init_issuer_manager(config, env=None, exchange=None, pid='issuer-manager'):
             issuer_ids.append(issuer['id'])
     if issuers:
         LOGGER.info('Initializing processor for services: %s', ', '.join(issuer_ids))
-        return IssuerManager(pid, exchange, env, issuers)
+        return IssuerManager(service_manager, pid, issuers)
     else:
         raise ValueError('No defined issuers referenced by ISSUERS')
 
@@ -120,15 +113,16 @@ class IssuerManager(RequestProcessor):
     to the right issuer.
     """
 
-    def __init__(self, pid, exchange, env, issuer_specs):
-        super(IssuerManager, self).__init__(pid, exchange)
-        self._env = env or {}
+    def __init__(self, service_mgr: ServiceManager, pid: str, issuer_specs):
+        super(IssuerManager, self).__init__(pid, service_mgr.exchange)
+        self._env = service_mgr.env
         self._issuers = {}
         self._issuer_specs = issuer_specs
         self._issuer_status = {}
         self._orgbook_did = None
+        self._service_mgr = service_mgr
         self._ready = False
-        self._init_services()
+        #self._init_services()
 
     def ready(self):
         return self._ready
@@ -138,10 +132,11 @@ class IssuerManager(RequestProcessor):
             'issuers': self._issuer_status.copy(),
             'orgbook_did': self._orgbook_did,
             'ready': self._ready,
-            'version': self._env.get('VERSION')
+            'version': app.__version__
         }
 
     def start(self):
+        self._init_services()
         ret = super(IssuerManager, self).start()
         self._start_services()
         return ret
@@ -195,12 +190,15 @@ class IssuerManager(RequestProcessor):
     def issuer_specs(self):
         return self._issuer_specs
 
+    def get_ledger_url(self):
+        return self._env.get('INDY_LEDGER_URL')
+
     def extend_issuer_spec(self, spec):
         spec = spec.copy() if spec else {}
         if not 'genesis_path' in spec:
             spec['genesis_path'] = self._env.get('INDY_GENESIS_PATH')
         if not 'ledger_url' in spec:
-            spec['ledger_url'] = self._env.get('INDY_LEDGER_URL')
+            spec['ledger_url'] = self.get_ledger_url()
         if not 'api_url' in spec:
             spec['api_url'] = self._env.get('TOB_API_URL')
         spec['api_did'] = self._orgbook_did
@@ -209,14 +207,14 @@ class IssuerManager(RequestProcessor):
     def init_von_client(self):
         cfg = {
             'genesis_path': self._env.get('INDY_GENESIS_PATH'),
-            'ledger_url': self._env.get('INDY_LEDGER_URL')
+            'ledger_url': self.get_ledger_url()
         }
         return VonClient(cfg)
 
     def _init_issuers(self):
         for spec in self._issuer_specs:
             service = IssuerService(
-                self.get_exchange(),
+                self._service_mgr,
                 self.extend_issuer_spec(spec),
                 self.get_pid())
             self._issuers[service.get_pid()] = service
@@ -288,16 +286,17 @@ class IssuerService(RequestExecutor):
     These instances are normally initialized by the InstanceManager.
     """
 
-    def __init__(self, exchange, spec=None, manager_pid=None):
+    def __init__(self, service_mgr, spec=None, manager_pid=None):
         self._pid = None
         self._config = {}
         self._status = {}
+        self._service_mgr = service_mgr
         self._manager_pid = manager_pid
         self._orgbook_did = None
         self._update_config(spec)
         self._von_client = None
 
-        super(IssuerService, self).__init__(self._pid, exchange)
+        super(IssuerService, self).__init__(self._pid, service_mgr.exchange)
         self._update_status({
             'id': self._pid,
             'did': None,
@@ -505,5 +504,11 @@ class IssuerService(RequestExecutor):
         encoded_claim = encode_claim(claim)
         log_json('Claim:', encoded_claim, LOGGER)
 
+        LOGGER.info('loop %s', asyncio.get_event_loop())
+
+        LOGGER.info('task %s', asyncio.Task.current_task())
+
+        #async with self._service_mgr.http_client(read_timeout=30) as http_client:
         async with aiohttp.ClientSession(read_timeout=30) as http_client:
+            LOGGER.info('client loop %s', http_client._loop)
             return await self.store_claim(http_client, claim_type, encoded_claim)

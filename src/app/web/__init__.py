@@ -14,3 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+from aiohttp import web
+
+from app.services import shared
+from .routes import get_routes
+
+
+async def init_web():
+    """
+    Initialize the web server application
+    """
+    app = web.Application()
+    app['manager'] = shared.MANAGER
+    app.add_routes(get_routes(app))
+    return app

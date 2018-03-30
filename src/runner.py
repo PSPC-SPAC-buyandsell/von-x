@@ -17,31 +17,34 @@
 #pylint: disable=broad-except,ungrouped-imports
 
 """
-Standard entry point for the application
+Standard entry point for the application (non-gunicorn)
 """
 
 import logging
-import sys
+
+APP = None
 
 try:
-    from app import APP, get_issuer_manager
+    from app.services import shared
+    shared.MANAGER.start()
+    from app.web import init_web
+    APP = init_web()
+
 except Exception:
     LOGGER = logging.getLogger(__name__)
     LOGGER.exception('Error while loading application:')
-    sys.exit(1)
 
-if __name__ == '__main__':
+if __name__ == '__main__' and APP:
     LOGGER = logging.getLogger(__name__)
 
     try:
-        HOST = APP.config.get('HOST_IP', '0.0.0.0')
-        PORT = int(APP.config.get('HOST_PORT', '8000'))
+        HOST = shared.ENV.get('HOST_IP', '0.0.0.0')
+        PORT = int(shared.ENV.get('HOST_PORT', '8000'))
         LOGGER.info('Running server on %s:%s', HOST, PORT)
-        APP.run(host=HOST, port=PORT, debug=APP.config.get('DEBUG'), workers=1)
+
+        from aiohttp import web
+        web.run_app(APP, host=HOST, port=PORT)
     except Exception:
         LOGGER.exception('Error while running server:')
-        sys.exit(1)
 
-    MGR = get_issuer_manager()
-    if MGR:
-        MGR.join()
+    shared.MANAGER.stop()

@@ -25,7 +25,7 @@ from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestExecutor
 from app.services.tob import TobClient, TobClientError
 from app.services.von import VonClient
-from app.settings import expand_tree_variables
+from app.services.config import expand_tree_variables
 from app.util import log_json
 
 LOGGER = logging.getLogger(__name__)
@@ -150,7 +150,8 @@ class ProverManager(RequestExecutor):
             log_json('Got proof response:', proof_response, LOGGER)
         except TobClientError as e:
             if e.status_code == 406:
-                return {'success': False, 'error': e.response.json()['detail']}
+                message = await e.response.json()
+                return {'success': False, 'error': message['detail']}
             LOGGER.exception('Error response while requesting proof:')
             return {'success': False, 'error': 'Unexpected response from server'}
 

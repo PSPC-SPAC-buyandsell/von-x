@@ -21,7 +21,8 @@ export HOST_PORT=${HOST_PORT:-8000}
 
 CMD="$@"
 if [ -z "$CMD" ]; then
-	CMD="$BUILD/bin/python ${APP_NAME}.py"
+  CMD="$BUILD/bin/python ${APP_NAME}.py"
+	#CMD="$BUILD/bin/gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py app.web:init_web"
 fi
 
 echo "Starting server ..."
