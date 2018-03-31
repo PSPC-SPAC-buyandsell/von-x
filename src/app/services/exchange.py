@@ -22,9 +22,11 @@ import os
 import time
 import traceback
 
+from concurrent.futures import ThreadPoolExecutor
 import multiprocessing as mp
 from threading import Condition, Thread, get_ident
-from concurrent.futures import ThreadPoolExecutor
+
+import aiohttp
 
 LOGGER = logging.getLogger(__name__)
 
@@ -170,10 +172,12 @@ class RequestProcessor:
         self._exchange = exchange
         self._thread = None
 
-    def get_pid(self):
+    @property
+    def pid(self):
         return self._pid
 
-    def get_exchange(self):
+    @property
+    def exchange(self):
         return self._exchange
 
     def get_endpoint(self, pid):
@@ -235,35 +239,63 @@ class RequestExecutor(RequestProcessor):
 
     def __init__(self, pid, exchange: Exchange, max_workers=10):
         super(RequestExecutor, self).__init__(pid, exchange)
+        self._connector = None
+        self._loop = None
         self._max_workers = max_workers
         self._pool = None
         self._req_cond = Condition()
         self._requests = {}
 
-    def start(self):
+    def start(self, loop=None):
+        self._loop = loop or self._loop or asyncio.get_event_loop()
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
         # Poll for results in a thread from our thread pool
-        return self._pool.submit(self.run)
+        return self.run_task(self.run)
 
     # In the webserver environment, the process we're concerned with has already started
     # so just use start() instead
     def start_process(self):
-        proc = mp.Process(target=lambda: self.start().result())
+        def start():
+            self.init_process()
+            self.start()
+            self._loop.run_until_complete()
+        proc = mp.Process(target=start)
         proc.start()
         return proc
 
-    def get_pool(self):
+    def init_process(self):
+        # create new event_loop after fork
+        asyncio.get_event_loop().close()
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+    @property
+    def loop(self):
+        return self._loop
+
+    @property
+    def pool(self):
         return self._pool
 
     def stop(self, wait=True):
         if self._pool:
             self._pool.shutdown(wait)
         super(RequestExecutor, self).stop(wait)
+        if self._connector:
+            self._connector.close()
 
     def get_endpoint(self, pid):
         return ExecutorEndpoint(self, pid)
 
-    def submit(self, to_pid, message, async_loop=None, timeout=None):
+    def run_task(self, proc, *args, loop=None):
+        loop = loop or self._loop
+        if asyncio.iscoroutine(proc):
+            result = asyncio.run_coroutine_threadsafe(proc, loop)
+        else:
+            result = loop.run_in_executor(self._pool, proc, *args)
+        return result
+
+    def submit(self, to_pid, message, timeout=None, loop=None):
         request = {'result': None}
         ident = id(request)
         result = None
@@ -272,12 +304,7 @@ class RequestExecutor(RequestProcessor):
         result = self.send(to_pid, ident, message)
         if not result:
             raise RuntimeError('Request could not be processed')
-        if async_loop:
-            if async_loop is True:
-                async_loop = asyncio.get_event_loop()
-            result = async_loop.run_in_executor(self._pool, self._receive, ident, timeout)
-        else:
-            result = self._pool.submit(self._receive, ident, timeout)
+        result = self.run_task(self._receive, ident, timeout, loop=loop)
         return result
 
     def process(self, from_pid, ident, message, ref):
@@ -307,6 +334,29 @@ class RequestExecutor(RequestProcessor):
             del self._requests[ident]
         return ret
 
+    @property
+    def tcp_connector(self):
+        """
+        Return a connection pool associated with this event loop which allows HTTP session reuse
+        """
+        if not self._connector:
+            self._connector = aiohttp.TCPConnector()
+        return self._connector
+
+    def http_client(self, *args, **kwargs):
+        """
+        Construct an HTTP client using the shared connection pool
+        """
+        keepAlive = False
+        if 'connector' not in kwargs:
+            kwargs['connector'] = self.tcp_connector
+            kwargs['connector_owner'] = False
+        return aiohttp.ClientSession(*args, **kwargs)
+
+    @property
+    def http(self):
+        return self.http_client()
+
 
 class Endpoint:
     """
@@ -321,13 +371,16 @@ class Endpoint:
         self._from_pid = from_pid
         self._exchange = exchange
 
-    def get_pid(self):
+    @property
+    def pid(self):
         return self._pid
 
-    def get_exchange(self):
+    @property
+    def exchange(self):
         return self._exchange
 
-    def get_from_pid(self):
+    @property
+    def from_pid(self):
         return self._from_pid
 
     def send(self, ident, message, ref, from_pid=None):
@@ -348,30 +401,31 @@ class ExecutorEndpoint(Endpoint):
     for responses to requests.
     """
 
-    def __init__(self, executor, pid, async_loop=None):
+    def __init__(self, executor, pid, loop=None):
         self._executor = executor
-        self._async_loop = async_loop
+        self._loop = loop
         super(ExecutorEndpoint, self).__init__(
             pid,
-            self._executor.get_exchange(),
-            self._executor.get_pid()
+            self._executor.exchange,
+            self._executor.pid
         )
 
     def get_async_loop(self):
-        return self._async_loop
+        return self._loop
 
-    def set_async_loop(self, async_loop):
-        self._async_loop = async_loop
+    def set_async_loop(self, loop):
+        self._loop = loop
 
-    def get_executor(self):
+    @property
+    def executor(self):
         return self._executor
 
-    def request(self, message, async_loop=None, timeout=None):
+    def request(self, message, timeout=None, loop=None):
         return self._executor.submit(
-            self.get_pid(),
+            self.pid,
             message,
-            async_loop=async_loop if async_loop != None else self._async_loop,
-            timeout=timeout)
+            timeout=timeout,
+            loop=loop or self._loop)
 
 
 

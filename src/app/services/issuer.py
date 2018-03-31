@@ -155,13 +155,13 @@ class IssuerManager(RequestProcessor):
                 await self.resolve_orgbook_did()
             except Exception:
                 errmsg = IssuerError('Error while resolving DID for TOB', True)
-                self.send_noreply(self.get_pid(), errmsg)
+                self.send_noreply(self.pid, errmsg)
                 raise
             try:
                 self._start_issuers()
             except Exception:
                 errmsg = IssuerError('Error while starting issuer services', True)
-                self.send_noreply(self.get_pid(), errmsg)
+                self.send_noreply(self.pid, errmsg)
                 raise
         eventloop.run_in_thread(resolve())
 
@@ -216,8 +216,8 @@ class IssuerManager(RequestProcessor):
             service = IssuerService(
                 self._service_mgr,
                 self.extend_issuer_spec(spec),
-                self.get_pid())
-            self._issuers[service.get_pid()] = service
+                self.pid)
+            self._issuers[service.pid] = service
 
     def _start_issuers(self):
         LOGGER.info('Starting issuers')
@@ -245,14 +245,14 @@ class IssuerManager(RequestProcessor):
         elif isinstance(message, ResolveSchemaRequest):
             found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
             if found:
-                self.send_noreply(from_pid, found[0].get_pid(), ident)
+                self.send_noreply(from_pid, found[0].pid, ident)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif isinstance(message, SubmitClaimRequest):
             # need to find the issuer service and forward the request there
             found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
             if found:
-                self.send(found[0].get_pid(), ident, message, ref, from_pid)
+                self.send(found[0].pid, ident, message, ref, from_pid)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
         elif message == 'ready':
@@ -342,7 +342,7 @@ class IssuerService(RequestExecutor):
                     else:
                         LOGGER.exception('Exception during issuer sync:')
             # Start another thread to perform initial sync
-            eventloop.run_in_executor(self.get_pool(), init())
+            self.run_task(init())
             return ret
         except Exception:
             LOGGER.exception('Error starting issuer service:')
@@ -362,7 +362,8 @@ class IssuerService(RequestExecutor):
             })
             if von_client.synced:
                 tob_client = self.init_tob_client()
-                await tob_client.sync()
+                async with self.http as http_client:
+                    await tob_client.sync(http_client)
                 self._update_status({
                     'orgbook': tob_client.synced
                 })
@@ -394,7 +395,7 @@ class IssuerService(RequestExecutor):
         return None
 
     def process(self, from_pid, ident, message, ref):
-        eventloop.run_in_executor(self.get_pool(), self.handle_request(from_pid, ident, message))
+        self.run_task(self.handle_request(from_pid, ident, message))
 
     async def handle_request(self, from_pid, ident, message):
         #pylint: disable=broad-except
@@ -504,11 +505,5 @@ class IssuerService(RequestExecutor):
         encoded_claim = encode_claim(claim)
         log_json('Claim:', encoded_claim, LOGGER)
 
-        LOGGER.info('loop %s', asyncio.get_event_loop())
-
-        LOGGER.info('task %s', asyncio.Task.current_task())
-
-        #async with self._service_mgr.http_client(read_timeout=30) as http_client:
-        async with aiohttp.ClientSession(read_timeout=30) as http_client:
-            LOGGER.info('client loop %s', http_client._loop)
+        async with self.http as http_client:
             return await self.store_claim(http_client, claim_type, encoded_claim)

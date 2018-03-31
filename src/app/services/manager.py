@@ -79,23 +79,6 @@ class ServiceManager:
         return self._proc_locals
 
     @property
-    def tcp_connection_pool(self):
-        """
-        Return a process-level connection pool which allows HTTP session reuse
-        """
-        ploc = self.proc_locals
-        if not 'conn_pool' in ploc:
-            ploc['conn_pool'] = aiohttp.TCPConnector()
-        return ploc['conn_pool']
-
-    def http_client(self, *args, **kwargs):
-        """
-        Construct an HTTP client using the shared connection pool
-        """
-        kwargs['connector'] = self.tcp_connection_pool
-        return KeepAliveClientSession(aiohttp.ClientSession(*args, **kwargs))
-
-    @property
     def executor(self):
         """
         Return a per-process request executor which manages requests
@@ -113,30 +96,15 @@ class ServiceManager:
     def get_service(self, name: str):
         return self._services[name]
 
-    def get_endpoint(self, pid: str, async_loop=None):
+    def get_endpoint(self, pid: str, loop=None):
         locals = self.proc_locals
         name = 'endpt_' + pid
         if name not in locals:
             locals[name] = self.executor.get_endpoint(pid)
-        locals[name].set_async_loop(async_loop)
+        if loop:
+            locals[name].set_async_loop(loop)
         return locals[name]
 
-    def get_service_endpoint(self, name: str, async_loop=None):
+    def get_service_endpoint(self, name: str, loop=None):
         if name in self._services:
-            return self.get_endpoint(self._services[name].get_pid(), async_loop)
-
-
-class KeepAliveClientSession:
-    """
-    A simple wrapper to leave HTTP sessions open.
-    This allows the connection pool to take advantage of keepalive (and avoids errors)
-    """
-    def __init__(self, session):
-        self._session = session
-
-    async def __aenter__(self):
-        return self._session
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        if exc_type is not None:
-            LOGGER.exception('Exception in HTTP client:')
+            return self.get_endpoint(self._services[name].pid, loop)

@@ -17,7 +17,6 @@
 
 import logging
 
-import aiohttp
 from aiohttp import web
 
 LOGGER = logging.getLogger(__name__)
@@ -41,7 +40,8 @@ def proxy_handler(proxy):
         #else:
         #    headers['x-forwarded-for'] = request.ip
 
-        async with request.app['manager'].http_client() as session:
+        mgr = request.app['manager']
+        async with mgr.executor.http as session:
             data = await session.request(
                 request.method,
                 target_url,

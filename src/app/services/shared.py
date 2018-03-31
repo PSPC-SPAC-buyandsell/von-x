@@ -32,9 +32,6 @@ class SharedServiceManager(manager.ServiceManager):
         self._services['issuer'] = issuer.init_issuer_manager(self)
 
         # Prover manager - handles construct_proof
-        self._services['prover'] = prover.init_prover_manager(
-            self._config,
-            self._env,
-            self._exchange)
+        self._services['prover'] = prover.init_prover_manager(self)
 
 MANAGER = SharedServiceManager(ENV, CONFIG)

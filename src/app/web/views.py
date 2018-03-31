@@ -29,7 +29,7 @@ def get_manager(request):
     return request.app['manager']
 
 def get_endpoint(request, service_name):
-    return get_manager(request).get_service_endpoint(service_name, True)
+    return get_manager(request).get_service_endpoint(service_name)
 
 def service_request(request, service_name, params):
     return get_endpoint(request, service_name).request(params)
@@ -56,7 +56,7 @@ async def ledger_status(request):
     mgr = get_manager(request)
     service = mgr.get_service('issuer')
     ledger_url = service.get_ledger_url()
-    async with mgr.http_client() as client:
+    async with mgr.executor.http as client:
         response = await client.get('{}/status'.format(ledger_url))
     return web.Response(text=await response.text())
 

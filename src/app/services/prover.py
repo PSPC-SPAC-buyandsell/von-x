@@ -21,30 +21,19 @@ from random import randint
 
 import aiohttp
 
-from app.services import eventloop
 from app.services.exchange import Exchange, ExchangeError, RequestExecutor
+from app.services.manager import ServiceManager
 from app.services.tob import TobClient, TobClientError
 from app.services.von import VonClient
-from app.services.config import expand_tree_variables
 from app.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
 
-def init_prover_manager(config, env=None, exchange=None, pid='prover-manager'):
-    if not config:
-        raise ValueError('Missing configuration for prover manager')
-    if not env:
-        env = os.environ
-    if not exchange:
-        LOGGER.info('Starting new Exchange service for issuer manager')
-        exchange = Exchange()
-        exchange.start()
-    replace_vars = os.environ.copy()
-    replace_vars.update(env)
-    config_requests = expand_tree_variables(config['proof_requests'], replace_vars)
+def init_prover_manager(service_manager: ServiceManager, pid='prover-manager'):
+    config_requests = service_manager.expand_config('proof_requests')
     LOGGER.info('Initializing proof request manager')
-    return ProverManager(pid, exchange, env, config_requests)
+    return ProverManager(pid, service_manager.exchange, service_manager.env, config_requests)
 
 
 class ProverError(ExchangeError):
@@ -179,7 +168,7 @@ class ProverManager(RequestExecutor):
     async def _process_construct_proof(self, from_pid, ident, message):
         #pylint: disable=broad-except
         try:
-            async with aiohttp.ClientSession() as http_client:
+            async with self.http as http_client:
                 result = await self.construct_proof(http_client, message.name, message.filters)
             if result['success']:
                 reply = ConstructProofResponse(result['value'])
@@ -197,8 +186,7 @@ class ProverManager(RequestExecutor):
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
-                coro = self._process_construct_proof(from_pid, ident, message)
-                eventloop.run_in_executor(self._pool, coro)
+                self.run_task(self._process_construct_proof(from_pid, ident, message))
         elif message == 'ready':
             self.send_noreply(from_pid, self.ready(), ident)
         elif message == 'status':

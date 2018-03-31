@@ -46,17 +46,16 @@ class TobClient:
         self.api_url = self.config.get('api_url')
         self.issuer_did = self.config.get('did')
 
-    async def sync(self):
+    async def sync(self, http_client):
         if not self.api_url:
             raise ValueError("Missing TOB_API_URL")
         if not self.issuer_did:
             raise ValueError("Missing issuer DID")
 
-        async with aiohttp.ClientSession(read_timeout=30) as http_client:
-            await self.sync_jurisdiction(http_client)
-            LOGGER.debug('synced jurisdiction')
-            await self.sync_issuer_service(http_client)
-            await self.sync_claim_types(http_client)
+        await self.sync_jurisdiction(http_client)
+        LOGGER.debug('synced jurisdiction')
+        await self.sync_issuer_service(http_client)
+        await self.sync_claim_types(http_client)
 
         self.synced = True
         LOGGER.info('TOB client synced: %s', self.config['id'])

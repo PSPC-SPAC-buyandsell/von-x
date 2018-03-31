@@ -163,7 +163,7 @@ class RouteDefinitions:
                     'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
             service, claim_type = found
             form['schema'] = claim_type['schema']
-            form['issuer_id'] = service.get_pid()
+            form['issuer_id'] = service.pid
 
     @property
     def routes(self):

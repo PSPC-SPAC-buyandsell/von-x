@@ -85,7 +85,7 @@ async def render_form(form, request):
                 return web.Response(text='Missing value for filter: {}'.format(attr_name))
             filters[attr_name] = val
         try:
-            service = request.app['manager'].get_service_endpoint('prover', True)
+            service = request.app['manager'].get_service_endpoint('prover')
             result = await service.request(
                 prover.ConstructProofRequest(proof_name, filters))
             if isinstance(result, prover.ConstructProofResponse):

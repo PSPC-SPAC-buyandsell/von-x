@@ -81,7 +81,7 @@ async def process_form(form, request):
                 inputs = await request.post()
             params = load_claim_request(form, inputs)
             #return web.json_response(params)
-            service = request.app['manager'].get_service_endpoint('issuer', True)
+            service = request.app['manager'].get_service_endpoint('issuer')
             result = await service.request(
                 issuer.SubmitClaimRequest(schema_name, schema_version, params))
             if isinstance(result, issuer.SubmitClaimResponse):
