@@ -15,13 +15,10 @@
 # limitations under the License.
 #
 
-import os
 import logging
 from random import randint
 
-import aiohttp
-
-from app.services.exchange import Exchange, ExchangeError, RequestExecutor
+from app.services.exchange import ExchangeError, RequestExecutor
 from app.services.manager import ServiceManager
 from app.services.tob import TobClient, TobClientError
 from app.services.von import VonClient

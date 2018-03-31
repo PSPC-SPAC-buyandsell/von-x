@@ -18,8 +18,6 @@
 import logging
 import os
 
-import aiohttp
-
 from . import exchange
 from .config import expand_tree_variables
 
@@ -97,14 +95,15 @@ class ServiceManager:
         return self._services[name]
 
     def get_endpoint(self, pid: str, loop=None):
-        locals = self.proc_locals
+        ploc = self.proc_locals
         name = 'endpt_' + pid
-        if name not in locals:
-            locals[name] = self.executor.get_endpoint(pid)
+        if name not in ploc:
+            ploc[name] = self.executor.get_endpoint(pid)
         if loop:
-            locals[name].set_async_loop(loop)
-        return locals[name]
+            ploc[name].set_async_loop(loop)
+        return ploc[name]
 
     def get_service_endpoint(self, name: str, loop=None):
         if name in self._services:
             return self.get_endpoint(self._services[name].pid, loop)
+        return None

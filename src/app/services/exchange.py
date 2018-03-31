@@ -246,8 +246,9 @@ class RequestExecutor(RequestProcessor):
         self._req_cond = Condition()
         self._requests = {}
 
-    def start(self, loop=None):
-        self._loop = loop or self._loop or asyncio.get_event_loop()
+    def start(self):
+        if not self._loop:
+            self._loop = asyncio.get_event_loop()
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
         # Poll for results in a thread from our thread pool
         return self.run_task(self.run)
@@ -347,7 +348,6 @@ class RequestExecutor(RequestProcessor):
         """
         Construct an HTTP client using the shared connection pool
         """
-        keepAlive = False
         if 'connector' not in kwargs:
             kwargs['connector'] = self.tcp_connector
             kwargs['connector_owner'] = False

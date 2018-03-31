@@ -18,8 +18,6 @@
 from datetime import datetime
 import logging
 
-import aiohttp
-
 LOGGER = logging.getLogger(__name__)
 
 

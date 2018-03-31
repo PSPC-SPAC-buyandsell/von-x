@@ -27,7 +27,7 @@ from .render import render_form
 LOGGER = logging.getLogger(__name__)
 
 
-def get_standard_routes(app):
+def get_standard_routes(_app):
     return [
         web.get('/', views.index),
         web.get('/health', views.health),
@@ -116,7 +116,7 @@ class RouteDefinitions:
                 form['name'] = form_id
             if not form.get('path'):
                 form['path'] = '/' + form['name']
-            self.expand_form_definition(form, manager)
+            expand_form_definition(form, manager)
             self.add_form(form)
 
     def load_static_definitions(self, config: dict):
@@ -140,30 +140,6 @@ class RouteDefinitions:
             if not proxy.get('path'):
                 proxy['path'] = '/' + proxy['name']
             self.add_proxy(proxy)
-
-    def expand_form_definition(self, form, manager):
-        supported_types = ['submit-claim']
-
-        form_id = form.get('id')
-        form_type = form.get('type')
-        if not form_type:
-            raise ValueError('Type not defined for form: {}'.format(form_id))
-        if form_type not in supported_types:
-            raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
-
-        if form_type == 'submit-claim':
-            schema = form.get('schema_name')
-            version = form.get('schema_version')
-            issuer = manager.get_service('issuer')
-            if not issuer:
-                raise RuntimeError('Issuer manager is not loaded')
-            found = issuer.find_issuer_for_schema(schema, version)
-            if not found:
-                raise ValueError(
-                    'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
-            service, claim_type = found
-            form['schema'] = claim_type['schema']
-            form['issuer_id'] = service.pid
 
     @property
     def routes(self):
@@ -189,3 +165,28 @@ class RouteDefinitions:
         )
 
         return routes
+
+
+def expand_form_definition(form, manager):
+    supported_types = ['submit-claim']
+
+    form_id = form.get('id')
+    form_type = form.get('type')
+    if not form_type:
+        raise ValueError('Type not defined for form: {}'.format(form_id))
+    if form_type not in supported_types:
+        raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
+
+    if form_type == 'submit-claim':
+        schema = form.get('schema_name')
+        version = form.get('schema_version')
+        issuer = manager.get_service('issuer')
+        if not issuer:
+            raise RuntimeError('Issuer manager is not loaded')
+        found = issuer.find_issuer_for_schema(schema, version)
+        if not found:
+            raise ValueError(
+                'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
+        service, claim_type = found
+        form['schema'] = claim_type['schema']
+        form['issuer_id'] = service.pid

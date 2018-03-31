@@ -17,16 +17,13 @@
 
 import json
 import logging
-import os
 
-import aiohttp
-import asyncio
 from von_agent.schemakey import schema_key_for
 from von_agent.util import encode
 
 import app
 from app.services import eventloop
-from app.services.exchange import Exchange, ExchangeError, RequestProcessor, RequestExecutor
+from app.services.exchange import ExchangeError, RequestProcessor, RequestExecutor
 from app.services.manager import ServiceManager
 from app.services.tob import TobClient
 from app.services.von import VonClient

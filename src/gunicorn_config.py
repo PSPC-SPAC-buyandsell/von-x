@@ -35,17 +35,12 @@ access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"
 
 
 def on_starting(server):
-    server.log.info('importing services')
+    server.log.debug('importing services')
     # import the shared manager instance before any processes are forked
     # this is necessary for the pipes and locks to be inherited
-    try:
-        from app.services import shared
-        server.service_mgr = shared.MANAGER
-    except Exception as e:
-        server.log.error(e)
-    server.log.info('ok')
+    from app.services import shared
+    server.service_mgr = shared.MANAGER
 
 def when_ready(server):
-    server.log.info('starting services')
+    server.log.debug('starting services')
     server.service_mgr.start()
-
