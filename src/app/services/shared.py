@@ -31,7 +31,6 @@ from . import config, issuer, prover, manager
 
 # Load application settings (environment)
 ENV = config.load_settings()
-print(ENV)
 
 # Load and apply logging config
 LOG_CONFIG = config.load_config(ENV.get('LOG_CONFIG_PATH'))
