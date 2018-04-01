@@ -53,9 +53,13 @@ class VonClient:
         if not claim_types:
             raise ValueError("Missing issuer claims")
 
-        LOGGER.info('Init VON client %s with seed %s',
-                    self.config['id'],
-                    self.config.get('wallet_seed'))
+        wallet = self.wallet_config
+        seed = wallet.get('seed')
+        if not seed:
+            raise ValueError('Wallet seed not defined for issuer: %s', self.id)
+
+        LOGGER.info('Init VON client %s with seed %s', self.id, seed)
+
         async with await self.create_issuer() as issuer:
             self.issuer_did = issuer.did
             LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
@@ -68,6 +72,19 @@ class VonClient:
                 await self.publish_schema(issuer, schema_def)
         self.synced = True
         LOGGER.info('VON client synced: %s', self.config['id'])
+
+    @property
+    def id(self):
+        return self.config.get('id')
+
+    @property
+    def wallet_config(self):
+        cfg = dict(self.config.get('wallet') or {})
+        if not cfg.get('name'):
+            cfg['name'] = self.id
+        if not cfg.get('genesis_path'):
+            cfg['genesis_path'] = self.config.get('genesis_path')
+        return cfg
 
     async def check_genesis_path(self):
         """
@@ -154,7 +171,7 @@ class VonClient:
         # retrieve genesis transaction if necessary
         await self.check_genesis_path()
         if not self._issuer:
-            self._issuer = Agent(self.config, VonIssuer, 'Issuer')
+            self._issuer = Agent(self.wallet_config, VonIssuer, 'Issuer')
             self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
         return self._issuer
 
@@ -162,15 +179,15 @@ class VonClient:
         # retrieve genesis transaction if necessary
         await self.check_genesis_path()
         if not self._verifier:
-            self._verifier = Agent(self.config, VonVerifier, 'Verifier')
+            self._verifier = Agent(self.wallet_config, VonVerifier, 'Verifier')
             # self._verifier.keep_open() # !! keeps the pool and wallet open for this instance
         return self._verifier
 
     async def resolve_did_from_seed(self, seed):
         cfg = {
             'genesis_path': await self.check_genesis_path(),
-            'wallet_name': 'SeedResolve',
-            'wallet_seed': seed
+            'name': 'SeedResolve',
+            'seed': seed
         }
         async with Agent(cfg, _BaseAgent, 'Util') as agent:
             agent_did = agent.did
@@ -178,18 +195,20 @@ class VonClient:
 
 
 class Agent:
-    def __init__(self, config, instance_cls, issuer_type):
-        wallet_seed = config.get('wallet_seed')
+    def __init__(self, wallet_config, instance_cls, issuer_type):
+        if not wallet_config:
+            raise ValueError('Empty wallet configuration')
+        wallet_seed = wallet_config.get('seed')
         if not wallet_seed:
-            raise ValueError('Missing wallet_seed')
+            raise ValueError('Missing wallet seed')
         if len(wallet_seed) != 32:
-            raise ValueError('wallet_seed length is not 32 characters: {}'.format(wallet_seed))
-        genesis_path = config.get('genesis_path')
+            raise ValueError('Wallet seed length is not 32 characters: {}'.format(wallet_seed))
+        genesis_path = wallet_config.get('genesis_path')
         if not genesis_path:
             raise ValueError('Missing genesis_path')
-        wallet_name = config.get('wallet_name', config.get('id'))
+        wallet_name = wallet_config.get('name')
         if not wallet_name:
-            raise ValueError('Missing wallet_name')
+            raise ValueError('Missing wallet name')
 
         self._pool = NodePool(
             wallet_name + '-' + issuer_type,

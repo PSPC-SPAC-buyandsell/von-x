@@ -8,7 +8,9 @@ issuers:
     abbreviation: BCReg
     url: "https://www2.gov.bc.ca/gov/content/governments/organizational-structure/ministries-organizations/ministries/citizens-services/bc-registries-online-services"
 
-    wallet_seed: $WALLET_SEED_BCREG
+    wallet:
+      seed: $WALLET_SEED_BCREG
+
     claim_types:
 
     - description: Incorporation
