@@ -17,54 +17,73 @@
 
 import logging
 import os
+import pkg_resources
 import re
 import yaml
 
 
-def load_global_config(path=None):
-    """Load the application config file."""
-    if not path:
-        app_path = os.path.dirname(__file__)
-        path = os.environ.get('CONFIG_PATH', os.path.join(app_path, '..', 'config.yaml'))
-    # Load the config file
-    with open(path) as config_file:
-        global_config = yaml.load(config_file)
-    return global_config or {}
+def load_resource(path: str):
+    """Open a resource file located in a python package or the local filesystem"""
+    components = path.rsplit(':', 1)
+    if len(components) == 1:
+        return open(components[0])
+    return pkg_resources.resource_stream(components[0], components[1])
 
-def load_server_config(global_config, env=True):
+
+def load_settings(env=True):
     """
-    Extract the server configuration from the app config and apply optional
-    overrides from the environment.
+    Load the application settings from several sources:
+        - settings.yaml
+        - an optional application settings file defined by SETTINGS_PATH
+        - custom environment settings defined by ENVIRONMENT (ie. dev, prod)
+        - enviroment variable overrides
     """
     if env is True:
         env = os.environ
     elif not env:
         env = {}
-    env_name = env.get('ENVIRONMENT', 'default').lower()
-    if 'server' not in global_config or env_name not in global_config['server']:
-        raise ValueError("Environment not defined by application config: {}".format(env_name))
-    config = global_config['server'][env_name]
+    env_name = os.environ.get('ENVIRONMENT', 'default').lower()
+
+    settings = {}
+
+    # Load default settings
+    with load_resource('app.config:settings.yaml') as resource:
+        cfg = yaml.load(resource)
+        if 'default' not in cfg:
+            raise ValueError('Default settings not found in settings.yaml')
+        settings.update(cfg['default'])
+        if env_name != 'default' and env_name in cfg:
+            settings.update(cfg[env_name])
+
+    # Load application settings
+    ext_path = os.environ.get('SETTINGS_PATH')
+    if ext_path:
+        with load_resource(ext_path) as resource:
+            ext_cfg = yaml.load(resource)
+            if 'default' in ext_cfg:
+                settings.update(ext_cfg['default'])
+            if env_name != 'default':
+                if env_name not in ext_cfg:
+                    raise ValueError(
+                        'Environment not defined by application settings: {}'.format(env_name))
+                settings.update(ext_cfg[env_name])
+
     # Inherit environment variables
     for k, v in env.items():
-        if v != '':
-            config[k] = v
-    return config
+        if v is not None and v != '':
+            settings[k] = v
 
-def load_logging_config(global_config, logging_env=None):
-    """Initialize the application logger using dictConfig."""
-    if not global_config:
-        return False
-    if not logging_env:
-        logging_env = 'default'
-    log_config = None
-    if 'logging' in global_config:
-        if logging_env in global_config['logging']:
-            log_config = global_config['logging'][logging_env]
-        else:
-            print("Logger not defined: {}".format(logging_env))
-    else:
-        print("No loggers defined by application config")
-    return log_config
+    return settings
+
+
+def load_config(path: str, env=None):
+    """
+    Load a YAML config file and replace variables from the environment
+    """
+    with load_resource(path) as resource:
+        cfg = yaml.load(resource)
+    return expand_tree_variables(cfg, env or os.environ)
+
 
 def expand_string_variables(value, env, warn=True):
     """
@@ -87,12 +106,14 @@ def expand_string_variables(value, env, warn=True):
         return found
     return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, value)
 
+
 def map_tree(tree, map_fn):
     if isinstance(tree, dict):
         return {key: map_tree(value, map_fn) for (key, value) in tree.items()}
     if isinstance(tree, (list, tuple)):
         return [map_tree(value, map_fn) for value in tree]
     return map_fn(tree)
+
 
 def expand_tree_variables(tree, env, warn=True):
     """

@@ -15,16 +15,34 @@
 # limitations under the License.
 #
 
+"""
+Importing this file causes the standard settings to be loaded
+and a standard service manager to be created. This allows services
+to be properly initialized before the webserver process has forked.
+
+If creating a custom ServiceManager or using services directly,
+then don't import this file.
+"""
+
 import logging.config
 
 from . import config, issuer, prover, manager
 
-# Load application config and set up logging
-CONFIG = config.load_global_config()
-ENV = config.load_server_config(CONFIG)
-LOG_CONFIG = config.load_logging_config(CONFIG, ENV.get('LOGGING'))
 
+# Load application settings (environment)
+ENV = config.load_settings()
+
+# Load and apply logging config
+LOG_CONFIG = config.load_config(ENV.get('LOG_CONFIG_PATH'))
 logging.config.dictConfig(LOG_CONFIG)
+
+# Load application config
+CONFIG_PATH = ENV.get('CONFIG_PATH')
+if CONFIG_PATH:
+    CONFIG = config.load_config(CONFIG_PATH, ENV)
+else:
+    CONFIG = {}
+
 
 class SharedServiceManager(manager.ServiceManager):
     def init_services(self):

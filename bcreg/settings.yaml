@@ -1,0 +1,5 @@
+default:
+  CONFIG_PATH: ../bcreg/config.yaml
+  TEMPLATE_PATH: ../bcreg/templates
+  TOB_API_URL: http://api:8080
+  WALLET_SEED_BCREG: bc_registries_dev_00000000000000

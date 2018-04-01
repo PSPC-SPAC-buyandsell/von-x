@@ -15,16 +15,17 @@
 # limitations under the License.
 #
 
-from aiohttp import web
 
-from app.services import shared
-from .routes import get_routes
+from aiohttp import web
 
 
 async def init_web():
     """
     Initialize the web server application
     """
+    from app.services import shared
+    from .routes import get_routes
+
     app = web.Application()
     app['manager'] = shared.MANAGER
     app.add_routes(get_routes(app))

@@ -1,0 +1,35 @@
+# default log settings - set LOG_CONFIG_PATH to use a custom config
+# loaded by logging.config.dictConfig
+
+version: 1
+disable_existing_loggers: false
+
+formatters:
+  access:
+    format: "%(asctime)s %(levelname)s [%(host)s]: %(request)s %(status)d %(message)s"
+  simple:
+    format: '%(asctime)s %(levelname)s [%(name)s]: %(message)s'
+
+handlers:
+  access:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: access
+    stream: ext://sys.stdout
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: simple
+    stream: ext://sys.stdout
+
+loggers:
+  asyncio:
+    level: WARNING
+  indy.libindy:
+    level: ERROR
+    handlers: [console]
+    propagate: false
+
+root:
+  level: ${LOG_LEVEL:-INFO}
+  handlers: [console]

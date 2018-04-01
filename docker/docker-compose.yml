@@ -6,13 +6,13 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     environment:
+      SETTINGS_PATH: ../bcreg/settings.yaml
       ENVIRONMENT: ${ENVIRONMENT:-default}
       INDY_LEDGER_URL: ${LEDGER_URL:-http://localhost:9000}
       FORMS: ${FORMS:-}
       ISSUERS: ${ISSUERS:-}
-      LOGGING: ${LOGGING:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
       PYTHON_ENV: ${PYTHON_ENV:-development}
-      TEMPLATE_PATH: ${TEMPLATE_PATH:-../bcreg/templates}
       TOB_API_URL: ${TOB_API_URL:-}
       TOB_INDY_DID: ${TOB_INDY_DID:-}
       TOB_INDY_SEED: ${TOB_INDY_SEED:-}
