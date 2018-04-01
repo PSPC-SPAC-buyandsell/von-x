@@ -31,17 +31,11 @@ from . import config, issuer, prover, manager
 
 # Load application settings (environment)
 ENV = config.load_settings()
+print(ENV)
 
 # Load and apply logging config
 LOG_CONFIG = config.load_config(ENV.get('LOG_CONFIG_PATH'))
 logging.config.dictConfig(LOG_CONFIG)
-
-# Load application config
-CONFIG_PATH = ENV.get('CONFIG_PATH')
-if CONFIG_PATH:
-    CONFIG = config.load_config(CONFIG_PATH, ENV)
-else:
-    CONFIG = {}
 
 
 class SharedServiceManager(manager.ServiceManager):
@@ -52,4 +46,4 @@ class SharedServiceManager(manager.ServiceManager):
         # Prover manager - handles construct_proof
         self._services['prover'] = prover.init_prover_manager(self)
 
-MANAGER = SharedServiceManager(ENV, CONFIG)
+MANAGER = SharedServiceManager(ENV)

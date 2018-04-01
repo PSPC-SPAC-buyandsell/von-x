@@ -59,7 +59,7 @@ def init_issuer_manager(service_manager: ServiceManager, pid='issuer-manager'):
     limit_issuers = limit_issuers.split() \
         if (limit_issuers and limit_issuers != 'all') \
         else None
-    config_issuers = service_manager.expand_config('issuers')
+    config_issuers = service_manager.services_config('issuers')
     if not config_issuers:
         raise ValueError('No issuers defined by configuration')
     for issuer_key, issuer in config_issuers.items():

@@ -47,16 +47,6 @@ def get_routes(app):
     return get_standard_routes(app) + get_custom_routes(app)
 
 
-def form_handler(form):
-    async def process(request):
-        if request.method == 'GET' or request.method == 'HEAD':
-            return await render_form(form, request)
-        elif request.method == 'POST':
-            return await process_form(form, request)
-        return web.Response(status=405)
-    return process
-
-
 class RouteDefinitions:
     def __init__(self):
         self.forms = []
@@ -67,7 +57,7 @@ class RouteDefinitions:
     @classmethod
     def load(cls, manager):
         inst = RouteDefinitions()
-        inst.load_from_manager(manager)
+        inst.load_config(manager)
         return inst
 
     def add_paths(self, *paths, overwrite=False):
@@ -93,19 +83,26 @@ class RouteDefinitions:
     def path_defined(self, path):
         return path in self.paths
 
-    def load_from_manager(self, manager):
+    def load_config(self, manager):
+        config = manager.load_config_path('ROUTES_CONFIG_PATH', 'routes.yml')
+        if not config:
+            return False
+
         limit_forms = manager.env.get('FORMS')
         limit_forms = limit_forms.split() \
             if (limit_forms and limit_forms != 'all') \
             else None
-        forms = manager.expand_config('forms')
+
+        forms = config.get('forms') or {}
         self.load_form_definitions(forms, manager, limit_forms)
 
-        proxy = manager.expand_config('proxy')
+        proxy = config.get('proxy') or {}
         self.load_proxy_definitions(proxy)
 
-        static = manager.expand_config('static')
+        static = config.get('static') or {}
         self.load_static_definitions(static)
+
+        return True
 
     def load_form_definitions(self, config: dict, manager, limit_forms=None):
         for form_id, form in config.items():
@@ -190,3 +187,13 @@ def expand_form_definition(form, manager):
         service, claim_type = found
         form['schema'] = claim_type['schema']
         form['issuer_id'] = service.pid
+
+
+def form_handler(form):
+    async def process(request):
+        if request.method == 'GET' or request.method == 'HEAD':
+            return await render_form(form, request)
+        elif request.method == 'POST':
+            return await process_form(form, request)
+        return web.Response(status=405)
+    return process

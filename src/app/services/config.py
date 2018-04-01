@@ -33,7 +33,7 @@ def load_resource(path: str):
 def load_settings(env=True):
     """
     Load the application settings from several sources:
-        - settings.yaml
+        - settings.yml
         - an optional application settings file defined by SETTINGS_PATH
         - custom environment settings defined by ENVIRONMENT (ie. dev, prod)
         - enviroment variable overrides
@@ -42,31 +42,33 @@ def load_settings(env=True):
         env = os.environ
     elif not env:
         env = {}
-    env_name = os.environ.get('ENVIRONMENT', 'default').lower()
+    env_name = os.environ.get('ENVIRONMENT', 'default')
 
     settings = {}
 
     # Load default settings
-    with load_resource('app.config:settings.yaml') as resource:
+    with load_resource('app.config:settings.yml') as resource:
         cfg = yaml.load(resource)
         if 'default' not in cfg:
-            raise ValueError('Default settings not found in settings.yaml')
+            raise ValueError('Default settings not found in settings.yml')
         settings.update(cfg['default'])
         if env_name != 'default' and env_name in cfg:
             settings.update(cfg[env_name])
 
     # Load application settings
     ext_path = os.environ.get('SETTINGS_PATH')
-    if ext_path:
-        with load_resource(ext_path) as resource:
-            ext_cfg = yaml.load(resource)
-            if 'default' in ext_cfg:
-                settings.update(ext_cfg['default'])
-            if env_name != 'default':
-                if env_name not in ext_cfg:
-                    raise ValueError(
-                        'Environment not defined by application settings: {}'.format(env_name))
-                settings.update(ext_cfg[env_name])
+    if not ext_path:
+        config_root = os.environ.get('CONFIG_ROOT', os.curdir)
+        ext_path = os.path.join(config_root, 'settings.yml')
+    with load_resource(ext_path) as resource:
+        ext_cfg = yaml.load(resource)
+        if 'default' in ext_cfg:
+            settings.update(ext_cfg['default'])
+        if env_name != 'default':
+            if env_name not in ext_cfg:
+                raise ValueError(
+                    'Environment not defined by application settings: {}'.format(env_name))
+            settings.update(ext_cfg[env_name])
 
     # Inherit environment variables
     for k, v in env.items():
@@ -80,9 +82,13 @@ def load_config(path: str, env=None):
     """
     Load a YAML config file and replace variables from the environment
     """
-    with load_resource(path) as resource:
-        cfg = yaml.load(resource)
-    return expand_tree_variables(cfg, env or os.environ)
+    try:
+        with load_resource(path) as resource:
+            cfg = yaml.load(resource)
+    except FileNotFoundError:
+        return False
+    cfg = expand_tree_variables(cfg, env or os.environ)
+    return cfg
 
 
 def expand_string_variables(value, env, warn=True):

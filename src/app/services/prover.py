@@ -28,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def init_prover_manager(service_manager: ServiceManager, pid='prover-manager'):
-    config_requests = service_manager.expand_config('proof_requests')
+    config_requests = service_manager.services_config('proof_requests')
     LOGGER.info('Initializing proof request manager')
     return ProverManager(pid, service_manager.exchange, service_manager.env, config_requests)
 

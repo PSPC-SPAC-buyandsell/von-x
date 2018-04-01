@@ -4,7 +4,7 @@
 
 default:
   # path to the logging config file
-  LOG_CONFIG_PATH: app.config:logging.yaml
+  LOG_CONFIG_PATH: app.config:logging.yml
 
   # default log level
   LOG_LEVEL: INFO

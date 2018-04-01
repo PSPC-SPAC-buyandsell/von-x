@@ -18,18 +18,17 @@
 import logging
 import os
 
-from . import exchange
-from .config import expand_tree_variables
+from . import config, exchange
 
 LOGGER = logging.getLogger(__name__)
 
 
 class ServiceManager:
-    def __init__(self, env, config):
+    def __init__(self, env):
         self._env = env
-        self._config = config
         self._exchange = exchange.Exchange()
         self._services = {}
+        self._services_cfg = None
         self._proc_locals = {'pid': os.getpid()}
         self._executor_cls = exchange.RequestExecutor
         self.init_services()
@@ -54,13 +53,20 @@ class ServiceManager:
         return self._env
 
     @property
-    def config(self) -> dict:
-        return self._config
+    def config_root(self):
+        return self._env.get('CONFIG_ROOT') or os.curdir
 
-    def expand_config(self, key) -> dict:
-        vals = self._config.get(key) or {}
-        vals = expand_tree_variables(vals, self._env)
-        return vals
+    def load_config_path(self, settings_key, default_path, env=None) -> dict:
+        path = self._env.get(settings_key)
+        if not path:
+            path = os.path.join(self.config_root, default_path)
+        return config.load_config(path, env or self._env)
+
+    def services_config(self, section) -> dict:
+        if self._services_cfg is None:
+            self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
+        if self._services_cfg:
+            return self._services_cfg.get(section) or {}
 
     @property
     def exchange(self) -> exchange.Exchange:

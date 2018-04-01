@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     environment:
-      SETTINGS_PATH: ../bcreg/settings.yaml
+      CONFIG_ROOT: ../bcreg
       ENVIRONMENT: ${ENVIRONMENT:-default}
       INDY_LEDGER_URL: ${LEDGER_URL:-http://localhost:9000}
       FORMS: ${FORMS:-}
