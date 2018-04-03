@@ -15,34 +15,22 @@
 # limitations under the License.
 #
 
-import os
 import logging
 from random import randint
 
-from app.services import eventloop
-from app.services.exchange import Exchange, ExchangeError, RequestExecutor
-from app.services.tob import TobClient, TobClientError
-from app.services.von import VonClient
-from app.settings import expand_tree_variables
-from app.util import log_json
+from vonx.services.exchange import ExchangeError, RequestExecutor
+from vonx.services.manager import ServiceManager
+from vonx.services.tob import TobClient, TobClientError
+from vonx.services.von import VonClient
+from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
 
-def init_prover_manager(config, env=None, exchange=None, pid='prover-manager'):
-    if not config:
-        raise ValueError('Missing configuration for prover manager')
-    if not env:
-        env = os.environ
-    if not exchange:
-        LOGGER.info('Starting new Exchange service for issuer manager')
-        exchange = Exchange()
-        exchange.start()
-    replace_vars = os.environ.copy()
-    replace_vars.update(env)
-    config_requests = expand_tree_variables(config['proof_requests'], replace_vars)
+def init_prover_manager(service_manager: ServiceManager, pid='prover-manager'):
+    config_requests = service_manager.services_config('proof_requests')
     LOGGER.info('Initializing proof request manager')
-    return ProverManager(pid, exchange, env, config_requests)
+    return ProverManager(pid, service_manager.exchange, service_manager.env, config_requests)
 
 
 class ProverError(ExchangeError):
@@ -91,8 +79,10 @@ class ProverManager(RequestExecutor):
         cfg = {
             'genesis_path': self._env.get('INDY_GENESIS_PATH'),
             'ledger_url': self._env.get('INDY_LEDGER_URL'),
-            'wallet_name': 'Generic', # FIXME
-            'wallet_seed': 'verifier-seed-000000000000000000' # FIXME - what seed to use here?
+            'wallet': {
+                'name': 'Generic', # FIXME
+                'seed': 'verifier-seed-000000000000000000' # FIXME - what seed to use here?
+            }
         }
         return VonClient(cfg)
 
@@ -126,7 +116,7 @@ class ProverManager(RequestExecutor):
         request_json['requested_predicates'] = {}
         return request_json
 
-    async def construct_proof(self, name, filters):
+    async def construct_proof(self, http_client, name, filters):
         proof_request = self._prepare_request_json(name)
 
         tob_client = self.init_tob_client()
@@ -138,14 +128,18 @@ class ProverManager(RequestExecutor):
         }, LOGGER)
 
         try:
-            proof_response = tob_client.create_record('bcovrin/construct-proof', {
-                'filters': filters,
-                'proof_request': proof_request
-            })
+            proof_response = await tob_client.post_json(
+                http_client,
+                'bcovrin/construct-proof',
+                {
+                    'filters': filters,
+                    'proof_request': proof_request
+                })
             log_json('Got proof response:', proof_response, LOGGER)
         except TobClientError as e:
             if e.status_code == 406:
-                return {'success': False, 'error': e.response.json()['detail']}
+                message = await e.response.json()
+                return {'success': False, 'error': message['detail']}
             LOGGER.exception('Error response while requesting proof:')
             return {'success': False, 'error': 'Unexpected response from server'}
 
@@ -155,7 +149,7 @@ class ProverManager(RequestExecutor):
             parsed_proof[attr] = \
                 proof['requested_proof']['revealed_attrs'][attr][1]
 
-        async with von_client.create_verifier() as von_verifier:
+        async with await von_client.create_verifier() as von_verifier:
             verified = await von_verifier.verify_proof(
                 proof_request,
                 proof
@@ -171,8 +165,10 @@ class ProverManager(RequestExecutor):
         }
 
     async def _process_construct_proof(self, from_pid, ident, message):
+        #pylint: disable=broad-except
         try:
-            result = await self.construct_proof(message.name, message.filters)
+            async with self.http as http_client:
+                result = await self.construct_proof(http_client, message.name, message.filters)
             if result['success']:
                 reply = ConstructProofResponse(result['value'])
             else:
@@ -189,8 +185,7 @@ class ProverManager(RequestExecutor):
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
-                coro = self._process_construct_proof(from_pid, ident, message)
-                eventloop.run_in_executor(self._pool, coro)
+                self.run_task(self._process_construct_proof(from_pid, ident, message))
         elif message == 'ready':
             self.send_noreply(from_pid, self.ready(), ident)
         elif message == 'status':

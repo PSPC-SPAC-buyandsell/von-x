@@ -154,7 +154,7 @@ pylint() {
   fi
   $PIP install -q -r ../src/requirements.txt
   cd ..
-  $PYLINT src/*.py src/app
+  $PYLINT src/*.py src/vonx
 }
 
 # =================================================================================================================
@@ -170,12 +170,12 @@ case "$COMMAND" in
     docker-compose up ${_startupParams}
     ;;
   stop)
-    configureEnvironment
+    configureEnvironment $@
     docker-compose stop
     ;;
   rm)
-    configureEnvironment
-    docker-compose rm
+    configureEnvironment $@
+    docker-compose rm -v
     ;;
   build)
     _startupParams=$(getStartupParams $@)

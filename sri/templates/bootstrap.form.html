@@ -3,8 +3,8 @@
       class="form well {{ form_class }}">
     <fieldset>
         <legend>{{ title }}</legend>
-        {% for field in hidden_fields %}
-            <input type="hidden" name="{{ field.name }}" value="{{ inputs[field.name] }}">
+        {% for field in hidden %}
+            <input type="hidden" name="{{ field }}" value="{{ inputs[field] }}">
         {% endfor %}
         <div class="row">
             <div class="col-md-8 col-md-push-2">

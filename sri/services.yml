@@ -1,0 +1,95 @@
+issuers:
+  SRI-REG:
+    jurisdiction:
+       name: Public Services and Procurement Canada
+       abbreviation: PSPC
+       # url: https://canada.ca/organizations/tpsgc-pspc
+
+    name: Acquisitions Branch
+    abbreviation: AB
+    url: "https://www.canada.ca/en/public-services-procurement.html"
+
+    wallet:
+      seed: $WALLET_SEED_PSPC
+
+    claim_types:
+      - description: Vendor Credential
+        schema: pspc-sri.gc-vendor-credential
+        issuer_url: $APPLICATION_URL_PSPC_CRED
+
+      - description: Green Supplier
+        schema: pspc-sri.green-supplier
+        issuer_url: $APPLICATION_URL_PSPC_GREEN
+
+      - description: Women-Owned Supplier
+        schema: pspc-sri.women-owned-supplier
+        issuer_url: $APPLICATION_URL_PSPC_WO
+
+      - description: Vendor Performance Evaluation
+        schema: pspc-sri.gc-vendor-performance
+        issuer_url: $APPLICATION_URL_PSPC_PERF
+
+  SRI-CISD:
+    jurisdiction:
+      name: Public Services and Procurement Canada
+      abbreviation: PSPC
+
+    name: Canadian Industrial Security Directorate
+    abbreviation: CISD
+    url: "https://www.tpsgc-pwgsc.gc.ca/esc-src/index-eng.html"
+
+    wallet:
+      seed: $WALLET_SEED_CISD
+
+    claim_types:
+      - description: Designated Organization Screening
+        schema: pspc-sri.designated-organization-screening
+        issuer_url: $APPLICATION_URL_CISC_DO
+
+      - description: Facility Security Clearance
+        schema: pspc-sri.facility-security-clearance
+        issuer_url: $APPLICATION_URL_CISC_FSC
+
+  SRI-INAC:
+    jurisdiction:
+      name:  Aboriginal Affairs and Northern Development Canada
+      abbreviation: AANDC
+      # url: http://www.aadnc-aandc.gc.ca
+
+    name: Indigenous and Northern Affairs Canada
+    abbreviation: INAC
+    url: "https://www.canada.ca/en/indigenous-northern-affairs.html"
+
+    wallet:
+      seed: $WALLET_SEED_INAC
+
+    claim_types:
+      - description: Aboriginal Business
+        schema: isc-inac.aboriginal-business
+        issuer_url: $APPLICATION_URL_INAC
+
+
+proof_requests:
+  registration:
+    version: 1.0.0
+    filters:
+      - legal_entity_id
+    schemas:
+      - key:
+          name: pspc-sri.gc-vendor-credential
+          version: 1.0.5
+        attributes:
+          - legal_entity_id
+          - sri_record_id
+          - status
+          - legal_name
+          - org_type
+          - addressee
+          - address_line_1
+          - address_line_2
+          - city
+          - province
+          - postal_code
+          - country
+          - effective_date
+          - end_date

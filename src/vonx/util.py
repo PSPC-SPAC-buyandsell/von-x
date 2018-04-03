@@ -31,7 +31,7 @@ class JsonRepr:
 
 def log_json(heading, data, logger=None):
     if not logger:
-        logger = logging.getLogger()
+        logger = logging.getLogger(__name__)
     msg = """
 ============================================================================
 %s

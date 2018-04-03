@@ -23,6 +23,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 def run_coro(coro):
+    """
+    Run an async coroutine and wait for the results
+    """
     event_loop = None
     try:
         event_loop = asyncio.get_event_loop()
@@ -47,6 +50,9 @@ def run_in_thread(coro):
 
 
 def run_in_executor(executor, coro):
+    """
+    Run an async coroutine in an executor when we aren't already inside an event loop
+    """
     loop = asyncio.new_event_loop()
     def run_sync_loop(loop):
         asyncio.set_event_loop(loop)

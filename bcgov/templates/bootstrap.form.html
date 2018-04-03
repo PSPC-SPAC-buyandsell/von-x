@@ -4,7 +4,7 @@
     <fieldset>
         <legend>{{ title }}</legend>
         {% for field in hidden %}
-            <input type="hidden" name="{{ field.name }}" value="{{ field.value }}">
+            <input type="hidden" name="{{ field }}" value="{{ inputs[field] }}">
         {% endfor %}
         <div class="row">
             <div class="col-md-8 col-md-push-2">

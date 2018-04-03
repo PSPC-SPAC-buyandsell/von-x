@@ -1,5 +1,6 @@
 #
-# Copyright 2017-2018 Government of Canada - Public Services and Procurement Canada - buyandsell.gc.ca
+# Copyright 2017-2018 Government of Canada
+# Public Services and Procurement Canada - buyandsell.gc.ca
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,20 +15,18 @@
 # limitations under the License.
 #
 
-export BUILD=${BUILD:-/opt/app-root}
 
-export APP_NAME=${APP_NAME:-runner}
-export HOST_IP=${HOST_IP:-0.0.0.0}
-export HOST_PORT=${HOST_PORT:-8000}
+from aiohttp import web
 
-CMD="$@"
-if [ -z "$CMD" ]; then
-	if [ -z "$ENABLE_GUNICORN" ]; then
-		CMD="$BUILD/bin/python ${APP_NAME}.py"
-	else
-    CMD="$BUILD/bin/gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py vonx.web:init_web"
-  fi
-fi
 
-echo "Starting server ..."
-exec $CMD
+async def init_web():
+    """
+    Initialize the web server application
+    """
+    from vonx.services import shared
+    from .routes import get_routes
+
+    app = web.Application()
+    app['manager'] = shared.MANAGER
+    app.add_routes(get_routes(app))
+    return app

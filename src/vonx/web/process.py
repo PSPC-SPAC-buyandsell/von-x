@@ -16,10 +16,10 @@
 #
 
 import logging
-from sanic import response
 
-from app import get_issuer_endpoint
-from app.services import issuer
+from aiohttp import web
+
+from vonx.services import issuer
 from . import helpers
 
 LOGGER = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ def load_claim_request(form, request):
     claim = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
-        for attr in form['schema']['attributes']:
+        for attr in form['schema'].attr_names:
             claim[attr] = request.get(attr)
             LOGGER.info("claim %s %s", attr, claim[attr])
     map_attr = mapping.get('attributes') or []
@@ -66,21 +66,24 @@ def load_claim_request(form, request):
 
 
 async def process_form(form, request):
+    #pylint: disable=broad-except
     if form['type'] == 'submit-claim':
         schema_name = form['schema_name']
-        schema_version = form.get('schema-version')
+        schema_version = form.get('schema_version')
         if not schema_name:
-            return response.text("Schema name not defined", status=400)
+            # FIXME should be an internal error
+            return web.Response(reason="Form definition missing 'schema_name'", status=400)
         try:
             LOGGER.info("request %s", request)
-            inputs = request.json
+            inputs = await request.json()
             if isinstance(inputs, dict):
                 inputs = inputs.get('attributes') or {}
             else:
-                inputs = request.form
+                inputs = await request.post()
             params = load_claim_request(form, inputs)
-            #return response.json(params)
-            result = await get_issuer_endpoint(True).request(
+            #return web.json_response(params)
+            service = request.app['manager'].get_service_endpoint('issuer')
+            result = await service.request(
                 issuer.SubmitClaimRequest(schema_name, schema_version, params))
             if isinstance(result, issuer.SubmitClaimResponse):
                 ret = {'success': True, 'result': result.value}
@@ -95,6 +98,5 @@ async def process_form(form, request):
         #    return response.html('<h3>Registration successful</h3>')
         #else:
         #    return response.html('<h3>Registration could not be completed</h3>')
-        return response.json(ret)
-    return response.html('Method not supported', status=405)
-
+        return web.json_response(ret)
+    return web.Response(reason='Method not supported', status=405)

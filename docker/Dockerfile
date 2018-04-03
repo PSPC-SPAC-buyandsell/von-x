@@ -8,8 +8,7 @@ USER indy
 
 ADD src/requirements.txt $HOME/
 
-RUN source bin/activate && \
-    pip --no-cache-dir install -r $HOME/requirements.txt
+RUN $BUILD/bin/pip --no-cache-dir install -r $HOME/requirements.txt
 
 ADD src $HOME/
 ADD docker/docker-entrypoint.sh $BUILD/
@@ -22,7 +21,6 @@ RUN mkdir -p "${wallet_path}" \
     && chmod ug+rwx "${BUILD}/docker-entrypoint.sh"
 USER indy
 
-ENV APP_NAME  agent
 ENV HOST_IP 0.0.0.0
 ENV HOST_PORT 8000
 ENV INDY_GENESIS_PATH "${BUILD}/genesis"
@@ -33,4 +31,4 @@ HEALTHCHECK --interval=60s --timeout=5s --start-period=120s \
 	CMD wget -q --spider http://localhost:${HOST_PORT}/health || exit 1
 
 WORKDIR $HOME
-ENTRYPOINT ["sh", "../docker-entrypoint.sh"]
+ENTRYPOINT ["bash", "../docker-entrypoint.sh"]

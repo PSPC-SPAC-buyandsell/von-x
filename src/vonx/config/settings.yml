@@ -1,0 +1,13 @@
+# default application settings - set SETTINGS_PATH to load additional settings
+# and/or override with environment variables
+# the top-level key is selected by the ENVIRONMENT environment variable
+
+default:
+  # path to the logging config file
+  LOG_CONFIG_PATH: vonx.config:logging.yml
+
+  # default log level
+  LOG_LEVEL: INFO
+
+  # path to where the genesis file will be saved
+  INDY_GENESIS_PATH: /opt/app-root/.genesis

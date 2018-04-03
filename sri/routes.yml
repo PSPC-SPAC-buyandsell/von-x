@@ -1,0 +1,75 @@
+static:
+  assets:
+    target: ../sri/assets
+
+proxy:
+  bc-tob:
+    url: $BC_TOB_API_URL/api/v1
+  pspc-tob:
+    url: $TOB_API_URL/api/v1
+
+forms:
+  women-owned:
+    path: /women-owned
+    type: submit-claim
+    schema_name: pspc-sri.women-owned-supplier
+    page_title: Women-Owned Supplier
+    title: Woman-Owned Business Certification
+    template: sri.index.html
+    description: "Use the form below to obtain a Women-Owned Business Certification for your business."
+    explanation: ""
+
+    proof_request:
+      name: registration
+
+    js_includes:
+      - src: js/sri.js
+
+    hidden:
+      - legal_entity_id
+
+    fields:
+      - name: contact_first_name
+        label: Contact First Name
+        type: text
+        required: true
+
+      - name: contact_last_name
+        label: Contact Last Name
+        type: text
+        required: true
+
+      - name: contact_email_address
+        label: Contact Email Address
+        type: email
+        required: true
+
+      - name: contact_phone_number
+        label: Contact Phone Number
+        type: phone
+        required: true
+
+      - name: legal_name
+        label: Legal Name
+        type: text
+        required: true
+
+      - name: address
+        label: Mailing Address
+        type: address
+        required: true
+
+    mapping:
+      attributes:
+        - name: status
+          from: literal
+          source: Active
+
+        - name: effective_date
+          from: helper
+          source: now
+
+        - name: end_date
+          from: literal
+          source: null
+
