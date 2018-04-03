@@ -25,9 +25,9 @@ import logging
 APP = None
 
 try:
-    from app.services import shared
+    from vonx.services import shared
     shared.MANAGER.start()
-    from app.web import init_web
+    from vonx.web import init_web
     APP = init_web()
 
 except Exception:

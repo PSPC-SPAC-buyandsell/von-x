@@ -154,7 +154,7 @@ pylint() {
   fi
   $PIP install -q -r ../src/requirements.txt
   cd ..
-  $PYLINT src/*.py src/app
+  $PYLINT src/*.py src/vonx
 }
 
 # =================================================================================================================

@@ -19,7 +19,7 @@ import logging
 
 from aiohttp import web
 
-from app.services import issuer
+from vonx.services import issuer
 from . import helpers
 
 LOGGER = logging.getLogger(__name__)

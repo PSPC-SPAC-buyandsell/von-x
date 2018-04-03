@@ -20,7 +20,7 @@ import logging
 
 from aiohttp import web
 
-from app.services import issuer, prover
+from vonx.services import issuer, prover
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def service_request(request, service_name, params):
 
 
 async def index(_request):
-    return web.FileResponse('app/templates/index.html')
+    return web.FileResponse('vonx/templates/index.html')
 
 
 async def health(request):

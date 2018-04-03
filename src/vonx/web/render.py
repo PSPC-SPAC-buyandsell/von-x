@@ -23,7 +23,8 @@ from aiohttp import web
 from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
 from jinja2.ext import Extension
 
-from app.services import prover, shared
+# FIXME - don't import shared here, must allow any ServiceManager to be used
+from vonx.services import prover, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,14 +44,12 @@ class StaticExtension(Extension):
         ], lineno=lineno)
 
 
-# FIXME - don't import shared here, must allow any ServiceManager to be used
-
 def jinja_env():
     tpl_path = shared.ENV.get('TEMPLATE_PATH')
     if not tpl_path:
         tpl_path = os.path.join(shared.MANAGER.config_root, 'templates')
     # load default templates provided by package
-    loader = PackageLoader('app', 'templates')
+    loader = PackageLoader('vonx', 'templates')
     if tpl_path:
         # load custom templates if present
         # may want to use a resource loader if tpl_path looks like a package name (has a colon)

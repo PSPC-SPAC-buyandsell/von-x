@@ -21,14 +21,14 @@ import logging
 from von_agent.schemakey import schema_key_for
 from von_agent.util import encode
 
-import app
-from app.services import eventloop
-from app.services.exchange import ExchangeError, RequestProcessor, RequestExecutor
-from app.services.manager import ServiceManager
-from app.services.schema import Schema
-from app.services.tob import TobClient
-from app.services.von import VonClient
-from app.util import log_json
+import vonx
+from vonx.services import eventloop
+from vonx.services.exchange import ExchangeError, RequestProcessor, RequestExecutor
+from vonx.services.manager import ServiceManager
+from vonx.services.schema import Schema
+from vonx.services.tob import TobClient
+from vonx.services.von import VonClient
+from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ class IssuerManager(RequestProcessor):
             'issuers': self._issuer_status.copy(),
             'orgbook_did': self._orgbook_did,
             'ready': self._ready,
-            'version': app.__version__
+            'version': vonx.__version__
         }
 
     def start(self):

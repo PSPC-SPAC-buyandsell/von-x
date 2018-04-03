@@ -38,7 +38,7 @@ def on_starting(server):
     server.log.debug('importing services')
     # import the shared manager instance before any processes are forked
     # this is necessary for the pipes and locks to be inherited
-    from app.services import shared
+    from vonx.services import shared
     server.service_mgr = shared.MANAGER
 
 def when_ready(server):

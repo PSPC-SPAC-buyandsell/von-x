@@ -71,7 +71,7 @@ class ServiceManager:
         return {}
 
     def load_schemas(self):
-        std = config.load_config('app.config:schemas.yml')
+        std = config.load_config('vonx.config:schemas.yml')
         if std:
             self._schema_mgr.load(std)
         ext = self.load_config_path('SCHEMAS_CONFIG_PATH', 'schemas.yml')

@@ -25,7 +25,7 @@ if [ -z "$CMD" ]; then
 	if [ -z "$ENABLE_GUNICORN" ]; then
 		CMD="$BUILD/bin/python ${APP_NAME}.py"
 	else
-    CMD="$BUILD/bin/gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py app.web:init_web"
+    CMD="$BUILD/bin/gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py vonx.web:init_web"
   fi
 fi
 

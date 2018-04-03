@@ -23,7 +23,7 @@ async def init_web():
     """
     Initialize the web server application
     """
-    from app.services import shared
+    from vonx.services import shared
     from .routes import get_routes
 
     app = web.Application()

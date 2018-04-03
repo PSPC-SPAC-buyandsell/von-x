@@ -48,7 +48,7 @@ def load_settings(env=True):
     settings = {}
 
     # Load default settings
-    with load_resource('app.config:settings.yml') as resource:
+    with load_resource('vonx.config:settings.yml') as resource:
         cfg = yaml.load(resource)
         if 'default' not in cfg:
             raise ValueError('Default settings not found in settings.yml')

@@ -30,7 +30,7 @@ from von_agent.nodepool import NodePool
 from von_agent.schemakey import schema_key_for
 from von_agent.wallet import Wallet
 
-from app.util import log_json
+from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 

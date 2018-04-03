@@ -18,11 +18,11 @@
 import logging
 from random import randint
 
-from app.services.exchange import ExchangeError, RequestExecutor
-from app.services.manager import ServiceManager
-from app.services.tob import TobClient, TobClientError
-from app.services.von import VonClient
-from app.util import log_json
+from vonx.services.exchange import ExchangeError, RequestExecutor
+from vonx.services.manager import ServiceManager
+from vonx.services.tob import TobClient, TobClientError
+from vonx.services.von import VonClient
+from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
