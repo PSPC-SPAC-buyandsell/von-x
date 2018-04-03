@@ -56,7 +56,7 @@ class VonClient:
         wallet = self.wallet_config
         seed = wallet.get('seed')
         if not seed:
-            raise ValueError('Wallet seed not defined for issuer: %s', self.id)
+            raise ValueError('Wallet seed not defined for issuer: {}'.format(self.id))
 
         LOGGER.info('Init VON client %s with seed %s', self.id, seed)
 
@@ -64,12 +64,7 @@ class VonClient:
             self.issuer_did = issuer.did
             LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
             for claim_type in claim_types:
-                schema_def = {
-                    'name': claim_type['schema']['name'],
-                    'version': claim_type['schema']['version'],
-                    'attr_names': claim_type['schema']['attributes']
-                }
-                await self.publish_schema(issuer, schema_def)
+                await self.publish_schema(issuer, claim_type['schema'])
         self.synced = True
         LOGGER.info('VON client synced: %s', self.config['id'])
 
@@ -138,8 +133,8 @@ class VonClient:
         schema_json = await issuer.get_schema(
             schema_key_for({
                 'origin_did': issuer.did,
-                'name': schema['name'],
-                'version': schema['version']
+                'name': schema.name,
+                'version': schema.version
             }))
         ledger_schema = json.loads(schema_json)
 
@@ -147,7 +142,10 @@ class VonClient:
         if ledger_schema:
             log_json('Schema found on ledger:', ledger_schema, LOGGER)
         else:
-            schema_json = await issuer.send_schema(json.dumps(schema))
+            schema_json = await issuer.send_schema(json.dumps({
+                'name': schema.name,
+                'version': schema.version,
+                'attr_names': schema.attr_names}))
             ledger_schema = json.loads(schema_json)
             if not ledger_schema or not ledger_schema.get('seqNo'):
                 raise RuntimeError('Schema was not published to ledger, check DID is registered')

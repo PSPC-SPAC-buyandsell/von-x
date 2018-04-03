@@ -22,40 +22,40 @@ forms:
     explanation: Use the form below to register a BC corporation.
 
     js_includes:
-    - src: js/bc_registries.js
+      - src: js/bc_registries.js
 
     fields:
-    - name: legal_name
-      label: Legal Name
-      type: text
-      required: true
+      - name: legal_name
+        label: Legal Name
+        type: text
+        required: true
 
-    - name: address
-      label: Mailing Address
-      type: address
-      required: true
+      - name: address
+        label: Mailing Address
+        type: address
+        required: true
 
     mapping:
       attributes:
-      - name: legal_entity_id
-        from: helper
-        source: uuid
+        - name: legal_entity_id
+          from: helper
+          source: uuid
 
-      - name: corp_num
-        from: previous
-        source: legal_entity_id
+        - name: corp_num
+          from: previous
+          source: legal_entity_id
 
-      - name: org_type
-        from: literal
-        source: CO
+        - name: org_type
+          from: literal
+          source: CO
 
-      - name: effective_date
-        from: helper
-        source: now
+        - name: effective_date
+          from: helper
+          source: now
 
-      - name: end_date
-        from: literal
-        source: null
+        - name: end_date
+          from: literal
+          source: null
 
   bcreg-dba:
     path: /dba
@@ -75,28 +75,28 @@ forms:
       name: registration
 
     js_includes:
-    - src: js/bc_registries.js
+      - src: js/bc_registries.js
+
+    hidden:
+      - legal_entity_id
 
     fields:
-    - name: doing_business_as_name
-      label: Doing Business As Name
-      type: text
-      required: true
+      - name: doing_business_as_name
+        label: Doing Business As Name
+        type: text
+        required: true
 
-    - name: address
-      label: Mailing Address
-      type: address
-      required: true
+      - name: address
+        label: Mailing Address
+        type: address
+        required: true
 
     mapping:
       attributes:
-      - name: legal_entity_id
-        from: proof
+        - name: effective_date
+          from: helper
+          source: now
 
-      - name: effective_date
-        from: helper
-        source: now
-
-      - name: end_date
-        from: literal
-        source: null
+        - name: end_date
+          from: literal
+          source: null

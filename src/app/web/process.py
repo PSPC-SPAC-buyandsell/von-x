@@ -29,7 +29,7 @@ def load_claim_request(form, request):
     claim = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
-        for attr in form['schema']['attributes']:
+        for attr in form['schema'].attr_names:
             claim[attr] = request.get(attr)
             LOGGER.info("claim %s %s", attr, claim[attr])
     map_attr = mapping.get('attributes') or []
@@ -69,9 +69,10 @@ async def process_form(form, request):
     #pylint: disable=broad-except
     if form['type'] == 'submit-claim':
         schema_name = form['schema_name']
-        schema_version = form.get('schema-version')
+        schema_version = form.get('schema_version')
         if not schema_name:
-            return web.Response(reason='Schema name not defined', status=400)
+            # FIXME should be an internal error
+            return web.Response(reason="Form definition missing 'schema_name'", status=400)
         try:
             LOGGER.info("request %s", request)
             inputs = await request.json()

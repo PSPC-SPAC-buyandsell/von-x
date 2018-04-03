@@ -18,7 +18,7 @@
 import logging
 import os
 
-from . import config, exchange
+from . import config, exchange, schema
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,14 +27,15 @@ class ServiceManager:
     def __init__(self, env):
         self._env = env
         self._exchange = exchange.Exchange()
+        self._executor_cls = exchange.RequestExecutor
+        self._proc_locals = {'pid': os.getpid()}
+        self._schema_mgr = schema.SchemaManager()
         self._services = {}
         self._services_cfg = None
-        self._proc_locals = {'pid': os.getpid()}
-        self._executor_cls = exchange.RequestExecutor
         self.init_services()
 
     def init_services(self):
-        pass
+        self.load_schemas()
 
     def start(self, as_process=True):
         # Run the message processor
@@ -67,6 +68,19 @@ class ServiceManager:
             self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
         if self._services_cfg:
             return self._services_cfg.get(section) or {}
+        return {}
+
+    def load_schemas(self):
+        std = config.load_config('app.config:schemas.yml')
+        if std:
+            self._schema_mgr.load(std)
+        ext = self.load_config_path('SCHEMAS_CONFIG_PATH', 'schemas.yml')
+        if ext:
+            self._schema_mgr.load(ext)
+
+    @property
+    def schema_manager(self):
+        return self._schema_mgr
 
     @property
     def exchange(self) -> exchange.Exchange:

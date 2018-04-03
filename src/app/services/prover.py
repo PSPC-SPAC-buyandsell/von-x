@@ -79,8 +79,10 @@ class ProverManager(RequestExecutor):
         cfg = {
             'genesis_path': self._env.get('INDY_GENESIS_PATH'),
             'ledger_url': self._env.get('INDY_LEDGER_URL'),
-            'wallet_name': 'Generic', # FIXME
-            'wallet_seed': 'verifier-seed-000000000000000000' # FIXME - what seed to use here?
+            'wallet': {
+                'name': 'Generic', # FIXME
+                'seed': 'verifier-seed-000000000000000000' # FIXME - what seed to use here?
+            }
         }
         return VonClient(cfg)
 

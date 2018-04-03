@@ -17,9 +17,10 @@
 
 import logging
 import os
-import pkg_resources
 import re
 import yaml
+
+import pkg_resources
 
 
 def load_resource(path: str):
@@ -74,6 +75,11 @@ def load_settings(env=True):
     for k, v in env.items():
         if v is not None and v != '':
             settings[k] = v
+
+    # Expand variable references
+    for k, v in settings.items():
+        if isinstance(v, str):
+            settings[k] = expand_string_variables(v, settings)
 
     return settings
 

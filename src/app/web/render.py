@@ -17,7 +17,6 @@
 
 import json
 import logging
-import pathlib
 import os
 
 from aiohttp import web
@@ -121,6 +120,10 @@ async def render_form(form, request):
     tpl_vars['inputs'].update(request.query)
     tpl_vars['request'].update(request.query)
     if proof_response and proof_response['success']:
-        tpl_vars['inputs'].update(proof_response['parsed_proof'])
+        if 'inputs' in proof_req:
+            for input_name, claim_name in proof_req['inputs'].items():
+                tpl_vars['inputs'][input_name] = proof_response['parsed_proof'].get(claim_name)
+        else:
+            tpl_vars['inputs'].update(proof_response['parsed_proof'])
     tpl_vars.update(form)
     return web.Response(text=render_template(tpl_name, tpl_vars), content_type='text/html')

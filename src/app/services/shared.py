@@ -39,6 +39,8 @@ logging.config.dictConfig(LOG_CONFIG)
 
 class SharedServiceManager(manager.ServiceManager):
     def init_services(self):
+        super(SharedServiceManager, self).init_services()
+
         # Issuer manager - handles ready, status, submit_claim
         self._services['issuer'] = issuer.init_issuer_manager(self)
 

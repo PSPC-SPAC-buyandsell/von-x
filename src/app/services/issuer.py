@@ -25,6 +25,7 @@ import app
 from app.services import eventloop
 from app.services.exchange import ExchangeError, RequestProcessor, RequestExecutor
 from app.services.manager import ServiceManager
+from app.services.schema import Schema
 from app.services.tob import TobClient
 from app.services.von import VonClient
 from app.util import log_json
@@ -46,8 +47,9 @@ def encode_claim(claim):
 
 def load_claim_request(claim_type, request):
     claim = {}
-    for attr in claim_type['schema']['attributes']:
+    for attr in claim_type['schema'].attr_names:
         claim[attr] = request.get(attr)
+    claim_type['schema'].validate(claim)
     return claim
 
 
@@ -283,8 +285,9 @@ class IssuerService(RequestExecutor):
     These instances are normally initialized by the InstanceManager.
     """
 
-    def __init__(self, service_mgr, spec=None, manager_pid=None):
+    def __init__(self, service_mgr: ServiceManager, spec=None, manager_pid=None):
         self._pid = None
+        self._claim_types = []
         self._config = {}
         self._status = {}
         self._service_mgr = service_mgr
@@ -312,6 +315,9 @@ class IssuerService(RequestExecutor):
             self._status['did'] = self._config['did']
         if 'api_did' in self._config:
             self._orgbook_did = self._config['api_did']
+        if 'claim_types' in spec:
+            self._load_claim_types(spec['claim_types'])
+            self._config['claim_types'] = self._claim_types
 
     def set_api_did(self, did):
         self._orgbook_did = did
@@ -321,6 +327,39 @@ class IssuerService(RequestExecutor):
             self._status.update(update)
         if self._manager_pid and not silent:
             self.send_noreply(self._manager_pid, IssuerStatus(self._status))
+
+    def _load_claim_types(self, values):
+        schema_mgr = self._service_mgr.schema_manager
+        for ctype in values:
+            if 'schema' not in ctype:
+                raise ValueError("Claim type must define 'schema'")
+            if isinstance(ctype['schema'], str):
+                name = ctype['schema']
+                version = None
+                attributes = None
+            elif isinstance(ctype['schema'], dict):
+                name = ctype['schema'].get('name')
+                version = ctype['schema'].get('version')
+                attributes = ctype['schema'].get('attributes')
+            else:
+                raise ValueError('Claim type schema must be string or dict')
+            if not name:
+                raise ValueError("Claim type schema missing 'name'")
+            if not version or not attributes:
+                schema = schema_mgr.find(name, version)
+                if schema:
+                    version = schema.version
+                    attributes = schema.attr_names
+                else:
+                    raise ValueError(
+                        'Schema definition not found: {} {}'.format(name, version))
+            else:
+                schema = Schema(name, version, attributes)
+            self._claim_types.append({
+                'description': ctype.get('description'),
+                'issuer_url': ctype.get('issuer_url'),
+                'schema': schema
+            })
 
     def ready(self):
         return self._status['ready']
@@ -383,12 +422,10 @@ class IssuerService(RequestExecutor):
         return TobClient(cfg)
 
     def find_claim_type_for_schema(self, schema_name, schema_version=None):
-        ctypes = self._config.get('claim_types')
-        if ctypes:
-            for ctype in ctypes:
-                if 'schema' in ctype and ctype['schema']['name'] == schema_name \
-                        and (not schema_version or ctype['schema']['version'] == schema_version):
-                    return ctype
+        for ctype in self._claim_types:
+            if ctype['schema'].name == schema_name \
+                    and (not schema_version or ctype['schema'].version == schema_version):
+                return ctype
         return None
 
     def process(self, from_pid, ident, message, ref):
@@ -413,19 +450,19 @@ class IssuerService(RequestExecutor):
             errmsg = IssuerError('Exception during issuer request handling', True)
             return self.send_noreply(from_pid, errmsg, ident)
 
-    async def _create_issuer_claim_def(self, issuer, schema_def):
-        log_json('Schema definition:', schema_def, LOGGER)
+    async def _create_issuer_claim_def(self, issuer, schema: Schema):
+        LOGGER.debug('Retrieving ledger schema: %s', schema)
 
         # We need schema from ledger
         schema_json = await issuer.get_schema(
             schema_key_for({
                 'origin_did': issuer.did,
-                'name': schema_def['name'],
-                'version': schema_def['version']
+                'name': schema.name,
+                'version': schema.version
             }))
         ledger_schema = json.loads(schema_json)
 
-        log_json('Schema:', ledger_schema, LOGGER)
+        log_json('Found ledger schema:', ledger_schema, LOGGER)
 
         claim_def_json = await issuer.get_claim_def(
             ledger_schema['seqNo'], issuer.did)
@@ -433,18 +470,13 @@ class IssuerService(RequestExecutor):
 
     async def store_claim(self, http_client, claim_type, encoded_claim):
         #pylint: disable=too-many-locals
-        schema_def = {
-            'name': claim_type['schema']['name'],
-            'version': claim_type['schema']['version'],
-            'attr_names': claim_type['schema']['attributes']
-        }
         von_client = self.init_von_client()
         tob_client = self.init_tob_client()
 
         async with await von_client.create_issuer() as von_issuer:
             (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
                 von_issuer,
-                schema_def)
+                claim_type['schema'])
 
             # We create a claim offer
             schema_json = json.dumps(ledger_schema)

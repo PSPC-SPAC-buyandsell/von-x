@@ -18,8 +18,21 @@
 import logging
 
 from aiohttp import web
+from aiohttp.helpers import BasicAuth
 
 LOGGER = logging.getLogger(__name__)
+REMOVE_HEADERS = {
+    'authorization',
+    'connection',
+    'forwarded',
+    'host',
+    'proxy-connection',
+    'via',
+    'x-forwarded-for',
+    'x-forwarded-host',
+    'x-forwarded-port',
+    'x-forwarded-proto',
+}
 
 
 def proxy_handler(proxy):
@@ -34,17 +47,21 @@ def proxy_handler(proxy):
             target_url += '/'
         target_url += path
 
-        headers = request.headers.copy()
-        #if 'x-forwarded-for' in headers:
-        #    headers['x-forwarded-for'] += ', ' + request.ip
-        #else:
-        #    headers['x-forwarded-for'] = request.ip
+        headers = {} # use multidict?
+        for header_name, header_value in request.headers.items():
+            if header_name.lower() not in REMOVE_HEADERS:
+                headers[header_name] = header_value
+        auth = None
+        if 'auth' in proxy and proxy['auth'].get('type') == 'basic':
+            auth = BasicAuth(proxy['auth']['user'], proxy['auth']['password'])
+        # TODO set Forwarded header?
 
         mgr = request.app['manager']
         async with mgr.executor.http as session:
             data = await session.request(
                 request.method,
                 target_url,
+                auth=auth,
                 headers=headers,
                 params=request.query,
                 data=await request.content.read())
