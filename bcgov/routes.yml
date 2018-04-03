@@ -1,6 +1,6 @@
 static:
   assets:
-    target: ../bcreg/assets
+    target: ../bcgov/assets
 
 proxy:
   bc-tob:
