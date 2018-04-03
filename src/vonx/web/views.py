@@ -89,7 +89,6 @@ async def construct_proof(request):
             ret = {'success': False, 'result': result.value}
         else:
             raise ValueError('Unexpected result from prover')
-        return web.json_response(result)
     except Exception as e:
         LOGGER.exception('Error while requesting proof')
         ret = {'success': False, 'result': str(e)}
