@@ -60,6 +60,9 @@ class ProverManager(RequestExecutor):
         self._env = env or {}
         self._orgbook_did = None
         self._request_specs = request_specs or {}
+        for spec_id, spec in self._request_specs.items():
+            if 'name' not in spec:
+                spec['name'] = spec_id
         self._ready = True
 
     def ready(self):
@@ -86,18 +89,15 @@ class ProverManager(RequestExecutor):
         }
         return VonClient(cfg)
 
-    def init_tob_client(self):
+    def init_tob_client(self, url=None):
         cfg = {
-            'api_url': self._env.get('TOB_API_URL')
+            'api_url': url or self._env.get('TOB_API_URL')
         }
         return TobClient(cfg)
 
-    def _prepare_request_json(self, name):
-        spec = self._request_specs.get(name)
-        if not spec:
-            raise ValueError('Proof request not defined: {}'.format(name))
+    def _prepare_request_json(self, spec):
         request_json = {
-            'name': spec.get('name', name),
+            'name': spec['name'],
             'nonce': str(randint(10000000000, 100000000000)),  # FIXME - how best to generate?
             'version': spec['version']
         }
@@ -117,9 +117,13 @@ class ProverManager(RequestExecutor):
         return request_json
 
     async def construct_proof(self, http_client, name, filters):
-        proof_request = self._prepare_request_json(name)
+        spec = self._request_specs.get(name)
+        if not spec:
+            raise ValueError('Proof request not defined: {}'.format(name))
+        proof_request = self._prepare_request_json(spec)
+        tob_uri = spec.get('url')
 
-        tob_client = self.init_tob_client()
+        tob_client = self.init_tob_client(tob_uri)
         von_client = self.init_von_client()
 
         log_json('Requesting proof:', {
