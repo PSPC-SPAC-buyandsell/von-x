@@ -142,7 +142,9 @@ class TobClient:
             })
 
     def get_api_url(self, module=None):
-        url = self.api_url + '/api/v1/'
+        url = self.api_url
+        if not url.endswith('/'):
+            url += '/'
         if module:
             url = url + module
         return url

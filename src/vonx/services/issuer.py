@@ -219,8 +219,8 @@ class IssuerManager(RequestProcessor):
             self._issuers[service.pid] = service
 
     async def _start_issuers(self):
-        LOGGER.info('Starting issuers')
-        sequential = self._env.get('START_SYNC')
+        sequential = not self._env.get('PARALLEL_SYNC', True)
+        LOGGER.info('Starting issuers' + (sequential and ' (sequentially)' or ''))
         for _id, service in self._issuers.items():
             service.set_api_did(self._orgbook_did)
             if sequential:
