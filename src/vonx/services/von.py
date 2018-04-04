@@ -129,6 +129,7 @@ class VonClient:
         """
         Check the ledger for a specific schema and version, and publish it if not found.
         """
+        LOGGER.info('Checking for schema: %s (%s)', schema.name, schema.version)
         # Check if schema exists on ledger
         schema_json = await issuer.get_schema(
             schema_key_for({
@@ -142,6 +143,7 @@ class VonClient:
         if ledger_schema:
             log_json('Schema found on ledger:', ledger_schema, LOGGER)
         else:
+            LOGGER.info('Publishing schema: %s (%s)', schema.name, schema.version)
             schema_json = await issuer.send_schema(json.dumps({
                 'name': schema.name,
                 'version': schema.version,
@@ -152,6 +154,7 @@ class VonClient:
             log_json('Published schema:', ledger_schema, LOGGER)
 
         # Check if claim definition has been published
+        LOGGER.info('Checking for claim def: %s (%s)', schema.name, schema.version)
         claim_def_json = await issuer.get_claim_def(
             ledger_schema['seqNo'], issuer.did)
         claim_def = json.loads(claim_def_json)
@@ -160,6 +163,7 @@ class VonClient:
         if claim_def:
             log_json('Claim def found on ledger:', claim_def, LOGGER)
         else:
+            LOGGER.info('Publishing claim def: %s (%s)', schema.name, schema.version)
             claim_def_json = await issuer.send_claim_def(schema_json)
             claim_def = json.loads(claim_def_json)
             log_json('Published claim def:', claim_def, LOGGER)

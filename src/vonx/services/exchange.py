@@ -43,6 +43,8 @@ class ExchangeError:
         if self.exc_info:
             ret += "\n" + str(self.exc_info)
         return ret
+    def __repr__(self):
+        return 'ExchangeError(value={})'.format(self.value)
 
 
 class Exchange:

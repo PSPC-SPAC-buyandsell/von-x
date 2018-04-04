@@ -157,7 +157,7 @@ class IssuerManager(RequestProcessor):
                 self.send_noreply(self.pid, errmsg)
                 raise
             try:
-                self._start_issuers()
+                await self._start_issuers()
             except Exception:
                 errmsg = IssuerError('Error while starting issuer services', True)
                 self.send_noreply(self.pid, errmsg)
@@ -218,11 +218,16 @@ class IssuerManager(RequestProcessor):
                 self.pid)
             self._issuers[service.pid] = service
 
-    def _start_issuers(self):
+    async def _start_issuers(self):
         LOGGER.info('Starting issuers')
+        sequential = self._env.get('START_SYNC')
         for _id, service in self._issuers.items():
             service.set_api_did(self._orgbook_did)
-            service.start() # or start_process()
+            if sequential:
+                await service.start(True)
+            else:
+                # run init in a separate thread
+                service.start()
 
     def _stop_issuers(self):
         for _id, service in self._issuers.items():
@@ -364,7 +369,7 @@ class IssuerService(RequestExecutor):
     def ready(self):
         return self._status['ready']
 
-    def start(self):
+    def start(self, as_coro=False):
         #pylint: disable=broad-except
         try:
             ret = super(IssuerService, self).start()
@@ -378,7 +383,10 @@ class IssuerService(RequestExecutor):
                     else:
                         LOGGER.exception('Exception during issuer sync:')
             # Start another thread to perform initial sync
-            self.run_task(init())
+            coro = init()
+            if as_coro:
+                return coro
+            self.run_task(coro)
             return ret
         except Exception:
             LOGGER.exception('Error starting issuer service:')
