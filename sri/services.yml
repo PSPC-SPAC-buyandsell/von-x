@@ -15,7 +15,7 @@ issuers:
     claim_types:
       - description: Vendor Credential
         schema: pspc-sri.gc-vendor-credential
-        issuer_url: $APPLICATION_URL_PSPC_CRED
+        issuer_url: $APPLICATION_URL_REGISTER
 
       - description: Green Supplier
         schema: pspc-sri.green-supplier
@@ -70,18 +70,42 @@ issuers:
 
 
 proof_requests:
-  registration:
-    version: 1.0.0
+  sri-registration:
+    version: '1.0.0'
     filters:
       - legal_entity_id
     schemas:
       - key:
           name: pspc-sri.gc-vendor-credential
-          version: 1.0.5
+          version: '1.0.5'
         attributes:
           - legal_entity_id
           - sri_record_id
           - status
+          - legal_name
+          - org_type
+          - addressee
+          - address_line_1
+          - address_line_2
+          - city
+          - province
+          - postal_code
+          - country
+          - effective_date
+          - end_date
+
+  registration:
+    url: $BC_TOB_API_URL
+    version: '1.0.0'
+    filters:
+      - legal_entity_id
+    schemas:
+      - key:
+          name: incorporation.bc_registries
+          version: '1.0.31'
+        attributes:
+          - legal_entity_id
+          - corp_num
           - legal_name
           - org_type
           - addressee

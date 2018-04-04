@@ -4,9 +4,9 @@ static:
 
 proxy:
   bc-tob:
-    url: $BC_TOB_API_URL/api/v1
+    url: $BC_TOB_API_URL
   pspc-tob:
-    url: $TOB_API_URL/api/v1
+    url: $TOB_API_URL
 
 forms:
   women-owned:
@@ -20,7 +20,72 @@ forms:
     explanation: ""
 
     proof_request:
-      name: registration
+      name: sri-registration
+
+    js_includes:
+      - src: js/sri.js
+
+    hidden:
+      - legal_entity_id
+
+    fields:
+      - name: contact_first_name
+        label: Contact First Name
+        type: text
+        required: true
+
+      - name: contact_last_name
+        label: Contact Last Name
+        type: text
+        required: true
+
+      - name: contact_email_address
+        label: Contact Email Address
+        type: email
+        required: true
+
+      - name: contact_phone_number
+        label: Contact Phone Number
+        type: phone
+        required: true
+
+      - name: legal_name
+        label: Legal Name
+        type: text
+        required: true
+
+      - name: address
+        label: Mailing Address
+        type: address
+        required: true
+
+    mapping:
+      attributes:
+        - name: status
+          from: literal
+          source: Active
+
+        - name: effective_date
+          from: helper
+          source: now
+
+        - name: end_date
+          from: literal
+          source: null
+
+
+  aboriginal-business:
+    path: /aboriginal-business
+    type: submit-claim
+    schema_name: isc-inac.aboriginal-business
+    page_title: INAC
+    title: INAC Aboriginal Business Certification
+    template: sri.index.html
+    description: "Use the form below to obtain an Aboriginal Business Certification for your business."
+    explanation: ""
+
+    proof_request:
+      name: sri-registration
 
     js_includes:
       - src: js/sri.js

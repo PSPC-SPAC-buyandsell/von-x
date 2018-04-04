@@ -1,9 +1,13 @@
 default:
+  APPLICATION_URL_INAC: $APPLICATION_URL/aboriginal-business
+  APPLICATION_URL_REGISTER: $SRI_URL/sri/prv/register
   APPLICATION_URL_WOMEN_OWNED: $APPLICATION_URL/women-owned
-  BC_TOB_API_URL: https://devex-von-test.pathfinder.gov.bc.ca/api
-  BC_TOB_APP_URL: https://devex-von-test.pathfinder.gov.bc.ca
-  TOB_API_URL: http://api:8080
+  BC_TOB_API_URL: https://devex-von-dev.pathfinder.gov.bc.ca/api
+  BC_TOB_APP_URL: https://devex-von-dev.pathfinder.gov.bc.ca
+  TOB_API_URL: http://api:8080/api/v1
   TOB_APP_URL: http://localhost:8080
   WALLET_SEED_CISD: pspc-cisd-sri0000000000000000000
   WALLET_SEED_INAC: aandc-inac0000000000000000000000
   WALLET_SEED_PSPC: pspc-ab-sri000000000000000000000
+
+  START_SYNC: 1
