@@ -194,6 +194,8 @@ class IssuerManager(RequestProcessor):
 
     def extend_issuer_spec(self, spec):
         spec = spec.copy() if spec else {}
+        if not 'auto_register' in spec:
+            spec['auto_register'] = self._env.get('AUTO_REGISTER_DID')
         if not 'genesis_path' in spec:
             spec['genesis_path'] = self._env.get('INDY_GENESIS_PATH')
         if not 'ledger_url' in spec:
@@ -220,7 +222,7 @@ class IssuerManager(RequestProcessor):
 
     async def _start_issuers(self):
         sequential = not self._env.get('PARALLEL_SYNC', True)
-        LOGGER.info('Starting issuers' + (sequential and ' (sequentially)' or ''))
+        LOGGER.info('Starting issuers %s', (sequential and ' (sequentially)' or ''))
         for _id, service in self._issuers.items():
             service.set_api_did(self._orgbook_did)
             if sequential:

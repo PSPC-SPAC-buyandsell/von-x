@@ -63,6 +63,13 @@ class VonClient:
         async with await self.create_issuer() as issuer:
             self.issuer_did = issuer.did
             LOGGER.info('%s issuer DID: %s', self.config['id'], self.issuer_did)
+
+            # check DID is registered
+            await self.check_registration(issuer, seed)
+
+            # check endpoint is registered (if any)
+            await self.check_endpoint(issuer)
+
             for claim_type in claim_types:
                 await self.publish_schema(issuer, claim_type['schema'])
         self.synced = True
@@ -79,6 +86,14 @@ class VonClient:
             cfg['name'] = self.id
         if not cfg.get('genesis_path'):
             cfg['genesis_path'] = self.config.get('genesis_path')
+        return cfg
+
+    @property
+    def issuer_config(self):
+        cfg = {}
+        endpoint = self.config.get('endpoint')
+        if endpoint:
+            cfg['endpoint'] = endpoint
         return cfg
 
     async def check_genesis_path(self):
@@ -125,6 +140,61 @@ class VonClient:
             output_file.write(data)
         return True
 
+    async def check_registration(self, issuer, seed=None):
+        """
+        Look up our nym on the ledger and register it if not present.
+        """
+        did = issuer.did
+        LOGGER.debug('Checking DID registration %s', did)
+        nym_json = await issuer.get_nym(did)
+        LOGGER.debug('get_nym result for %s: %s', did, nym_json)
+
+        nym_info = json.loads(nym_json)
+        if not nym_info:
+            if not self.config.get('auto_register'):
+                raise RuntimeError(
+                    'DID is not registered on the ledger and auto-registration disabled')
+
+            ledger_url = self.config.get('ledger_url')
+            if not ledger_url:
+                raise ValueError('Cannot register DID without ledger_url')
+            LOGGER.info('Registering DID %s', did)
+
+            if not seed:
+                raise ValueError('Cannot register DID on ledger without seed')
+
+            async with aiohttp.ClientSession(read_timeout=30) as client:
+                response = await client.post(
+                    '{}/register'.format(ledger_url),
+                    # json={'did': did, 'verkey': issuer.verkey})  - FIXME von_network needs update
+                    json={'seed': seed})
+                if response.status != 200:
+                    raise RuntimeError(
+                        'DID registration failed: {}'.format(await response.text()))
+                nym_info = await response.json()
+                LOGGER.debug('Registration response: %s', nym_info)
+                if not nym_info or not nym_info['did']:
+                    raise RuntimeError(
+                        'DID registration failed: {}'.format(nym_info))
+
+    async def check_endpoint(self, issuer):
+        """
+        Look up our endpoint on the ledger and register it if not present.
+        """
+        endpoint = self.config.get('endpoint')
+        if not endpoint:
+            return None
+        did = issuer.did
+        LOGGER.debug('Checking endpoint registration %s', endpoint)
+        endp_json = await issuer.get_endpoint(did)
+        LOGGER.debug('get_endpoint result for %s: %s', did, endp_json)
+
+        endp_info = json.loads(endp_json)
+        if not endp_info:
+            endp_info = await issuer.send_endpoint()
+            LOGGER.debug('Endpoint stored: %s', endp_info)
+        return endp_info
+
     async def publish_schema(self, issuer, schema):
         """
         Check the ledger for a specific schema and version, and publish it if not found.
@@ -150,7 +220,7 @@ class VonClient:
                 'attr_names': schema.attr_names}))
             ledger_schema = json.loads(schema_json)
             if not ledger_schema or not ledger_schema.get('seqNo'):
-                raise RuntimeError('Schema was not published to ledger, check DID is registered')
+                raise RuntimeError('Schema was not published to ledger')
             log_json('Published schema:', ledger_schema, LOGGER)
 
         # Check if claim definition has been published
@@ -173,7 +243,7 @@ class VonClient:
         # retrieve genesis transaction if necessary
         await self.check_genesis_path()
         if not self._issuer:
-            self._issuer = Agent(self.wallet_config, VonIssuer, 'Issuer')
+            self._issuer = Agent(self.wallet_config, VonIssuer, 'Issuer', self.issuer_config)
             self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
         return self._issuer
 
@@ -197,7 +267,7 @@ class VonClient:
 
 
 class Agent:
-    def __init__(self, wallet_config, instance_cls, issuer_type):
+    def __init__(self, wallet_config, instance_cls, issuer_type, ext_cfg=None):
         if not wallet_config:
             raise ValueError('Empty wallet configuration')
         wallet_seed = wallet_config.get('seed')
@@ -222,6 +292,7 @@ class Agent:
             self._pool,
             wallet_seed,
             wallet_name + '-' + issuer_type + '-Wallet')
+        self._ext_cfg = ext_cfg
         self._opened = None
         self._keep_open = False
 
@@ -232,8 +303,7 @@ class Agent:
         if self._opened:
             return self._opened
         await self._pool.open()
-        self._instance = self._instance_cls(
-            await self._wallet.create())
+        self._instance = self._instance_cls(await self._wallet.create(), self._ext_cfg)
         self._opened = await self._instance.open()
         if isinstance(self._instance, VonHolderProver):
             # seems odd
