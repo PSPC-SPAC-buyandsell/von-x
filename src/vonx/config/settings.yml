@@ -11,3 +11,6 @@ default:
 
   # path to where the genesis file will be saved
   INDY_GENESIS_PATH: /opt/app-root/.genesis
+
+  # whether to automatically register DIDs with the ledger
+  AUTO_REGISTER_DID: True
