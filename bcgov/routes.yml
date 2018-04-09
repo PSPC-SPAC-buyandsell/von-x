@@ -1,14 +1,19 @@
 static:
-  assets:
+  bc-assets:
+    path: /bcreg/assets
     target: ../bcgov/assets
 
 proxy:
   bc-tob:
     url: $TOB_API_URL/api/v1
 
+issuers:
+  BC-REG:
+    path: /bcreg
+
 forms:
   bcreg-incorp:
-    path: /incorporation
+    path: /bcreg/incorporation
     type: submit-claim
     schema_name: incorporation.bc_registries
     page_title: BC Corporate Registry
@@ -58,7 +63,7 @@ forms:
           source: null
 
   bcreg-dba:
-    path: /dba
+    path: /bcreg/dba
     type: submit-claim
     schema_name: doing_business_as.bc_registries
     page_title: BC Corporate Registry
