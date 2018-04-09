@@ -126,20 +126,22 @@ class TobClient:
         claim_types = await self.fetch_list(http_client, 'verifiableclaimtypes')
         for type_spec in claim_type_specs:
             schema = type_spec['schema']
+            found = False
             for claim_type in claim_types:
                 if claim_type['schemaName'] == schema.name and \
                         claim_type['schemaVersion'] == schema.version and \
-                        claim_type['issuerServiceId'] == self.issuer_service_id:
-                    # skip creation
+                        str(claim_type['issuerServiceId']) == str(self.issuer_service_id):
+                    found = True
                     break
-            await self.post_json(http_client, 'verifiableclaimtypes', {
-                'claimType':        type_spec.get('description') or schema.name,
-                'issuerServiceId':  self.issuer_service_id,
-                'issuerURL':        type_spec.get('issuer_url') or issuer_url,
-                'effectiveDate':    current_date(),
-                'schemaName':       schema.name,
-                'schemaVersion':    schema.version
-            })
+            if not found:
+                await self.post_json(http_client, 'verifiableclaimtypes', {
+                    'claimType':        type_spec.get('description') or schema.name,
+                    'issuerServiceId':  self.issuer_service_id,
+                    'issuerURL':        type_spec.get('issuer_url') or issuer_url,
+                    'effectiveDate':    current_date(),
+                    'schemaName':       schema.name,
+                    'schemaVersion':    schema.version
+                })
 
     def get_api_url(self, module=None):
         url = self.api_url
