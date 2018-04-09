@@ -33,8 +33,8 @@ def get_standard_routes(_app):
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
-        web.post('/construct-proof', views.construct_proof),
-        web.post('/submit-claim', views.submit_claim),
+        #web.post('/construct-proof', views.construct_proof),
+        #web.post('/submit-claim', views.submit_claim),
         #web.get('/hello', views.hello),
     ]
 
@@ -50,6 +50,7 @@ def get_routes(app):
 class RouteDefinitions:
     def __init__(self):
         self.forms = []
+        self.issuers = []
         self.paths = []
         self.proxies = []
         self.static = []
@@ -71,6 +72,10 @@ class RouteDefinitions:
     def add_form(self, form):
         self.add_paths(form['path'])
         self.forms.append(form)
+
+    def add_issuer(self, issuer):
+        self.add_paths(issuer['path'])
+        self.issuers.append(issuer)
 
     def add_proxy(self, proxy):
         self.add_paths(proxy['path'])
@@ -96,6 +101,14 @@ class RouteDefinitions:
         forms = config.get('forms') or {}
         self.load_form_definitions(forms, manager, limit_forms)
 
+        limit_issuers = manager.env.get('ISSUERS')
+        limit_issuers = limit_forms.split() \
+            if (limit_issuers and limit_issuers != 'all') \
+            else None
+
+        issuers = config.get('issuers') or {}
+        self.load_issuer_definitions(issuers, manager, limit_issuers)
+
         proxy = config.get('proxy') or {}
         self.load_proxy_definitions(proxy)
 
@@ -115,6 +128,17 @@ class RouteDefinitions:
                 form['path'] = '/' + form['name']
             expand_form_definition(form, manager)
             self.add_form(form)
+
+    def load_issuer_definitions(self, config: dict, manager, limit_issuers=None):
+        for issuer_id, issuer in config.items():
+            if limit_issuers is not None and issuer_id not in limit_issuers:
+                continue
+            issuer_id = issuer['id'] = issuer.get('id', issuer_id)
+            if not 'name' in issuer:
+                issuer['name'] = issuer_id
+            if not issuer.get('path'):
+                issuer['path'] = '/' + issuer['name']
+            self.add_issuer(issuer)
 
     def load_static_definitions(self, config: dict):
         for static_id, static in config.items():
@@ -145,6 +169,13 @@ class RouteDefinitions:
         routes.extend(
             web.view(form['path'], form_handler(form), name=form['name'])
             for form in self.forms)
+
+        routes.extend(
+            web.view(issuer['path'] + '/submit-claim', views.submit_claim, name=issuer['name']+'-submit-claim')
+            for issuer in self.issuers)
+        routes.extend(
+            web.view(issuer['path'] + '/construct-proof', views.construct_proof, name=issuer['name']+'-construct-proof')
+            for issuer in self.issuers)
 
         routes.extend(
             web.view(proxy['path']+'/{path:.*}', proxy_handler(proxy), name=proxy['name'])

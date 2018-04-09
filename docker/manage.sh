@@ -127,10 +127,9 @@ getStartupParams() {
 
 build() {
   # Build python-libindy-alpine image used as a base
-  echo -e "\nBuilding python-libindy-alpine image ..."
-  docker build \
-    -t 'python-libindy-alpine' \
-    'https://github.com/cywolf/python-libindy-alpine.git'
+  echo -e "\nBuilding python-libindy-slim image ..."
+  docker build -t 'python-libindy-slim' \
+    'https://github.com/cywolf/python-libindy-slim.git'
 
   # Build all containers in the docker-compose file
   echo -e "\nBuilding containers ..."
