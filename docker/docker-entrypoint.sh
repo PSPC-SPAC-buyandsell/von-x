@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-export BUILD=${BUILD:-/opt/app-root}
-
 export APP_NAME=${APP_NAME:-runner}
 export HOST_IP=${HOST_IP:-0.0.0.0}
 export HOST_PORT=${HOST_PORT:-8000}
@@ -23,9 +21,9 @@ export HOST_PORT=${HOST_PORT:-8000}
 CMD="$@"
 if [ -z "$CMD" ]; then
 	if [ -z "$ENABLE_GUNICORN" ]; then
-		CMD="$BUILD/bin/python ${APP_NAME}.py"
+		CMD="python ${APP_NAME}.py"
 	else
-    CMD="$BUILD/bin/gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py vonx.web:init_web"
+    CMD="gunicorn --bind ${HOST_IP}:${HOST_PORT} -c gunicorn_config.py vonx.web:init_web"
   fi
 fi
 
