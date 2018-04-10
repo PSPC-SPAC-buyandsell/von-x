@@ -1,5 +1,9 @@
 static:
-  assets:
+  sri-assets:
+    path: /sri-reg/assets
+    target: ../sri/assets
+  inac-assets:
+    path: /inac/assets
     target: ../sri/assets
 
 proxy:
@@ -8,9 +12,15 @@ proxy:
   pspc-tob:
     url: $TOB_API_URL
 
+issuers:
+  SRI-REG:
+    path: /sri-reg
+  SRI-INAC:
+    path: /inac
+
 forms:
   women-owned:
-    path: /women-owned
+    path: /sri-reg/women-owned
     type: submit-claim
     schema_name: pspc-sri.women-owned-supplier
     page_title: Women-Owned Supplier
@@ -21,6 +31,8 @@ forms:
 
     proof_request:
       name: sri-registration
+      filters:
+        legal_entity_id: org_id
 
     js_includes:
       - src: js/sri.js
@@ -75,7 +87,7 @@ forms:
 
 
   aboriginal-business:
-    path: /aboriginal-business
+    path: /inac/aboriginal-business
     type: submit-claim
     schema_name: isc-inac.aboriginal-business
     page_title: INAC
@@ -86,6 +98,8 @@ forms:
 
     proof_request:
       name: sri-registration
+      filters:
+        legal_entity_id: org_id
 
     js_includes:
       - src: js/sri.js

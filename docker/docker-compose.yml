@@ -14,6 +14,9 @@ services:
       ISSUERS: ${ISSUERS:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
       PYTHON_ENV: ${PYTHON_ENV:-development}
+      SRI_URL: ${SRI_URL:-}
+      BC_TOB_API_URL: ${BC_TOB_API_URL:-}
+      BC_TOB_APP_URL: ${BC_TOB_APP_URL:-}
       TOB_API_URL: ${TOB_API_URL:-}
       TOB_APP_URL: ${TOB_APP_URL:-}
       TOB_INDY_DID: ${TOB_INDY_DID:-}
@@ -29,7 +32,7 @@ services:
       - ../sri:/opt/app-root/sri
       - sri-agent-wallet:/opt/app-root/src/.indy_client/wallet
     ports:
-      - 5000:8000
+      - ${WEB_HTTP_PORT:-5000}:8000
 
 volumes:
   sri-agent-wallet:

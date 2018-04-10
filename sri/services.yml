@@ -23,7 +23,7 @@ issuers:
 
       - description: Women-Owned Supplier
         schema: pspc-sri.women-owned-supplier
-        issuer_url: $APPLICATION_URL_PSPC_WO
+        issuer_url: $APPLICATION_URL_WOMEN_OWNED
 
       - description: Vendor Performance Evaluation
         schema: pspc-sri.gc-vendor-performance
