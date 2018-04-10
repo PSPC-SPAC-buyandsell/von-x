@@ -85,12 +85,21 @@ async def render_form(form, request):
         proof_spec = specs.get(proof_name)
         if not proof_spec:
             raise ValueError('Unknown proof request: {}'.format(proof_name))
+
+        inputs = {}
+        if 'filters' in proof_req:
+            for attr_name, param_name in proof_req['filters'].items():
+                val = request.query.get(param_name)
+                if val is not None and val != '':
+                    inputs[attr_name] = val
+
         filters = {}
         for attr_name in proof_spec['filters']:
-            val = request.query.get(attr_name)
+            val = inputs.get(attr_name)
             if val is None:
                 return web.Response(text='Missing value for filter: {}'.format(attr_name))
             filters[attr_name] = val
+
         try:
             service = request.app['manager'].get_service_endpoint('prover')
             result = await service.request(
