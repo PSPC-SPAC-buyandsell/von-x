@@ -134,4 +134,6 @@ async def render_form(form, request):
         else:
             tpl_vars['inputs'].update(proof_response['parsed_proof'])
     tpl_vars.update(form)
+    tpl_vars['path'] = request.rel_url
+
     return web.Response(text=render_template(tpl_name, tpl_vars), content_type='text/html')

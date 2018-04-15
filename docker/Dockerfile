@@ -1,12 +1,12 @@
-FROM python-libindy-slim:latest
+FROM von-indy:alpine
 
 WORKDIR $HOME
 
-ADD src/requirements.txt $HOME/src/
+ADD --chown=indy:indy src/requirements.txt $HOME/src/
 
 RUN pip --no-cache-dir install -r src/requirements.txt
 
-ADD . $HOME
+ADD --chown=indy:indy . $HOME
 
 USER root
 ARG wallet_path="${HOME}/.indy_client/wallet"
