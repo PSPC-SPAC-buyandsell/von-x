@@ -97,6 +97,7 @@ configureEnvironment () {
 
   export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-"vonx"}
   export LEDGER_URL=${LEDGER_URL-http://$DOCKERHOST:9000}
+  export APPLICATION_URL=${APPLICATION_URL-http://localhost:${WEB_HTTP_PORT:-5000}}
 }
 
 getStartupParams() {
@@ -127,9 +128,9 @@ getStartupParams() {
 
 build() {
   # Build python-libindy-alpine image used as a base
-  echo -e "\nBuilding python-libindy-slim image ..."
-  docker build -t 'python-libindy-slim' \
-    'https://github.com/cywolf/python-libindy-slim.git'
+  echo -e "\nBuilding von-indy:alpine image ..."
+  docker build -t 'von-indy:alpine' \
+    'https://github.com/cywolf/von-indy.git#master:alpine'
 
   # Build all containers in the docker-compose file
   echo -e "\nBuilding containers ..."

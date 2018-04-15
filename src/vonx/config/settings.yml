@@ -14,3 +14,6 @@ default:
 
   # whether to automatically register DIDs with the ledger
   AUTO_REGISTER_DID: True
+
+  # base path prepended to all paths
+  WEB_BASE_HREF: /

@@ -23,10 +23,19 @@ async def init_web():
     """
     Initialize the web server application
     """
-    from vonx.services import shared
+    from vonx.services.shared import MANAGER as mgr
     from .routes import get_routes
 
+    base = mgr.env.get('WEB_BASE_HREF', '/')
+
     app = web.Application()
-    app['manager'] = shared.MANAGER
+    app['base_href'] = base
+    app['manager'] = mgr
     app.add_routes(get_routes(app))
-    return app
+
+    if base != '/':
+        root_app = web.Application()
+        root_app.add_subapp(base, app)
+        return root_app
+    else:
+        return app
