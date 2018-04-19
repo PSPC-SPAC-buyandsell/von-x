@@ -29,10 +29,6 @@ class TobClientError(Exception):
         self.response = response
 
 
-def current_date():
-    return datetime.now().strftime("%Y-%m-%d")
-
-
 class TobClient:
     def __init__(self, config=None):
         self.config = {}
@@ -50,98 +46,61 @@ class TobClient:
         if not self.issuer_did:
             raise ValueError("Missing issuer DID")
 
-        await self.sync_jurisdiction(http_client)
-        LOGGER.debug('synced jurisdiction')
-        await self.sync_issuer_service(http_client)
-        await self.sync_claim_types(http_client)
+        await self.register_issuer(http_client)
 
         self.synced = True
         LOGGER.info('TOB client synced: %s', self.config['id'])
 
-    async def sync_jurisdiction(self, client):
+    async def register_issuer(self, client):
+        """
+        Submit the issuer JSON definition to TheOrgBook to register our service
+        """
+        spec = self.assemble_issuer_spec()
+        response = await self.post_json(client, 'bcovrin/register-issuer', spec)
+        result = response['result']
+        if not response['success']:
+            raise TobClientError(
+                400,
+                'Issuer service was not registered: {}'.format(result),
+                response)
+        self.jurisdiction_id = result['jurisdiction']['id']
+        self.issuer_service_id = result['issuer']['id']
+        return result
+
+    def assemble_issuer_spec(self):
+        """
+        Create the issuer JSON definition which will be submitted to TheOrgBook
+        """
+        issuer_spec = {}
+
         jurisdiction_spec = self.config.get('jurisdiction')
         if not jurisdiction_spec or not 'name' in jurisdiction_spec:
             raise ValueError('Missing jurisdiction.name')
+        issuer_spec['jurisdiction'] = jurisdiction_spec
 
-        # Check if my jurisdiction exists by name
-        jurisdictions = await self.fetch_list(client, 'jurisdictions')
-
-        for jurisdiction in jurisdictions:
-            if jurisdiction['name'] == jurisdiction_spec['name']:
-                self.jurisdiction_id = jurisdiction['id']
-                break
-
-        # If it doesn't, then create it
-        if not self.jurisdiction_id:
-            jurisdiction = await self.post_json(client, 'jurisdictions', {
-                'name':  jurisdiction_spec['name'],
-                'abbrv': jurisdiction_spec.get('abbreviation'),
-                'displayOrder':   0,
-                'isOnCommonList': True,
-                'effectiveDate':  current_date()
-            })
-            self.jurisdiction_id = jurisdiction['id']
-        return self.jurisdiction_id
-
-    async def sync_issuer_service(self, client):
-        if not self.jurisdiction_id:
-            raise ValueError("Cannot sync issuer service: jurisdiction_id not populated")
-        issuer_name = self.config.get('name', '')
-        issuer_abbr = self.config.get('abbreviation', '')
-        issuer_url = self.config.get('url', '')
-        if not issuer_name:
+        issuer_spec['issuer'] = {
+            'did': self.issuer_did,
+            'name': self.config.get('name', ''),
+            'abbreviation': self.config.get('abbreviation', ''),
+            'endpoint': self.config.get('url', '')
+        }
+        if not issuer_spec['issuer']['name']:
             raise ValueError('Missing issuer name')
 
-        # Check if my issuer record exists by name
-        issuer_services = await self.fetch_list(client, 'issuerservices')
-        for issuer_service in issuer_services:
-            if issuer_service['name'] == issuer_name and \
-                    issuer_service['DID'] == self.issuer_did:
-                self.issuer_service_id = issuer_service['id']
-                break
-
-        # If it doesn't, then create it
-        if not self.issuer_service_id:
-            issuer_service = await self.post_json(client, 'issuerservices', {
-                'name':           issuer_name,
-                'DID':            self.issuer_did,
-                'issuerOrgTLA':   issuer_abbr,
-                'issuerOrgURL':   issuer_url,
-                'effectiveDate':  current_date(),
-                'jurisdictionId': self.jurisdiction_id
-            })
-            self.issuer_service_id = issuer_service['id']
-        return self.issuer_service_id
-
-    async def sync_claim_types(self, http_client):
-        if not self.issuer_service_id:
-            raise ValueError("Cannot sync claim types: issuer_service_id not populated")
         claim_type_specs = self.config.get('claim_types')
         if not claim_type_specs:
             raise ValueError("Missing claim_types")
-        issuer_url = self.config.get('url', '')
-
-        # Register in TheOrgBook
-        # Check if my schema record exists by claimType
-        claim_types = await self.fetch_list(http_client, 'verifiableclaimtypes')
+        ctypes = []
         for type_spec in claim_type_specs:
             schema = type_spec['schema']
-            found = False
-            for claim_type in claim_types:
-                if claim_type['schemaName'] == schema.name and \
-                        claim_type['schemaVersion'] == schema.version and \
-                        str(claim_type['issuerServiceId']) == str(self.issuer_service_id):
-                    found = True
-                    break
-            if not found:
-                await self.post_json(http_client, 'verifiableclaimtypes', {
-                    'claimType':        type_spec.get('description') or schema.name,
-                    'issuerServiceId':  self.issuer_service_id,
-                    'issuerURL':        type_spec.get('issuer_url') or issuer_url,
-                    'effectiveDate':    current_date(),
-                    'schemaName':       schema.name,
-                    'schemaVersion':    schema.version
-                })
+            ctypes.append({
+                'name': type_spec.get('description') or schema.name,
+                'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['endpoint'],
+                'schema': schema.name,
+                'version': schema.version
+            })
+        issuer_spec['claim-types'] = ctypes
+        return issuer_spec
 
     def get_api_url(self, module=None):
         url = self.api_url
