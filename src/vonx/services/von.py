@@ -21,6 +21,8 @@ import pathlib
 import uuid
 
 import aiohttp
+from didauth.aiohttp import SignedRequestAuth
+from didauth.indy import seed_to_did
 from von_agent.agents import \
     _BaseAgent, \
     Issuer as VonIssuer, \
@@ -256,14 +258,22 @@ class VonClient:
         return self._verifier
 
     async def resolve_did_from_seed(self, seed):
-        cfg = {
-            'genesis_path': await self.check_genesis_path(),
-            'name': 'SeedResolve',
-            'seed': seed
-        }
-        async with Agent(cfg, _BaseAgent, 'Util') as agent:
-            agent_did = agent.did
-        return agent_did
+        #cfg = {
+        #    'genesis_path': await self.check_genesis_path(),
+        #    'name': 'SeedResolve',
+        #    'seed': seed
+        #}
+        #async with Agent(cfg, _BaseAgent, 'Util') as agent:
+        #    agent_did = agent.did
+        #return agent_did
+        return seed_to_did(seed)
+
+    def get_did_auth(self, header_list=None):
+        wallet = self.wallet_config
+        seed = wallet.get('seed')
+        if self.issuer_did and seed:
+            secret = seed.encode('ascii')
+            return SignedRequestAuth(self.issuer_did, 'ed25519', secret, header_list)
 
 
 class Agent:

@@ -18,6 +18,9 @@
 import json
 import logging
 
+import aiohttp
+from didauth.aiohttp import SignedRequest
+
 from von_agent.schemakey import schema_key_for
 from von_agent.util import encode
 
@@ -296,6 +299,7 @@ class IssuerService(RequestExecutor):
         self._pid = None
         self._claim_types = []
         self._config = {}
+        self._did_auth = None
         self._status = {}
         self._service_mgr = service_mgr
         self._manager_pid = manager_pid
@@ -407,6 +411,7 @@ class IssuerService(RequestExecutor):
                 'ledger': von_client.synced
             })
             if von_client.synced:
+                self._did_auth = von_client.get_did_auth()
                 tob_client = self.init_tob_client()
                 async with self.http as http_client:
                     await tob_client.sync(http_client)
@@ -419,6 +424,16 @@ class IssuerService(RequestExecutor):
         except Exception:
             self._update_status({'ready': False, 'syncing': False})
             raise
+
+    def http_client(self, *args, **kwargs):
+        if 'request_class' not in kwargs:
+            kwargs['request_class'] = SignedRequest
+        if self._did_auth and not 'auth' in kwargs:
+            kwargs['auth'] = self._did_auth
+        return aiohttp.ClientSession(*args, **kwargs)
+
+    def did_auth(self):
+        return self._did_auth
 
     def init_von_client(self):
         if not self._von_client:
