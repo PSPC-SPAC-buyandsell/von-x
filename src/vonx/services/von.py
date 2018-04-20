@@ -272,8 +272,9 @@ class VonClient:
         wallet = self.wallet_config
         seed = wallet.get('seed')
         if self.issuer_did and seed:
+            key_id = 'did:sov:{}'.format(self.issuer_did)
             secret = seed.encode('ascii')
-            return SignedRequestAuth(self.issuer_did, 'ed25519', secret, header_list)
+            return SignedRequestAuth(key_id, 'ed25519', secret, header_list)
 
 
 class Agent:
