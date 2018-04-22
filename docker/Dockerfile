@@ -1,4 +1,4 @@
-FROM von-indy:alpine
+FROM von-image:py35-latest
 
 WORKDIR $HOME
 

@@ -127,10 +127,13 @@ getStartupParams() {
 }
 
 build() {
-  # Build python-libindy-alpine image used as a base
-  echo -e "\nBuilding von-indy:alpine image ..."
-  docker build -t 'von-indy:alpine' \
-    'https://github.com/cywolf/von-indy.git#master:alpine'
+  # Build von-image image used as a base
+    if [ -n "$INDY_RELEASE" ]; then
+      INDY_BUILD_FLAGS="--build-arg indy_build_flags=--release"
+    fi
+    echo -e "\nBuilding von-image ..."
+    docker build -t 'von-image:py35-latest' $INDY_BUILD_FLAGS \
+      'https://github.com/PSPC-SPAC-buyandsell/von-image.git#master:stable'
 
   # Build all containers in the docker-compose file
   echo -e "\nBuilding containers ..."
