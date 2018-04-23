@@ -8,7 +8,8 @@ issuers:
     abbreviation: BCReg
     url: "https://www2.gov.bc.ca/gov/content/governments/organizational-structure/\
       ministries-organizations/ministries/citizens-services/bc-registries-online-services"
-    endpoint: $APPLICATION_URL
+    email: bcreg.test.issuer@example.ca
+    url: $APPLICATION_URL
 
     wallet:
       seed: $WALLET_SEED_BCREG

@@ -72,6 +72,9 @@ class TobClient:
         Create the issuer JSON definition which will be submitted to TheOrgBook
         """
         issuer_spec = {}
+        issuer_email = self.config.get('email')
+        if not issuer_email:
+            raise ValueError('Missing issuer email address')
 
         jurisdiction_spec = self.config.get('jurisdiction')
         if not jurisdiction_spec or not 'name' in jurisdiction_spec:
@@ -79,10 +82,11 @@ class TobClient:
         issuer_spec['jurisdiction'] = jurisdiction_spec
 
         issuer_spec['issuer'] = {
-            'did': self.issuer_did,
+            'didd': self.issuer_did,
             'name': self.config.get('name', ''),
             'abbreviation': self.config.get('abbreviation', ''),
-            'endpoint': self.config.get('url', '')
+            'email': issuer_email,
+            'url': self.config.get('url', '')
         }
         if not issuer_spec['issuer']['name']:
             raise ValueError('Missing issuer name')
@@ -95,7 +99,7 @@ class TobClient:
             schema = type_spec['schema']
             ctypes.append({
                 'name': type_spec.get('description') or schema.name,
-                'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['endpoint'],
+                'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['url'],
                 'schema': schema.name,
                 'version': schema.version
             })
