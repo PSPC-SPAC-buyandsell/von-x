@@ -1,4 +1,4 @@
-FROM von-image:py35-latest
+FROM von-image:py36-latest
 
 WORKDIR $HOME
 

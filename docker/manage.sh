@@ -127,13 +127,13 @@ getStartupParams() {
 }
 
 build() {
-  # Build von-image image used as a base
-    if [ -n "$INDY_RELEASE" ]; then
-      INDY_BUILD_FLAGS="--build-arg indy_build_flags=--release"
-    fi
-    echo -e "\nBuilding von-image ..."
-    docker build -t 'von-image:py35-latest' $INDY_BUILD_FLAGS \
-      'https://github.com/PSPC-SPAC-buyandsell/von-image.git#master:stable'
+  # Build von-image base docker image
+  if [ -n "$INDY_RELEASE" ]; then
+    INDY_BUILD_FLAGS="--build-arg indy_build_flags=--release"
+  fi
+  echo -e "\nBuilding von-image ..."
+  docker build -t 'von-image:py36-latest' --build-arg python_version=3.6.3 $INDY_BUILD_FLAGS \
+    'https://github.com/PSPC-SPAC-buyandsell/von-image.git#master:stable'
 
   # Build all containers in the docker-compose file
   echo -e "\nBuilding containers ..."
@@ -142,11 +142,11 @@ build() {
 }
 
 pylint() {
-  PYTHON=$(which python3.5 || which python)
+  PYTHON=$(which python3 || which python)
   if [ -z "$PYTHON" ]; then
     echo -e "python executable could not be located"
   fi
-  PIP=$(which pip3.5 || which pip)
+  PIP=$(which pip3 || which pip)
   if [ -z "$PIP" ]; then
     echo -e "pip executable could not be located"
   fi
