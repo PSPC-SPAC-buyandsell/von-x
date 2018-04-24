@@ -82,7 +82,7 @@ class TobClient:
         issuer_spec['jurisdiction'] = jurisdiction_spec
 
         issuer_spec['issuer'] = {
-            'didd': self.issuer_did,
+            'did': self.issuer_did,
             'name': self.config.get('name', ''),
             'abbreviation': self.config.get('abbreviation', ''),
             'email': issuer_email,
