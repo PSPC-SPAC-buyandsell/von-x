@@ -1,4 +1,4 @@
-FROM andrewwhitehead/von-image:py36-indy1.3.1-dev-408
+FROM andrewwhitehead/von-image:py36-1.0rc1
 
 WORKDIR $HOME
 
@@ -9,11 +9,12 @@ RUN pip --no-cache-dir install -r src/requirements.txt
 ADD --chown=indy:indy . $HOME
 
 USER root
-ARG wallet_path="${HOME}/.indy_client/wallet"
-RUN mkdir -p "${wallet_path}" \
-    && chown -R indy:0 "${HOME}" \
-    && chmod -R ug+rw "${HOME}" \
-    && chmod ug+x "${HOME}/docker/docker-entrypoint.sh"
+ARG client_path="${HOME}/.indy_client"
+ARG entrypoint="${HOME}/docker/docker-entrypoint.sh"
+RUN mkdir -p "${client_path}/wallet" \
+    && chown -R indy:indy "${client_path}" \
+    && chmod -R ug+rw "${client_path}" \
+    && chmod ug+x "${entrypoint}"
 USER indy
 
 ENV HOST_IP 0.0.0.0

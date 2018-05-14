@@ -21,16 +21,21 @@ import pathlib
 import uuid
 
 import aiohttp
-from didauth.aiohttp import SignedRequestAuth
+from didauth.ext.aiohttp import SignedRequestAuth
 from didauth.indy import seed_to_did
-from von_agent.agents import \
-    _BaseAgent, \
-    Issuer as VonIssuer, \
-    HolderProver as VonHolderProver, \
-    Verifier as VonVerifier
+from von_agent.agents import (
+    _BaseAgent,
+    Issuer as VonIssuer,
+    HolderProver as VonHolderProver,
+    Verifier as VonVerifier)
 from von_agent.nodepool import NodePool
-from von_agent.schemakey import schema_key_for
 from von_agent.wallet import Wallet
+from von_agent.util import (
+    cred_def_id,
+    creds_for,
+    revealed_attrs,
+    schema_id,
+    schema_key)
 
 from vonx.util import log_json
 
@@ -203,12 +208,9 @@ class VonClient:
         """
         LOGGER.info('Checking for schema: %s (%s)', schema.name, schema.version)
         # Check if schema exists on ledger
-        schema_json = await issuer.get_schema(
-            schema_key_for({
-                'origin_did': issuer.did,
-                'name': schema.name,
-                'version': schema.version
-            }))
+        s_key = schema_key(schema_id(issuer.did, schema.name, schema.version))
+        LOGGER.info('%s', s_key)
+        schema_json = await issuer.get_schema(s_key)
         ledger_schema = json.loads(schema_json)
 
         # If not found, send the schema to the ledger
@@ -225,21 +227,20 @@ class VonClient:
                 raise RuntimeError('Schema was not published to ledger')
             log_json('Published schema:', ledger_schema, LOGGER)
 
-        # Check if claim definition has been published
-        LOGGER.info('Checking for claim def: %s (%s)', schema.name, schema.version)
-        claim_def_json = await issuer.get_claim_def(
-            ledger_schema['seqNo'], issuer.did)
-        claim_def = json.loads(claim_def_json)
+        # Check if credential definition has been published
+        LOGGER.info('Checking for credential def: %s (%s)', schema.name, schema.version)
+        cred_def_json = await issuer.get_cred_def(cred_def_id(issuer.did, ledger_schema['seqNo']))
+        cred_def = json.loads(cred_def_json)
 
-        # If claim definition is not found then publish it
-        if claim_def:
-            log_json('Claim def found on ledger:', claim_def, LOGGER)
+        # If credential definition is not found then publish it
+        if cred_def:
+            log_json('Credential def found on ledger:', cred_def, LOGGER)
         else:
-            LOGGER.info('Publishing claim def: %s (%s)', schema.name, schema.version)
-            claim_def_json = await issuer.send_claim_def(schema_json)
-            claim_def = json.loads(claim_def_json)
-            log_json('Published claim def:', claim_def, LOGGER)
-        return (ledger_schema, claim_def)
+            LOGGER.info('Publishing credential def: %s (%s)', schema.name, schema.version)
+            cred_def_json = await issuer.send_cred_def(schema_json)
+            cred_def = json.loads(cred_def_json)
+            log_json('Published credential def:', cred_def, LOGGER)
+        return (ledger_schema, cred_def)
 
     async def create_issuer(self):
         # retrieve genesis transaction if necessary

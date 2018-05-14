@@ -23,8 +23,7 @@ from aiohttp import web
 from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
 from jinja2.ext import Extension
 
-# FIXME - don't import shared here, must allow any ServiceManager to be used
-from vonx.services import prover, shared
+from vonx.services import prover
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,10 +43,10 @@ class StaticExtension(Extension):
         ], lineno=lineno)
 
 
-def jinja_env():
-    tpl_path = shared.ENV.get('TEMPLATE_PATH')
+def jinja_env(mgr):
+    tpl_path = mgr.env.get('TEMPLATE_PATH')
     if not tpl_path:
-        tpl_path = os.path.join(shared.MANAGER.config_root, 'templates')
+        tpl_path = os.path.join(mgr.config_root, 'templates')
     # load default templates provided by package
     loader = PackageLoader('vonx', 'templates')
     if tpl_path:
@@ -64,13 +63,10 @@ def jinja_env():
     return env
 
 
-JINJA_ENV = jinja_env()
-
-
-def render_template(name, variables=None):
+def render_template(name, env, variables=None):
     if not variables:
         variables = {}
-    template = JINJA_ENV.get_template(name)
+    template = env.get_template(name)
     return template.render(**variables)
 
 
@@ -78,9 +74,11 @@ async def render_form(form, request):
     #pylint: disable=broad-except
     proof_req = form.get('proof_request')
     proof_response = None
+    service_mgr = request.app['manager']
+
     if proof_req:
         proof_name = proof_req['name']
-        service = request.app['manager'].get_service('prover')
+        service = service_mgr.get_service('prover')
         specs = service.request_specs
         proof_spec = specs.get(proof_name)
         if not proof_spec:
@@ -101,7 +99,7 @@ async def render_form(form, request):
             filters[attr_name] = val
 
         try:
-            service = request.app['manager'].get_service_endpoint('prover')
+            service = service_mgr.get_service_endpoint('prover')
             result = await service.request(
                 prover.ConstructProofRequest(proof_name, filters))
             if isinstance(result, prover.ConstructProofResponse):
@@ -123,7 +121,7 @@ async def render_form(form, request):
         'inputs': {},
         'request': {},
         'proof_response': proof_response,
-        'THE_ORG_BOOK_APP_URL': shared.ENV.get('TOB_APP_URL')
+        'THE_ORG_BOOK_APP_URL': service_mgr.env.get('TOB_APP_URL')
     }
     tpl_vars['inputs'].update(request.query)
     tpl_vars['request'].update(request.query)
@@ -136,4 +134,5 @@ async def render_form(form, request):
     tpl_vars.update(form)
     tpl_vars['path'] = request.rel_url
 
-    return web.Response(text=render_template(tpl_name, tpl_vars), content_type='text/html')
+    tpl_env = jinja_env(service_mgr)
+    return web.Response(text=render_template(tpl_name, tpl_env, tpl_vars), content_type='text/html')

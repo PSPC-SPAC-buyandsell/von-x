@@ -19,10 +19,10 @@ import json
 import logging
 
 import aiohttp
-from didauth.aiohttp import SignedRequest
+from didauth.ext.aiohttp import SignedRequest
 
-from von_agent.schemakey import schema_key_for
-from von_agent.util import encode
+from von_agent.codec import cred_attr_value
+from von_agent.util import SchemaKey, cred_def_id
 
 import vonx
 from vonx.services import eventloop
@@ -36,24 +36,24 @@ from vonx.util import log_json
 LOGGER = logging.getLogger(__name__)
 
 
-def claim_value_pair(plain):
-    return [str(plain), encode(plain)]
-
-
-def encode_claim(claim):
-    encoded_claim = {}
-    for key, value in claim.items():
-        encoded_claim[key] = claim_value_pair(value) if value else \
-            claim_value_pair("")
-    return encoded_claim
-
-
-def load_claim_request(claim_type, request):
-    claim = {}
+#def claim_value_pair(plain):
+#    return [str(plain), encode(plain)]
+#
+#
+#def encode_claim(claim):
+#    encoded_claim = {}
+#    for key, value in claim.items():
+#        encoded_claim[key] = claim_value_pair(value) if value else \
+#            claim_value_pair("")
+#    return encoded_claim
+#
+#
+def load_cred_request(claim_type, request):
+    cred = {}
     for attr in claim_type['schema'].attr_names:
-        claim[attr] = request.get(attr)
-    claim_type['schema'].validate(claim)
-    return claim
+        cred[attr] = request.get(attr)
+    claim_type['schema'].validate(cred)
+    return cred
 
 
 def init_issuer_manager(service_manager: ServiceManager, pid='issuer-manager'):
@@ -475,71 +475,72 @@ class IssuerService(RequestExecutor):
             errmsg = IssuerError('Exception during issuer request handling', True)
             return self.send_noreply(from_pid, errmsg, ident)
 
-    async def _create_issuer_claim_def(self, issuer, schema: Schema):
+    async def _create_issuer_cred_def(self, issuer, schema: Schema):
         LOGGER.debug('Retrieving ledger schema: %s', schema)
 
         # We need schema from ledger
         schema_json = await issuer.get_schema(
-            schema_key_for({
-                'origin_did': issuer.did,
-                'name': schema.name,
-                'version': schema.version
-            }))
+            SchemaKey(
+                origin_did=issuer.did,
+                name=schema.name,
+                version=schema.version
+            ))
         ledger_schema = json.loads(schema_json)
 
         log_json('Found ledger schema:', ledger_schema, LOGGER)
 
-        claim_def_json = await issuer.get_claim_def(
-            ledger_schema['seqNo'], issuer.did)
-        return (ledger_schema, claim_def_json)
+        cred_def_json = await issuer.get_cred_def(
+            cred_def_id(issuer.did, ledger_schema['seqNo']))
+        return (ledger_schema, cred_def_json)
 
-    async def store_claim(self, http_client, claim_type, encoded_claim):
+    async def store_cred(self, http_client, claim_type, cred_data):
         #pylint: disable=too-many-locals
         von_client = self.init_von_client()
         tob_client = self.init_tob_client()
 
         async with await von_client.create_issuer() as von_issuer:
-            (ledger_schema, claim_def_json) = await self._create_issuer_claim_def(
+            (ledger_schema, cred_def_json) = await self._create_issuer_cred_def(
                 von_issuer,
                 claim_type['schema'])
 
-            # We create a claim offer
+            # We create a cred offer
             schema_json = json.dumps(ledger_schema)
-            LOGGER.info('Creating claim offer for TOB at DID %s', self._orgbook_did)
-            claim_offer_json = await von_issuer.create_claim_offer(
-                schema_json,
-                self._orgbook_did)
-            claim_offer = json.loads(claim_offer_json)
+            LOGGER.info('Creating cred offer for TOB at DID %s', self._orgbook_did)
+            cred_offer_json = await von_issuer.create_cred_offer(ledger_schema['seqNo'])
+            cred_offer = json.loads(cred_offer_json)
 
-            log_json('Requesting claim request:', {
-                'claim_offer': claim_offer,
-                'claim_def': json.loads(claim_def_json)
+            log_json('Requesting cred request:', {
+                'cred_offer': cred_offer,
+                'cred_def': json.loads(cred_def_json)
             }, LOGGER)
 
-            claim_req = await tob_client.post_json(
+            cred_req = await tob_client.post_json(
                 http_client,
-                'bcovrin/generate-claim-request',
+                'bcovrin/generate-credential-request',
                 {
-                    'claim_offer': claim_offer_json,
-                    'claim_def': claim_def_json
+                    'cred_offer': cred_offer_json,
+                    'cred_def': cred_def_json
                 })
-            log_json('Got claim request:', claim_req, LOGGER)
+            log_json('Got cred request:', cred_req, LOGGER)
 
-            claim_request_json = json.dumps(claim_req)
+            cred_request_json = json.dumps(cred_req['request'])
+            #cred_request_metadata_json = json.dumps(cred_req['metadata'])
 
-            (_, claim_json) = await von_issuer.create_claim(
-                claim_request_json,
-                encoded_claim)
+            (cred_json, _cred_revoc_id, _rev_reg_delta_json) = await von_issuer.create_cred(
+                cred_offer_json,
+                cred_request_json,
+                cred_data)
 
-        log_json('Created claim:', json.loads(claim_json), LOGGER)
+        cred = json.loads(cred_json)
+        log_json('Created credential:', cred, LOGGER)
 
-        # Store claim
+        # Store credential
         return await tob_client.post_json(
             http_client,
-            'bcovrin/store-claim',
+            'bcovrin/store-credential',
             {
-                'claim_type': ledger_schema['data']['name'],
-                'claim_data': json.loads(claim_json)
+                'cred_req': cred_req,
+                'cred_data': cred
             })
 
     async def submit_claim(self, schema_name, schema_version, attribs):
@@ -555,9 +556,8 @@ class IssuerService(RequestExecutor):
         if not claim_type:
             raise RuntimeError('Error locating claim type')
 
-        claim = load_claim_request(claim_type, attribs)
-        encoded_claim = encode_claim(claim)
-        log_json('Claim:', encoded_claim, LOGGER)
+        cred_data = load_cred_request(claim_type, attribs)
+        log_json('Credential data:', cred_data, LOGGER)
 
         async with self.http as http_client:
-            return await self.store_claim(http_client, claim_type, encoded_claim)
+            return await self.store_cred(http_client, claim_type, cred_data)
