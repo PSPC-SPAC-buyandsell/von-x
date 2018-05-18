@@ -54,11 +54,11 @@ class VonClient:
 
     async def sync(self):
         """
-        Find our DID, and initialize our schemas and claim defs on the ledger.
+        Find our DID, and initialize our schemas and credential defs on the ledger.
         """
-        claim_types = self.config.get('claim_types')
-        if not claim_types:
-            raise ValueError("Missing issuer claims")
+        cred_types = self.config.get('cred_types')
+        if not cred_types:
+            raise ValueError("Missing issuer credential types")
 
         wallet = self.wallet_config
         seed = wallet.get('seed')
@@ -77,8 +77,8 @@ class VonClient:
             # check endpoint is registered (if any)
             await self.check_endpoint(issuer)
 
-            for claim_type in claim_types:
-                await self.publish_schema(issuer, claim_type['schema'])
+            for cred_type in cred_types:
+                await self.publish_schema(issuer, cred_type['schema'])
         self.synced = True
         LOGGER.info('VON client synced: %s', self.config['id'])
 

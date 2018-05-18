@@ -95,7 +95,7 @@ async def construct_proof(request):
     return web.json_response(ret)
 
 
-async def submit_claim(request):
+async def submit_cred(request):
     schema_name = request.query.get('schema')
     schema_version = request.query.get('version') or None
     if not schema_name:
@@ -108,14 +108,14 @@ async def submit_claim(request):
     try:
         service = get_endpoint(request, 'issuer')
         result = await service.request(
-            issuer.SubmitClaimRequest(schema_name, schema_version, params))
-        if isinstance(result, issuer.SubmitClaimResponse):
+            issuer.SubmitCredRequest(schema_name, schema_version, params))
+        if isinstance(result, issuer.SubmitCredResponse):
             ret = {'success': True, 'result': result.value}
         elif isinstance(result, issuer.IssuerError):
             ret = {'success': False, 'result': result.value}
         else:
             raise ValueError('Unexpected result from issuer')
     except Exception as e:
-        LOGGER.exception('Error while submitting claim')
+        LOGGER.exception('Error while submitting credential')
         ret = {'success': False, 'result': str(e)}
     return web.json_response(ret)

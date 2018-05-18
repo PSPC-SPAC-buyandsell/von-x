@@ -31,44 +31,44 @@ AGENT_URL = os.environ.get('AGENT_URL', 'http://localhost:5000/bcreg')
 
 if len(sys.argv) < 2:
     raise ValueError("Expected JSON file path(s)")
-CLAIM_PATHS = sys.argv[1:]
+CRED_PATHS = sys.argv[1:]
 
-async def submit_claim(http_client, claim_path):
-    with open(claim_path) as claim_file:
-        claim = json.load(claim_file)
-    if not claim:
-        raise ValueError('Claim could not be parsed')
-    schema = claim.get('schema')
+async def submit_cred(http_client, cred_path):
+    with open(cred_path) as cred_file:
+        cred = json.load(cred_file)
+    if not cred:
+        raise ValueError('Credential could not be parsed')
+    schema = cred.get('schema')
     if not schema:
         raise ValueError('No schema defined')
-    version = claim.get('version', '')
-    attrs = claim.get('attributes')
+    version = cred.get('version', '')
+    attrs = cred.get('attributes')
     if not attrs:
         raise ValueError('No schema attributes defined')
 
-    print('Submitting claim {}'.format(claim_path))
+    print('Submitting credential {}'.format(cred_path))
 
     try:
         response = await http_client.post(
-            '{}/submit-claim'.format(AGENT_URL),
+            '{}/submit-cred'.format(AGENT_URL),
             params={'schema': schema, 'version': version},
             json=attrs
         )
         if response.status != 200:
             raise RuntimeError(
-                'Claim could not be processed: {}'.format(await response.text())
+                'Credential could not be processed: {}'.format(await response.text())
             )
         result_json = await response.json()
     except Exception as exc:
         raise Exception(
-            'Could not submit claim. '
+            'Could not submit credential. '
             'Are von-x and TheOrgBook running?') from exc
 
     print('Response from von-x:\n\n{}\n'.format(result_json))
 
-async def submit_all(claim_paths):
+async def submit_all(cred_paths):
     async with aiohttp.ClientSession() as http_client:
-        for claim_path in claim_paths:
-            await submit_claim(http_client, claim_path)
+        for cred_path in cred_paths:
+            await submit_cred(http_client, cred_path)
 
-asyncio.get_event_loop().run_until_complete(submit_all(CLAIM_PATHS))
+asyncio.get_event_loop().run_until_complete(submit_all(CRED_PATHS))

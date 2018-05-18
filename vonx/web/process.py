@@ -25,49 +25,49 @@ from . import helpers
 LOGGER = logging.getLogger(__name__)
 
 
-def load_claim_request(form, request):
-    claim = {}
+def load_cred_request(form, request):
+    cred = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
         for attr in form['schema'].attr_names:
-            claim[attr] = request.get(attr)
-            LOGGER.info("claim %s %s", attr, claim[attr])
+            cred[attr] = request.get(attr)
+            LOGGER.info("credential %s %s", attr, cred[attr])
     map_attr = mapping.get('attributes') or []
-    # Build claim data from schema mapping
+    # Build credential data from schema mapping
     for attribute in map_attr:
         attr_name = attribute.get('name')
         from_type = attribute.get('from', 'request')
         # Handle getting value from request data
         if from_type == 'request':
             source = attribute.get('source', attr_name)
-            claim[attr_name] = request.get(source)
+            cred[attr_name] = request.get(source)
         # Handle getting value from helpers (function defined in config)
         elif from_type == 'helper':
             helper = getattr(helpers, attribute['source'], None)
             if not helper:
                 raise Exception(
                     'Cannot find helper "%s"' % attribute['source'])
-            claim[attribute['name']] = helper()
+            cred[attribute['name']] = helper()
         # Handle setting value with string literal or None
         elif from_type == 'literal':
-            claim[attr_name] = attribute.get('source')
+            cred[attr_name] = attribute.get('source')
         # Handle getting value already set on schema skeleton
         elif from_type == 'previous':
             source = attribute.get('source')
             if source:
                 try:
-                    claim[attr_name] = claim[source]
+                    cred[attr_name] = cred[source]
                 except KeyError:
                     raise ValueError(
                         'Cannot find previous value "%s"' % source)
         else:
             raise ValueError('Unkown mapping type "%s"' % attribute['from'])
-    return claim
+    return cred
 
 
 async def process_form(form, request):
     #pylint: disable=broad-except
-    if form['type'] == 'submit-claim':
+    if form['type'] == 'submit-cred':
         schema_name = form['schema_name']
         schema_version = form.get('schema_version')
         if not schema_name:
@@ -80,19 +80,19 @@ async def process_form(form, request):
                 inputs = inputs.get('attributes') or {}
             else:
                 inputs = await request.post()
-            params = load_claim_request(form, inputs)
+            params = load_cred_request(form, inputs)
             #return web.json_response(params)
             service = request.app['manager'].get_service_endpoint('issuer')
             result = await service.request(
-                issuer.SubmitClaimRequest(schema_name, schema_version, params))
-            if isinstance(result, issuer.SubmitClaimResponse):
+                issuer.SubmitCredRequest(schema_name, schema_version, params))
+            if isinstance(result, issuer.SubmitCredResponse):
                 ret = {'success': True, 'result': result.value}
             elif isinstance(result, issuer.IssuerError):
                 ret = {'success': False, 'result': result.value}
             else:
                 raise ValueError('Unexpected result from issuer')
         except Exception as e:
-            LOGGER.exception('Error while submitting claim')
+            LOGGER.exception('Error while submitting credential')
             ret = {'success': False, 'result': str(e)}
         #if ret['success']:
         #    return response.html('<h3>Registration successful</h3>')

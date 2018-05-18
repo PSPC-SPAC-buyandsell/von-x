@@ -18,19 +18,19 @@
 
 from aiohttp import web
 
+from ..services.manager import ServiceManager
+from .routes import get_routes
 
-async def init_web():
+
+async def init_web(manager: ServiceManager):
     """
     Initialize the web server application
     """
-    from vonx.services.shared import MANAGER as mgr
-    from .routes import get_routes
-
-    base = mgr.env.get('WEB_BASE_HREF', '/')
+    base = manager.env.get('WEB_BASE_HREF', '/')
 
     app = web.Application()
     app['base_href'] = base
-    app['manager'] = mgr
+    app['manager'] = manager
     app.add_routes(get_routes(app))
 
     if base != '/':

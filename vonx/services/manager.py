@@ -34,43 +34,74 @@ class ServiceManager:
         self._services_cfg = None
         self.init_services()
 
-    def init_services(self):
+    def init_services(self) -> None:
+        """
+        Initialize all dependent services
+        """
         self.load_schemas()
 
-    def start(self, as_process=True):
+    def start(self, as_process=True) -> None:
+        """
+        Start the message processor and any other services
+        """
         # Run the message processor
         self._exchange.start(as_process)
         # Run all services
         for _id, service in self._services.items():
             service.start()
 
-    def stop(self):
+    def stop(self) -> None:
+        """
+        Stop the message processor and any other services
+        """
         self._exchange.stop()
         for _id, service in self._services.items():
             service.stop()
 
     @property
     def env(self) -> dict:
+        """
+        Accessor for our local environment dict
+        """
         return self._env
 
     @property
-    def config_root(self):
+    def config_root(self) -> str:
+        """
+        Accessor for the value of the CONFIG_ROOT setting, defaulting to the current directory
+        """
         return self._env.get('CONFIG_ROOT') or os.curdir
 
     def load_config_path(self, settings_key, default_path, env=None) -> dict:
+        """
+        Load a YAML configuration file with defined variables replaced in the result
+
+        :param settings_key: the name of an environment variable defining an alternative
+            configuration path
+        :param default_path: the default path to the configuration file
+        :return: the parsed YAML configuration with variables replaced
+        """
         path = self._env.get(settings_key)
         if not path:
             path = os.path.join(self.config_root, default_path)
         return config.load_config(path, env or self._env)
 
-    def services_config(self, section) -> dict:
+    def services_config(self, section: str) -> dict:
+        """
+        Load a named section from the global services.yml configuration
+
+        :param section: the configuration key
+        """
         if self._services_cfg is None:
             self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
         if self._services_cfg:
             return self._services_cfg.get(section) or {}
         return {}
 
-    def load_schemas(self):
+    def load_schemas(self) -> None:
+        """
+        Load any standard and custom schemas into our SchemaManager
+        """
         std = config.load_config('vonx.config:schemas.yml')
         if std:
             self._schema_mgr.load(std)
@@ -79,17 +110,25 @@ class ServiceManager:
             self._schema_mgr.load(ext)
 
     @property
-    def schema_manager(self):
+    def schema_manager(self) -> schema.SchemaManager:
+        """
+        Accessor for the SchemaManager defined by this ServiceManager
+        """
         return self._schema_mgr
 
     @property
     def exchange(self) -> exchange.Exchange:
+        """
+        Accessor for the Exchange this ServiceManager uses for messaging
+        """
         return self._exchange
 
     @property
     def proc_locals(self) -> dict:
         """
-        Process-local variables
+        Accessor for all process-local variables
+
+        :return: a dictionary of currently-defined variables
         """
         pid = os.getpid()
         if self._proc_locals['pid'] != pid:
@@ -102,7 +141,6 @@ class ServiceManager:
         Return a per-process request executor which manages requests
         and polls for results coming from other services.
         Note: this part happens for each worker process started by the webserver.
-        FIXME - allow executor class to be changed, may depend on the webserver
         """
         ploc = self.proc_locals
         if not 'executor' in ploc:

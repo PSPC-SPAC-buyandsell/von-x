@@ -91,11 +91,11 @@ class TobClient:
         if not issuer_spec['issuer']['name']:
             raise ValueError('Missing issuer name')
 
-        claim_type_specs = self.config.get('claim_types')
-        if not claim_type_specs:
-            raise ValueError("Missing claim_types")
+        cred_type_specs = self.config.get('cred_types')
+        if not cred_type_specs:
+            raise ValueError("Missing cred_types")
         ctypes = []
-        for type_spec in claim_type_specs:
+        for type_spec in cred_type_specs:
             schema = type_spec['schema']
             ctypes.append({
                 'name': type_spec.get('description') or schema.name,
@@ -103,7 +103,7 @@ class TobClient:
                 'schema': schema.name,
                 'version': schema.version
             })
-        issuer_spec['claim-types'] = ctypes
+        issuer_spec['cred-types'] = ctypes
         return issuer_spec
 
     def get_api_url(self, module=None):

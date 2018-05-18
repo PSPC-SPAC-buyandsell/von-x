@@ -34,7 +34,7 @@ def get_standard_routes(_app):
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
         #web.post('/construct-proof', views.construct_proof),
-        #web.post('/submit-claim', views.submit_claim),
+        #web.post('/submit-cred', views.submit_cred),
         #web.get('/hello', views.hello),
     ]
 
@@ -171,7 +171,7 @@ class RouteDefinitions:
             for form in self.forms)
 
         routes.extend(
-            web.view(issuer['path'] + '/submit-claim', views.submit_claim, name=issuer['name']+'-submit-claim')
+            web.view(issuer['path'] + '/submit-cred', views.submit_cred, name=issuer['name']+'-submit-cred')
             for issuer in self.issuers)
         routes.extend(
             web.view(issuer['path'] + '/construct-proof', views.construct_proof, name=issuer['name']+'-construct-proof')
@@ -196,7 +196,7 @@ class RouteDefinitions:
 
 
 def expand_form_definition(form, manager):
-    supported_types = ['submit-claim']
+    supported_types = ['submit-cred']
 
     form_id = form.get('id')
     form_type = form.get('type')
@@ -205,7 +205,7 @@ def expand_form_definition(form, manager):
     if form_type not in supported_types:
         raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
 
-    if form_type == 'submit-claim':
+    if form_type == 'submit-cred':
         schema = form.get('schema_name')
         version = form.get('schema_version')
         issuer = manager.get_service('issuer')
@@ -215,8 +215,8 @@ def expand_form_definition(form, manager):
         if not found:
             raise ValueError(
                 'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
-        service, claim_type = found
-        form['schema'] = claim_type['schema']
+        service, cred_type = found
+        form['schema'] = cred_type['schema']
         form['issuer_id'] = service.pid
 
 
