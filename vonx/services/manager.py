@@ -18,7 +18,7 @@
 import logging
 import os
 
-from . import config, exchange, schema
+from . import config, exchange as exch, schema
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ LOGGER = logging.getLogger(__name__)
 class ServiceManager:
     def __init__(self, env):
         self._env = env
-        self._exchange = exchange.Exchange()
-        self._executor_cls = exchange.RequestExecutor
+        self._exchange = exch.Exchange()
+        self._executor_cls = exch.RequestExecutor
         self._proc_locals = {'pid': os.getpid()}
         self._schema_mgr = schema.SchemaManager()
         self._services = {}
@@ -117,7 +117,7 @@ class ServiceManager:
         return self._schema_mgr
 
     @property
-    def exchange(self) -> exchange.Exchange:
+    def exchange(self) -> exch.Exchange:
         """
         Accessor for the Exchange this ServiceManager uses for messaging
         """
@@ -136,11 +136,11 @@ class ServiceManager:
         return self._proc_locals
 
     @property
-    def executor(self):
+    def executor(self) -> exch.RequestExecutor:
         """
         Return a per-process request executor which manages requests
         and polls for results coming from other services.
-        Note: this part happens for each worker process started by the webserver.
+        Note: this is called for each worker process started by the webserver.
         """
         ploc = self.proc_locals
         if not 'executor' in ploc:
@@ -150,18 +150,37 @@ class ServiceManager:
         return ploc['executor']
 
     def get_service(self, name: str):
+        """
+        Fetch a defined service by name
+
+        :param name: the string identifier for the service
+        """
         return self._services[name]
 
-    def get_endpoint(self, pid: str, loop=None):
+    def get_endpoint(self, pid: str, loop=None) -> exch.Endpoint:
+        """
+        Get an endpoint for sending messages to a service on the message exchange.
+        Requests will be handled by the executor for this manager in this process.
+
+        :param pid: the identifier for the endpoint on the message bus
+        :param loop: the current event loop, if any
+        """
         ploc = self.proc_locals
         name = 'endpt_' + pid
         if name not in ploc:
             ploc[name] = self.executor.get_endpoint(pid)
         if loop:
-            ploc[name].set_async_loop(loop)
+            ploc[name].async_loop(loop)
         return ploc[name]
 
-    def get_service_endpoint(self, name: str, loop=None):
+    def get_service_endpoint(self, name: str, loop=None) -> exch.Endpoint:
+        """
+        Get an endpoint for one of the services defined by this manager.
+        This Endpoint can be used for sending process-safe messages and receiving results.
+
+        :param name: the string identifier for the service
+        :param loop: the current event loop, if any
+        """
         if name in self._services:
             return self.get_endpoint(self._services[name].pid, loop)
         return None

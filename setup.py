@@ -38,6 +38,6 @@ setup(
         'gunicorn',
         'jinja2',
         'PyYAML',
-        'von-agent',
+        'von-agent==1.0.0',
     ],
 )

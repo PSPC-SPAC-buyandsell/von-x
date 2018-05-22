@@ -19,6 +19,10 @@ from . import issuer, prover, manager
 
 
 class StandardServiceManager(manager.ServiceManager):
+    """
+    A standard ServiceManager with IssuerManager and ProverManager services
+    """
+
     def init_services(self):
         super(StandardServiceManager, self).init_services()
 

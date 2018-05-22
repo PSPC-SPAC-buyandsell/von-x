@@ -127,6 +127,364 @@ class SubmitCredResponse:
         self.value = value
 
 
+class IssuerService(RequestExecutor):
+    """
+    The IssuerService handles issuer initialization as well as processing of credential
+    submission and other requests surrounding the ledger or OrgBook services. It listens
+    for requests on the exchange and performs each one in a thread pool.
+    During synchronization it:
+
+        - Resolves the DID for the OrgBook if necessary
+        - Submits schemas and credential definitions to the ledger
+        - Initializes the OrgBook with our issuer information
+
+    These instances are normally initialized by the IssuerManager.
+    """
+
+    def __init__(self, service_mgr: ServiceManager, spec=None, manager_pid=None):
+        self._pid = None
+        self._cred_types = []
+        self._config = {}
+        self._did_auth = None
+        self._status = {}
+        self._service_mgr = service_mgr
+        self._manager_pid = manager_pid
+        self._orgbook_did = None
+        self._update_config(spec)
+        self._von_client = None
+
+        super(IssuerService, self).__init__(self._pid, service_mgr.exchange)
+        self._update_status({
+            'id': self._pid,
+            'did': None,
+            'ledger': False,
+            'orgbook': False,
+            'ready': False,
+            'syncing': False
+        })
+
+    def _update_config(self, spec) -> None:
+        """
+        Load configuration settings
+        """
+        if spec:
+            self._config.update(spec)
+        if 'id' in self._config:
+            self._pid = self._config['id']
+        if 'did' in self._config:
+            self._status['did'] = self._config['did']
+        if 'api_did' in self._config:
+            self._orgbook_did = self._config['api_did']
+        if 'cred_types' in spec:
+            self._load_cred_types(spec['cred_types'])
+            self._config['cred_types'] = self._cred_types
+
+    def set_api_did(self, did: str) -> None:
+        """
+        Setter for the DID used to access TheOrgBook
+        """
+        self._orgbook_did = did
+
+    def _update_status(self, update=None, silent=False) -> None:
+        """
+        Alert the manager for this issuer that the sync status has been updated
+        """
+        if update:
+            self._status.update(update)
+        if self._manager_pid and not silent:
+            self.send_noreply(self._manager_pid, IssuerStatus(self._status))
+
+    def _load_cred_types(self, values) -> None:
+        """
+        Load the credential types defined by our config into a standard format
+        """
+        schema_mgr = self._service_mgr.schema_manager
+        for ctype in values:
+            if 'schema' not in ctype:
+                raise ValueError("Credential type must define 'schema'")
+            if isinstance(ctype['schema'], str):
+                name = ctype['schema']
+                version = None
+                attributes = None
+            elif isinstance(ctype['schema'], dict):
+                name = ctype['schema'].get('name')
+                version = ctype['schema'].get('version')
+                attributes = ctype['schema'].get('attributes')
+            else:
+                raise ValueError('Credential type schema must be string or dict')
+            if not name:
+                raise ValueError("Credential type schema missing 'name'")
+            if not version or not attributes:
+                schema = schema_mgr.find(name, version)
+                if schema:
+                    version = schema.version
+                    attributes = schema.attr_names
+                else:
+                    raise ValueError(
+                        'Schema definition not found: {} {}'.format(name, version))
+            else:
+                schema = Schema(name, version, attributes)
+            self._cred_types.append({
+                'description': ctype.get('description'),
+                'issuer_url': ctype.get('issuer_url'),
+                'schema': schema
+            })
+
+    def ready(self) -> bool:
+        """
+        Check whether the issuer is prepared to accept credentials and proof requests
+        """
+        return self._status['ready']
+
+    def start(self, as_coro=False):
+        """
+        Start the issuer service and run the initial synchronization
+
+        :param as_coro: return a coroutine to be run in an existing event loop
+        """
+        #pylint: disable=broad-except
+        try:
+            ret = super(IssuerService, self).start()
+            async def init():
+                try:
+                    await self.sync()
+                except Exception:
+                    if self._manager_pid:
+                        errmsg = IssuerError('Exception during issuer sync', True)
+                        self.send_noreply(self._manager_pid, errmsg)
+                    else:
+                        LOGGER.exception('Exception during issuer sync:')
+            # Start another thread to perform initial sync
+            coro = init()
+            if as_coro:
+                return coro
+            self.run_task(coro)
+            return ret
+        except Exception:
+            LOGGER.exception('Error starting issuer service:')
+
+    # Sync with issuer VON client, then TOB client
+    async def sync(self):
+        """
+        Perform the initial synchronization process with both the ledger and TheOrgBook
+        """
+        #pylint: disable=broad-except
+        self._update_status({
+            'syncing': True
+        })
+        try:
+            von_client = self.init_von_client()
+            await von_client.sync()
+            self._update_status({
+                'did': von_client.issuer_did,
+                'ledger': von_client.synced
+            })
+            if von_client.synced:
+                self._did_auth = von_client.get_did_auth()
+                tob_client = self.init_tob_client()
+                async with self.http as http_client:
+                    await tob_client.sync(http_client)
+                self._update_status({
+                    'orgbook': tob_client.synced
+                })
+            if self._status['ledger'] and self._status['orgbook']:
+                self._update_status({'ready': True, 'syncing': False})
+            return self._status['ready']
+        except Exception:
+            self._update_status({'ready': False, 'syncing': False})
+            raise
+
+    def http_client(self, *args, **kwargs):
+        """
+        Create a new ClientSession which includes DID signing information in each request
+
+        :return: the ClientSession object
+        """
+        if 'request_class' not in kwargs:
+            kwargs['request_class'] = SignedRequest
+        if self._did_auth and not 'auth' in kwargs:
+            kwargs['auth'] = self._did_auth
+        return aiohttp.ClientSession(*args, **kwargs)
+
+    @property
+    def did_auth(self):
+        """
+        Accessor for the aiohttp-compatible DID signer
+        """
+        return self._did_auth
+
+    def init_von_client(self):
+        """
+        Initialize a VonClient instance with the required settings for this issuer
+
+        :return: the VonClient instance
+        """
+        if not self._von_client:
+            cfg = self._config.copy()
+            self._von_client = VonClient(cfg)
+        return self._von_client
+
+    def init_tob_client(self):
+        """
+        Initialize a TobClient instance with the required settings for this issuer
+
+        :return: the TobClient instance
+        """
+        cfg = self._config.copy()
+        cfg['did'] = self._status['did']
+        return TobClient(cfg)
+
+    def find_cred_type_for_schema(self, schema_name, schema_version=None):
+        """
+        Look up a defined credential type given the schema name and version
+
+        :param schema_name:
+        :param schema_version:
+        """
+        for ctype in self._cred_types:
+            if ctype['schema'].name == schema_name \
+                    and (not schema_version or ctype['schema'].version == schema_version):
+                return ctype
+        return None
+
+    def process(self, from_pid, ident, message, ref) -> None:
+        """
+        Process a message from the exchange by running a task in the executor
+        """
+        self.run_task(self.handle_request(from_pid, ident, message))
+
+    async def handle_request(self, from_pid, ident, message):
+        """
+        Handle a single message from the exchange and send the reply if any
+        """
+        #pylint: disable=broad-except
+        try:
+            if isinstance(message, SubmitCredRequest):
+                try:
+                    result = await self.submit_cred(
+                        message.schema_name,
+                        message.schema_version,
+                        message.attributes)
+                    return self.send_noreply(from_pid, SubmitCredResponse(result), ident)
+                except Exception:
+                    errmsg = IssuerError('Exception during credential submission', True)
+                    self.send_noreply(from_pid, errmsg, ident)
+            else:
+                raise ValueError('Unrecognized request type')
+        except Exception:
+            errmsg = IssuerError('Exception during issuer request handling', True)
+            return self.send_noreply(from_pid, errmsg, ident)
+
+    async def _create_issuer_cred_def(self, issuer, schema: Schema):
+        """
+        Create a credential definition for a given issuer and schema
+
+        :param issuer:
+        :param schema:
+        """
+        LOGGER.debug('Retrieving ledger schema: %s', schema)
+
+        # We need schema from ledger
+        schema_json = await issuer.get_schema(
+            SchemaKey(
+                origin_did=issuer.did,
+                name=schema.name,
+                version=schema.version
+            ))
+        ledger_schema = json.loads(schema_json)
+
+        log_json('Found ledger schema:', ledger_schema, LOGGER)
+
+        cred_def_json = await issuer.get_cred_def(
+            cred_def_id(issuer.did, ledger_schema['seqNo']))
+        return (ledger_schema, cred_def_json)
+
+    async def store_cred(self, http_client, cred_type, cred_data):
+        """
+        Submit a credential to the holder, given the credential type and data
+
+        :param http_client: the HTTP client (responsible for signing headers)
+        :param cred_type: the credential type information
+        :param cred_data: the prepared credential data
+        :return: the decoded JSON result of the submission
+        """
+        #pylint: disable=too-many-locals
+        von_client = self.init_von_client()
+        tob_client = self.init_tob_client()
+
+        async with await von_client.create_issuer() as von_issuer:
+            (ledger_schema, cred_def_json) = await self._create_issuer_cred_def(
+                von_issuer,
+                cred_type['schema'])
+
+            # We create a cred offer
+            schema_json = json.dumps(ledger_schema)
+            LOGGER.info('Creating cred offer for TOB at DID %s', self._orgbook_did)
+            cred_offer_json = await von_issuer.create_cred_offer(ledger_schema['seqNo'])
+            cred_offer = json.loads(cred_offer_json)
+
+            log_json('Requesting cred request:', {
+                'cred_offer': cred_offer,
+                'cred_def': json.loads(cred_def_json)
+            }, LOGGER)
+
+            cred_req = await tob_client.post_json(
+                http_client,
+                'indy/generate-credential-request',
+                {
+                    'cred_offer': cred_offer_json,
+                    'cred_def': cred_def_json
+                })
+            log_json('Got cred request:', cred_req, LOGGER)
+
+            cred_request_json = json.dumps(cred_req['request'])
+            #cred_request_metadata_json = json.dumps(cred_req['metadata'])
+
+            (cred_json, _cred_revoc_id, _rev_reg_delta_json) = await von_issuer.create_cred(
+                cred_offer_json,
+                cred_request_json,
+                cred_data)
+
+        cred = json.loads(cred_json)
+        log_json('Created credential:', cred, LOGGER)
+
+        # Store credential
+        return await tob_client.post_json(
+            http_client,
+            'indy/store-credential',
+            {
+                'cred_req': cred_req,
+                'cred_data': cred
+            })
+
+    async def submit_cred(self, schema_name, schema_version, attribs) -> dict:
+        """
+        Submit a credential to the holder
+
+        :param schema_name: the name of the schema registered on the ledger
+        :param schema_version: the schema version
+        :param attribs: a dictionary of credential attributes
+        :return: the decoded JSON result of the submission
+        """
+        if not self.ready():
+            raise RuntimeError('Issuer service is not ready')
+        if not schema_name:
+            raise ValueError('Missing schema name')
+        if not attribs:
+            raise ValueError('Missing request data')
+        if not self._orgbook_did:
+            raise ValueError('Missing DID for TOB')
+        cred_type = self.find_cred_type_for_schema(schema_name, schema_version)
+        if not cred_type:
+            raise RuntimeError('Error locating credential type')
+
+        cred_data = load_cred_request(cred_type, attribs)
+        log_json('Credential data:', cred_data, LOGGER)
+
+        async with self.http as http_client:
+            return await self.store_cred(http_client, cred_type, cred_data)
+
+
 class IssuerManager(RequestProcessor):
     """
     There should only be one instance of this class in the application.
@@ -366,359 +724,3 @@ class IssuerManager(RequestProcessor):
         self._ready = ok
         if ok and not old_ok:
             LOGGER.info('Completed issuer manager initialization')
-
-
-class IssuerService(RequestExecutor):
-    """
-    The IssuerService handles issuer initialization as well as processing of credential
-    submission and other requests surrounding the ledger or OrgBook services. It listens
-    for requests on the exchange and performs each one in a thread pool.
-    During synchronization it:
-        - Resolves the DID for the OrgBook if necessary
-        - Submits schemas and credential definitions to the ledger
-        - Initializes the OrgBook with our issuer information
-    These instances are normally initialized by the IssuerManager.
-    """
-
-    def __init__(self, service_mgr: ServiceManager, spec=None, manager_pid=None):
-        self._pid = None
-        self._cred_types = []
-        self._config = {}
-        self._did_auth = None
-        self._status = {}
-        self._service_mgr = service_mgr
-        self._manager_pid = manager_pid
-        self._orgbook_did = None
-        self._update_config(spec)
-        self._von_client = None
-
-        super(IssuerService, self).__init__(self._pid, service_mgr.exchange)
-        self._update_status({
-            'id': self._pid,
-            'did': None,
-            'ledger': False,
-            'orgbook': False,
-            'ready': False,
-            'syncing': False
-        })
-
-    def _update_config(self, spec) -> None:
-        """
-        Load configuration settings
-        """
-        if spec:
-            self._config.update(spec)
-        if 'id' in self._config:
-            self._pid = self._config['id']
-        if 'did' in self._config:
-            self._status['did'] = self._config['did']
-        if 'api_did' in self._config:
-            self._orgbook_did = self._config['api_did']
-        if 'cred_types' in spec:
-            self._load_cred_types(spec['cred_types'])
-            self._config['cred_types'] = self._cred_types
-
-    def set_api_did(self, did: str) -> None:
-        """
-        Setter for the DID used to access TheOrgBook
-        """
-        self._orgbook_did = did
-
-    def _update_status(self, update=None, silent=False) -> None:
-        """
-        Alert the manager for this issuer that the sync status has been updated
-        """
-        if update:
-            self._status.update(update)
-        if self._manager_pid and not silent:
-            self.send_noreply(self._manager_pid, IssuerStatus(self._status))
-
-    def _load_cred_types(self, values) -> None:
-        """
-        Load the credential types defined by our config into a standard format
-        """
-        schema_mgr = self._service_mgr.schema_manager
-        for ctype in values:
-            if 'schema' not in ctype:
-                raise ValueError("Credential type must define 'schema'")
-            if isinstance(ctype['schema'], str):
-                name = ctype['schema']
-                version = None
-                attributes = None
-            elif isinstance(ctype['schema'], dict):
-                name = ctype['schema'].get('name')
-                version = ctype['schema'].get('version')
-                attributes = ctype['schema'].get('attributes')
-            else:
-                raise ValueError('Credential type schema must be string or dict')
-            if not name:
-                raise ValueError("Credential type schema missing 'name'")
-            if not version or not attributes:
-                schema = schema_mgr.find(name, version)
-                if schema:
-                    version = schema.version
-                    attributes = schema.attr_names
-                else:
-                    raise ValueError(
-                        'Schema definition not found: {} {}'.format(name, version))
-            else:
-                schema = Schema(name, version, attributes)
-            self._cred_types.append({
-                'description': ctype.get('description'),
-                'issuer_url': ctype.get('issuer_url'),
-                'schema': schema
-            })
-
-    def ready(self) -> bool:
-        """
-        Check whether the issuer is prepared to accept credentials and proof requests
-        """
-        return self._status['ready']
-
-    def start(self, as_coro=False):
-        """
-        Start the issuer service and run the initial synchronization
-
-        :param as_coro: return a coroutine to be run in an existing event loop
-        """
-        #pylint: disable=broad-except
-        try:
-            ret = super(IssuerService, self).start()
-            async def init():
-                try:
-                    await self.sync()
-                except Exception:
-                    if self._manager_pid:
-                        errmsg = IssuerError('Exception during issuer sync', True)
-                        self.send_noreply(self._manager_pid, errmsg)
-                    else:
-                        LOGGER.exception('Exception during issuer sync:')
-            # Start another thread to perform initial sync
-            coro = init()
-            if as_coro:
-                return coro
-            self.run_task(coro)
-            return ret
-        except Exception:
-            LOGGER.exception('Error starting issuer service:')
-
-    # Sync with issuer VON client, then TOB client
-    async def sync(self):
-        """
-        Perform the initial synchronization process with both the ledger and TheOrgBook
-        """
-        #pylint: disable=broad-except
-        self._update_status({
-            'syncing': True
-        })
-        try:
-            von_client = self.init_von_client()
-            await von_client.sync()
-            self._update_status({
-                'did': von_client.issuer_did,
-                'ledger': von_client.synced
-            })
-            if von_client.synced:
-                self._did_auth = von_client.get_did_auth()
-                tob_client = self.init_tob_client()
-                async with self.http as http_client:
-                    await tob_client.sync(http_client)
-                self._update_status({
-                    'orgbook': tob_client.synced
-                })
-            if self._status['ledger'] and self._status['orgbook']:
-                self._update_status({'ready': True, 'syncing': False})
-            return self._status['ready']
-        except Exception:
-            self._update_status({'ready': False, 'syncing': False})
-            raise
-
-    def http_client(self, *args, **kwargs):
-        """
-        Create a new ClientSession which includes DID signing information in each request
-
-        :return: the ClientSession object
-        """
-        if 'request_class' not in kwargs:
-            kwargs['request_class'] = SignedRequest
-        if self._did_auth and not 'auth' in kwargs:
-            kwargs['auth'] = self._did_auth
-        return aiohttp.ClientSession(*args, **kwargs)
-
-    @property
-    def did_auth(self):
-        """
-        Accessor for the aiohttp-compatible DID signer
-        """
-        return self._did_auth
-
-    def init_von_client(self):
-        """
-        Initialize a VonClient instance with the required settings for this issuer
-
-        :return: the VonClient instance
-        """
-        if not self._von_client:
-            cfg = self._config.copy()
-            self._von_client = VonClient(cfg)
-        return self._von_client
-
-    def init_tob_client(self):
-        """
-        Initialize a TobClient instance with the required settings for this issuer
-
-        :return: the TobClient instance
-        """
-        cfg = self._config.copy()
-        cfg['did'] = self._status['did']
-        return TobClient(cfg)
-
-    def find_cred_type_for_schema(self, schema_name, schema_version=None):
-        """
-        Look up a defined credential type given the schema name and version
-
-        :param schema_name:
-        :param schema_version:
-        """
-        for ctype in self._cred_types:
-            if ctype['schema'].name == schema_name \
-                    and (not schema_version or ctype['schema'].version == schema_version):
-                return ctype
-        return None
-
-    def process(self, from_pid, ident, message, ref) -> None:
-        """
-        Process a message from the exchange by running a task in the executor
-        """
-        self.run_task(self.handle_request(from_pid, ident, message))
-
-    async def handle_request(self, from_pid, ident, message):
-        """
-        Handle a single message from the exchange and send the reply if any
-        """
-        #pylint: disable=broad-except
-        try:
-            if isinstance(message, SubmitCredRequest):
-                try:
-                    result = await self.submit_cred(
-                        message.schema_name,
-                        message.schema_version,
-                        message.attributes)
-                    return self.send_noreply(from_pid, SubmitCredResponse(result), ident)
-                except Exception:
-                    errmsg = IssuerError('Exception during credential submission', True)
-                    self.send_noreply(from_pid, errmsg, ident)
-            else:
-                raise ValueError('Unrecognized request type')
-        except Exception:
-            errmsg = IssuerError('Exception during issuer request handling', True)
-            return self.send_noreply(from_pid, errmsg, ident)
-
-    async def _create_issuer_cred_def(self, issuer: IssuerService, schema: Schema):
-        """
-        Create a credential definition for a given issuer and schema
-
-        :param issuer:
-        :param schema:
-        """
-        LOGGER.debug('Retrieving ledger schema: %s', schema)
-
-        # We need schema from ledger
-        schema_json = await issuer.get_schema(
-            SchemaKey(
-                origin_did=issuer.did,
-                name=schema.name,
-                version=schema.version
-            ))
-        ledger_schema = json.loads(schema_json)
-
-        log_json('Found ledger schema:', ledger_schema, LOGGER)
-
-        cred_def_json = await issuer.get_cred_def(
-            cred_def_id(issuer.did, ledger_schema['seqNo']))
-        return (ledger_schema, cred_def_json)
-
-    async def store_cred(self, http_client, cred_type, cred_data):
-        """
-        Submit a credential to the holder, given the credential type and data
-
-        :param http_client: the HTTP client (responsible for signing headers)
-        :param cred_type: the credential type information
-        :param cred_data: the prepared credential data
-        :return: the decoded JSON result of the submission
-        """
-        #pylint: disable=too-many-locals
-        von_client = self.init_von_client()
-        tob_client = self.init_tob_client()
-
-        async with await von_client.create_issuer() as von_issuer:
-            (ledger_schema, cred_def_json) = await self._create_issuer_cred_def(
-                von_issuer,
-                cred_type['schema'])
-
-            # We create a cred offer
-            schema_json = json.dumps(ledger_schema)
-            LOGGER.info('Creating cred offer for TOB at DID %s', self._orgbook_did)
-            cred_offer_json = await von_issuer.create_cred_offer(ledger_schema['seqNo'])
-            cred_offer = json.loads(cred_offer_json)
-
-            log_json('Requesting cred request:', {
-                'cred_offer': cred_offer,
-                'cred_def': json.loads(cred_def_json)
-            }, LOGGER)
-
-            cred_req = await tob_client.post_json(
-                http_client,
-                'indy/generate-credential-request',
-                {
-                    'cred_offer': cred_offer_json,
-                    'cred_def': cred_def_json
-                })
-            log_json('Got cred request:', cred_req, LOGGER)
-
-            cred_request_json = json.dumps(cred_req['request'])
-            #cred_request_metadata_json = json.dumps(cred_req['metadata'])
-
-            (cred_json, _cred_revoc_id, _rev_reg_delta_json) = await von_issuer.create_cred(
-                cred_offer_json,
-                cred_request_json,
-                cred_data)
-
-        cred = json.loads(cred_json)
-        log_json('Created credential:', cred, LOGGER)
-
-        # Store credential
-        return await tob_client.post_json(
-            http_client,
-            'indy/store-credential',
-            {
-                'cred_req': cred_req,
-                'cred_data': cred
-            })
-
-    async def submit_cred(self, schema_name, schema_version, attribs) -> dict:
-        """
-        Submit a credential to the holder
-
-        :param schema_name: the name of the schema registered on the ledger
-        :param schema_version: the schema version
-        :param attribs: a dictionary of credential attributes
-        :return: the decoded JSON result of the submission
-        """
-        if not self.ready():
-            raise RuntimeError('Issuer service is not ready')
-        if not schema_name:
-            raise ValueError('Missing schema name')
-        if not attribs:
-            raise ValueError('Missing request data')
-        if not self._orgbook_did:
-            raise ValueError('Missing DID for TOB')
-        cred_type = self.find_cred_type_for_schema(schema_name, schema_version)
-        if not cred_type:
-            raise RuntimeError('Error locating credential type')
-
-        cred_data = load_cred_request(cred_type, attribs)
-        log_json('Credential data:', cred_data, LOGGER)
-
-        async with self.http as http_client:
-            return await self.store_cred(http_client, cred_type, cred_data)

@@ -19,25 +19,39 @@ import logging
 import os
 import re
 import yaml
-
+from typing import Callable, Sequence, Mapping, TextIO
 import pkg_resources
 
 
-def load_resource(path: str):
-    """Open a resource file located in a python package or the local filesystem"""
+def load_resource(path: str) -> TextIO:
+    """
+    Open a resource file located in a python package or the local filesystem
+
+    Args:
+        path (str): The resource path in the form of `dir/file` or `package:dir/file`
+    Returns:
+        A file-like object representing the resource
+    """
     components = path.rsplit(':', 1)
     if len(components) == 1:
         return open(components[0])
     return pkg_resources.resource_stream(components[0], components[1])
 
 
-def load_settings(env=True):
+def load_settings(env=True) -> dict:
     """
-    Load the application settings from several sources:
+    Loads the application settings from several sources:
+
         - settings.yml
         - an optional application settings file defined by SETTINGS_PATH
         - custom environment settings defined by ENVIRONMENT (ie. dev, prod)
         - enviroment variable overrides
+
+    Args:
+        env: A dict of environment variables, or the value True to inherit the global
+            environment
+    Returns:
+        A combined dictionary of setting values
     """
     if env is True:
         env = os.environ
@@ -87,6 +101,12 @@ def load_settings(env=True):
 def load_config(path: str, env=None):
     """
     Load a YAML config file and replace variables from the environment
+
+    Args:
+        path (str): The resource path in the form of `dir/file` or `package:dir/file`
+    Returns:
+        The configuration tree with variable references replaced, or `False` if the
+        file is not found
     """
     try:
         with load_resource(path) as resource:
@@ -97,9 +117,16 @@ def load_config(path: str, env=None):
     return cfg
 
 
-def expand_string_variables(value, env, warn=True):
+def expand_string_variables(value, env: Mapping, warn:bool=True):
     """
-    Expand environment variables of form $var and ${var} in a string.
+    Expand environment variables of form `$var` and `${var}` in a string
+
+    Args:
+        value (str): The input value
+        env (Mapping): The dictionary of environment variables
+        warn (bool): Whether to warn on references to undefined variables
+    Returns:
+        The transformed string
     """
     if not isinstance(value, str):
         return value
@@ -119,17 +146,33 @@ def expand_string_variables(value, env, warn=True):
     return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, value)
 
 
-def map_tree(tree, map_fn):
-    if isinstance(tree, dict):
+def map_tree(tree, map_fn: Callable):
+    """
+    Map one tree to another using a transformation function
+
+    Args:
+        tree: A sequence, mapping or other value
+        map_fn (Callable): The function to apply to each node, returing the new value
+    Returns:
+        The transformed tree
+    """
+    if isinstance(tree, Mapping):
         return {key: map_tree(value, map_fn) for (key, value) in tree.items()}
-    if isinstance(tree, (list, tuple)):
+    if isinstance(tree, Sequence):
         return [map_tree(value, map_fn) for value in tree]
     return map_fn(tree)
 
 
-def expand_tree_variables(tree, env, warn=True):
+def expand_tree_variables(tree, env: Mapping, warn:bool=True):
     """
-    Expand environment variables of form $var and ${var} in a configuration tree.
-    This is used in the 'issuers' section of the config to allow variable overrides.
+    Expand environment variables of form `$var` and `${var}` in a configuration tree.
+    This is used to allow variable insertion in issuer and route definitions
+
+    Args:
+        tree: A sequence, mapping or other value
+        env (Mapping): The dictionary of environment variables
+        warn (bool): Whether to warn on references to undefined variables
+    Returns:
+        The transformed tree
     """
     return map_tree(tree, lambda val: expand_string_variables(val, env, warn))
