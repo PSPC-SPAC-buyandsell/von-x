@@ -22,6 +22,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class TobClientError(Exception):
+    """
+    A generic exception representing an issue with a TobClient operation
+    """
     def __init__(self, status_code, message, response):
         super(TobClientError, self).__init__(message)
         self.status_code = status_code
@@ -30,6 +33,11 @@ class TobClientError(Exception):
 
 
 class TobClient:
+    """
+    A class for managing communication with TheOrgBook API and performing the initial
+    synchronization as an issuer
+    """
+
     def __init__(self, config=None):
         self.config = {}
         self.jurisdiction_id = None
@@ -41,6 +49,13 @@ class TobClient:
         self.issuer_did = self.config.get('did')
 
     async def sync(self, http_client):
+        """
+        Register ourselves as an issuer in TheOrgBook
+
+        Args:
+            http_client: The :class:`ClientSession` instance responsible for adding
+                authentication headers
+        """
         if not self.api_url:
             raise ValueError("Missing TOB_API_URL")
         if not self.issuer_did:
@@ -51,12 +66,16 @@ class TobClient:
         self.synced = True
         LOGGER.info('TOB client synced: %s', self.config['id'])
 
-    async def register_issuer(self, client):
+    async def register_issuer(self, http_client):
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
+
+        Args:
+            http_client: The :class:`ClientSession` instance responsible for adding
+                authentication headers
         """
         spec = self.assemble_issuer_spec()
-        response = await self.post_json(client, 'bcovrin/register-issuer', spec)
+        response = await self.post_json(http_client, 'bcovrin/register-issuer', spec)
         result = response['result']
         if not response['success']:
             raise TobClientError(
@@ -67,7 +86,7 @@ class TobClient:
         self.issuer_service_id = result['issuer']['id']
         return result
 
-    def assemble_issuer_spec(self):
+    def assemble_issuer_spec(self) -> dict:
         """
         Create the issuer JSON definition which will be submitted to TheOrgBook
         """
@@ -106,7 +125,13 @@ class TobClient:
         issuer_spec['cred-types'] = ctypes
         return issuer_spec
 
-    def get_api_url(self, module=None):
+    def get_api_url(self, module:str=None) -> str:
+        """
+        Construct the URL for an API request
+
+        Args:
+            module: an optional module name to be added to the URL
+        """
         url = self.api_url
         if not url.endswith('/'):
             url += '/'
@@ -114,12 +139,18 @@ class TobClient:
             url = url + module
         return url
 
-    async def fetch_list(self, client, module):
-        url = self.get_api_url(module)
-        # Would be better practice to use one ClientSession globally, but
-        # these requests are only performed once, at startup.
+    async def fetch_list(self, http_client, path: str) -> dict:
+        """
+        A standard request to a `list`-style API method
+
+        Args:
+            http_client: The :class:`ClientSession` instance responsible for adding
+                authentication headers
+            path: The relative path to the API method
+        """
+        url = self.get_api_url(path)
         LOGGER.debug('fetch_list: %s', url)
-        response = await client.get(url)
+        response = await http_client.get(url)
         if response.status != 200:
             raise TobClientError(
                 response.status,
@@ -129,10 +160,19 @@ class TobClient:
                 response)
         return await response.json()
 
-    async def post_json(self, client, module, data):
-        url = self.get_api_url(module)
+    async def post_json(self, http_client, path: str, data):
+        """
+        A standard POST request to an API method
+
+        Args:
+            http_client: The :class:`ClientSession` instance responsible for adding
+                authentication headers
+            path: The relative path to the API method
+            data: The body of the request, to be converted to JSON
+        """
+        url = self.get_api_url(path)
         LOGGER.debug('post_json: %s', url)
-        response = await client.post(url, json=data)
+        response = await http_client.post(url, json=data)
         if response.status != 200 and response.status != 201:
             raise TobClientError(
                 response.status,

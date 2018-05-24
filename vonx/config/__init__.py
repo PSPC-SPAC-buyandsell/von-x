@@ -14,3 +14,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+__doc__ = "A package containing standard configuration settings for von-x implementations"

@@ -21,6 +21,7 @@ import logging
 import os
 import time
 import traceback
+from typing import Coroutine
 
 from concurrent.futures import Future, ThreadPoolExecutor
 import multiprocessing as mp
@@ -35,8 +36,8 @@ class ExchangeError:
     """
     An error class to represent an exception in message processing
 
-    This is not a subclass of :class:Exception as that cannot be picked
-    and returned as part of a message
+    This is not a subclass of :class:`Exception` as that cannot be pickled
+    and transported over the message bus
     """
     def __init__(self, value, exc_info=None):
         self.value = value
@@ -53,6 +54,19 @@ class ExchangeError:
 
     def __repr__(self):
         return 'ExchangeError(value={})'.format(self.value)
+
+
+Message = collections.namedtuple('Message', ('from_pid', 'ident', 'body', 'ref'))
+Message.__new__.__defaults__ = (None,)
+Message.__doc__ = """
+    A wrapper for a message being passed through the :class:`Exchange` message bus
+
+    Attributes:
+        from_pid (str): The identifier of the sending service
+        ident: A unique identifier for the message, used to tag responses
+        body: The content of the message
+        ref: An optional identifier for the message being responded to
+"""
 
 
 class Exchange:
@@ -105,29 +119,28 @@ class Exchange:
             self._cmd_pipe[1].send(command)
             return self._cmd_pipe[1].recv()
 
-    def send(self, to_pid: str, from_pid: str, ident, message, ref=None) -> bool:
+    def send(self, to_pid: str, message: Message) -> bool:
         """
         Add a message to the bus, blocking until the processing thread is ready
 
         Args:
-            to_pid: The recipient service
-            from_pid: The sending service
-            ident: The unique message identifier
-            ref: The identifier of a previous message being responded to (if any)
+            to_pid: The identifier for the receiving service
+            message: The message to be added to the queue
+
         Returns:
-            True if the message is successfully sent
+            True if the message is successfully added to the queue
         """
         # Blocks until we have access to the message queues and command pipe
         # FIXME add a maximum buffer size for the message queues and allow blocking
         # until there is room in the buffer (optional blocking=True argument)
         with self._req_cond:
-            LOGGER.debug('send to %s/%s %s', to_pid, ref, message)
-            status = self._cmd('send', to_pid, (from_pid, ident, message, ref))
+            LOGGER.debug('send to %s/%s %s', to_pid, message.ref, message.body)
+            status = self._cmd('send', to_pid, message)
             # wake all threads waiting for an incoming message
             self._req_cond.notify_all()
         return status
 
-    def recv(self, to_pid: str, blocking:bool=True, timeout=None):
+    def recv(self, to_pid: str, blocking:bool=True, timeout=None) -> Message:
         """
         Receive a message from the bus
 
@@ -135,6 +148,7 @@ class Exchange:
             to_pid: The identifier of the recipient service
             blocking: Whether to sleep this thread until a message is received
             timeout: An optional timeout before aborting
+
         Returns:
             The next message in the queue, or None
         """
@@ -207,6 +221,70 @@ class Exchange:
             LOGGER.exception('Error in exchange:')
 
 
+class Endpoint:
+    """
+    A wrapper for sending messages to a single target.
+
+    Example:
+        >>> manager = Endpoint(manager_pid, exchange, my_pid)
+        >>> _ = manager.send_noreply('hello')
+    """
+
+    def __init__(self, pid: str, exchange: Exchange, from_pid:str=None):
+        self._pid = pid
+        self._from_pid = from_pid
+        self._exchange = exchange
+
+    @property
+    def pid(self) -> str:
+        """
+        Accessor for the identifier of the recipient service
+        """
+        return self._pid
+
+    @property
+    def exchange(self) -> Exchange:
+        """
+        Accessor for the :class:`Exchange` used by this Endpoint
+        """
+        return self._exchange
+
+    @property
+    def from_pid(self) -> str:
+        """
+        Accessor for the identifier of the sending service
+        """
+        return self._from_pid
+
+    def send(self, ident, message, ref=None, from_pid=None) -> bool:
+        """
+        Send a message to the recipient service
+
+        Args:
+            ident: The identifier used by the message response
+            message: The message being sent
+            ref: An optional identifier for the message being responded to
+            from_pid: An optional override for the sender identifier
+
+        Returns:
+            True if the message was successfully added to the queue
+        """
+        return self._exchange.send(self._pid, Message(
+            from_pid if from_pid != None else self._from_pid,
+            ident,
+            message,
+            ref))
+
+    def send_noreply(self, message, ref=None, from_pid=None) -> bool:
+        """
+        Send a message with no reply expected
+
+        Returns:
+            True if the message was successfully added to the queue
+        """
+        return self.send(None, message, ref, from_pid)
+
+
 class RequestProcessor:
     """
     A generic message processor which polls the exchange for messages sent to
@@ -214,7 +292,7 @@ class RequestProcessor:
     and send responses.
     """
 
-    def __init__(self, pid, exchange: Exchange):
+    def __init__(self, pid: str, exchange: Exchange):
         self._pid = pid
         self._exchange = exchange
         self._thread = None
@@ -227,11 +305,17 @@ class RequestProcessor:
         return self._pid
 
     @property
-    def exchange(self):
+    def exchange(self) -> Exchange:
         """
         Accessor for the :class:`Exchange` used by this request processor
         """
         return self._exchange
+
+    def get_endpoint(self, pid) -> Endpoint:
+        """
+        Quickly create an Endpoint for a service on the same message bus
+        """
+        return Endpoint(pid, self._exchange, self._pid)
 
     def start(self) -> Thread:
         """
@@ -266,16 +350,16 @@ class RequestProcessor:
         #pylint: disable=broad-except
         try:
             while True:
-                from_pid, ident, message, ref = self._exchange.recv(self._pid)
-                LOGGER.debug('%s processing message: %s', self._pid, message)
-                if message == 'stop':
+                message = self._exchange.recv(self._pid)
+                LOGGER.debug('%s processing message: %s', self._pid, message.body)
+                if message.body == 'stop':
                     break
                 # FIXME catch exception here and return it to the sender
                 try:
-                    if self.process(from_pid, ident, message, ref) is False:
+                    if self.process(message) is False:
                         break
                 except Exception:
-                    if isinstance(message, ExchangeError):
+                    if isinstance(message.body, ExchangeError):
                         LOGGER.error(message.format())
                     else:
                         errmsg = ExchangeError('Exception during message processing', True)
@@ -293,10 +377,11 @@ class RequestProcessor:
             message: The content of the message
             ref: The identifier of the message being responded to
             from_pid: An optional override for the sender identifier
+
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._exchange.send(to_pid, from_pid or self._pid, ident, message, ref)
+        return self._exchange.send(to_pid, Message(from_pid or self._pid, ident, message, ref))
 
     def send_noreply(self, to_pid: str, message, ref=None, from_pid:str=None) -> bool:
         """
@@ -305,12 +390,11 @@ class RequestProcessor:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._exchange.send(to_pid, from_pid or self._pid, None, message, ref)
+        return self._exchange.send(to_pid, Message(from_pid or self._pid, None, message, ref))
 
-    def process(self, from_pid: str, ident, message, ref):
+    def process(self, message: Message):
         """
         Process a message from another service and optionally send a message in response
-        (To be implemented by subclasses)
         """
         pass
 
@@ -323,6 +407,60 @@ class RequestExecutor(RequestProcessor):
     all incoming messages are simply responses to earlier requests.
     Processing should not block the main thread (much) to avoid breaking asyncio.
     """
+
+
+    class ExecutorEndpoint(Endpoint):
+        """
+        An endpoint for a RequestExecutor which uses submit() to poll
+        for responses to requests.
+        """
+
+        def __init__(self, executor, pid, loop=None):
+            self._executor = executor
+            self._loop = loop
+            super(ExecutorEndpoint, self).__init__(
+                pid,
+                self._executor.exchange,
+                self._executor.pid
+            )
+
+        @property
+        def loop(self):
+            """
+            Accessor for the event loop instance
+            """
+            return self._loop
+
+        @loop.setter
+        def loop(self, newloop):
+            """
+            Setter for the event loop instance
+            """
+            self._loop = newloop
+
+        @property
+        def executor(self):
+            """
+            Accessor for the `RequestExecutor` instance
+            """
+            return self._executor
+
+        def request(self, message, timeout=None, loop=None):
+            """
+            Send a request to the recipient service, awaiting the response in
+            a method defined by the executor
+
+            Args:
+                message: The message to be sent
+                timeout: An optional timeout for the message response
+                loop: An optional event loop reference
+            """
+            return self._executor.submit(
+                self.pid,
+                message,
+                timeout=timeout,
+                loop=loop or self._loop)
+
 
     def __init__(self, pid, exchange: Exchange, max_workers=10):
         super(RequestExecutor, self).__init__(pid, exchange)
@@ -380,9 +518,21 @@ class RequestExecutor(RequestProcessor):
         """
         return self._pool
 
+    def get_endpoint(self, pid: str) -> ExecutorEndpoint:
+        """
+        Quickly create an ExecutorEndpoint for a service on the message bus
+
+        Args:
+            pid: the identifier for the receiving service
+        """
+        return ExecutorEndpoint(self, pid)
+
     def stop(self, wait:bool=True) -> None:
         """
         Stop our polling thread and any other tasks in progress
+
+        Args:
+            wait: whether to wait for the threads to terminate
         """
         if self._pool:
             self._pool.shutdown(wait)
@@ -390,7 +540,7 @@ class RequestExecutor(RequestProcessor):
         if self._connector:
             self._connector.close()
 
-    def run_task(self, proc, *args, loop=None) -> Future:
+    def run_task(self, proc: Coroutine, *args, loop=None) -> Future:
         """
         Stop our polling thread and any other tasks in progress
         """
@@ -401,7 +551,7 @@ class RequestExecutor(RequestProcessor):
             result = loop.run_in_executor(self._pool, proc, *args)
         return result
 
-    def submit(self, to_pid, message, timeout=None, loop=None) -> Future:
+    def submit(self, to_pid: str, message, timeout=None, loop=None) -> Future:
         """
         Submit a message to another service and run a task to poll for the results
         """
@@ -416,7 +566,7 @@ class RequestExecutor(RequestProcessor):
         result = self.run_task(self._receive, ident, timeout, loop=loop)
         return result
 
-    def process(self, from_pid, ident, message, ref) -> None:
+    def process(self, message: Message) -> None:
         """
         Handle a message received from another service on the exchange by awaking
         any tasks waiting for results
@@ -427,7 +577,7 @@ class RequestExecutor(RequestProcessor):
                 self._req_cond.notify_all()
             else:
                 LOGGER.debug('unhandled message to %s/%s from %s: %s',
-                             self._pid, ref, from_pid, message)
+                             self._pid, message.ref, message.from_pid, message.body)
 
     def _receive(self, ident, timeout=None):
         """
@@ -436,6 +586,7 @@ class RequestExecutor(RequestProcessor):
         Args:
             ident: The identifier of the message we sent
             timeout: An optional timeout (in seconds) before aborting
+
         Returns:
             The contents of the message we received, or None
         """
@@ -482,141 +633,12 @@ class RequestExecutor(RequestProcessor):
         return self.http_client()
 
 
-class Endpoint:
-    """
-    A wrapper for sending messages to a single target.
-
-    Example:
-        >>> manager = Endpoint(manager_pid, exchange, my_pid)
-        >>> _ = manager.send_noreply('hello')
-    """
-
-    def __init__(self, pid, exchange, from_pid=None):
-        self._pid = pid
-        self._from_pid = from_pid
-        self._exchange = exchange
-
-    @property
-    def pid(self) -> str:
-        """
-        Accessor for the identifier of the recipient service
-        """
-        return self._pid
-
-    @property
-    def exchange(self):
-        """
-        Accessor for the :class:`Exchange` used by this Endpoint
-        """
-        return self._exchange
-
-    @property
-    def from_pid(self) -> str:
-        """
-        Accessor for the identifier of the sending service
-        """
-        return self._from_pid
-
-    def send(self, ident, message, ref=None, from_pid=None) -> bool:
-        """
-        Send a message to the recipient service
-
-        Args:
-            ident: The identifier used by the message response
-            message: The message being sent
-            ref: An optional identifier for the message being responded to
-            from_pid: An optional override for the sender identifier
-        Returns:
-            True if the message was successfully added to the queue
-        """
-        return self._exchange.send(
-            self._pid,
-            from_pid if from_pid != None else self._from_pid,
-            ident,
-            message,
-            ref)
-
-    def send_noreply(self, message, ref=None, from_pid=None) -> bool:
-        """
-        Send a message with no reply expected
-
-        Returns:
-            True if the message was successfully added to the queue
-        """
-        return self.send(None, message, ref, from_pid)
-
-
-# work around circular dependency
-def processor_get_endpoint(self, pid) -> Endpoint:
-    return Endpoint(pid, self._exchange, self._pid)
-RequestProcessor.get_endpoint = processor_get_endpoint
-
-
-class ExecutorEndpoint(Endpoint):
-    """
-    An endpoint for a RequestExecutor which uses submit() to poll
-    for responses to requests.
-    """
-
-    def __init__(self, executor, pid, loop=None):
-        self._executor = executor
-        self._loop = loop
-        super(ExecutorEndpoint, self).__init__(
-            pid,
-            self._executor.exchange,
-            self._executor.pid
-        )
-
-    @property
-    def async_loop(self):
-        """
-        Accessor for the event loop instance
-        """
-        return self._loop
-
-    @async_loop.setter
-    def async_loop(self, loop):
-        """
-        Setter for the event loop instance
-        """
-        self._loop = loop
-
-    @property
-    def executor(self):
-        """
-        Accessor for the `RequestExecutor` instance
-        """
-        return self._executor
-
-    def request(self, message, timeout=None, loop=None):
-        """
-        Send a request to the recipient service, awaiting the response in
-        a method defined by the executor
-
-        Args:
-            message: The message to be sent
-            timeout: An optional timeout for the message response
-            loop: An optional event loop reference
-        """
-        return self._executor.submit(
-            self.pid,
-            message,
-            timeout=timeout,
-            loop=loop or self._loop)
-
-
-# work around circular dependency
-def executor_get_endpoint(self, pid) -> ExecutorEndpoint:
-    return ExecutorEndpoint(self, pid)
-RequestExecutor.get_endpoint = executor_get_endpoint
-
-
 class HelloProcessor(RequestProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """
-    def process(self, from_pid, ident, message, ref):
-        self.send_noreply(from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), ident)
+    def process(self, message: Message):
+        self.send_noreply(message.from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), message.ident)
 
 
 class ThreadedHelloProcessor(HelloProcessor):
@@ -638,15 +660,15 @@ class ThreadedHelloProcessor(HelloProcessor):
         proc.start()
         return proc
 
-    def process(self, from_pid, ident, message, ref):
+    def process(self, message: Message):
         if self._blocking:
-            self._delayed_process((from_pid, ident, message, ref))
+            self._delayed_process(message)
         else:
             self._pool.submit(self._delayed_process, message)
 
-    def _delayed_process(self, message):
+    def _delayed_process(self, message: Message):
         time.sleep(1)
-        return super(ThreadedHelloProcessor, self).process(*message)
+        return super(ThreadedHelloProcessor, self).process(message)
 
 
 # Testing two workers dividing requests:

@@ -184,6 +184,6 @@ class Mock(MagicMock):
 MOCK_MODULES = [
     'aiohttp', 'aiohttp.helpers',
     'didauth', 'didauth.ext', 'didauth.ext.aiohttp', 'didauth.indy',
-    'von_agent', 'von_agent.agents', 'von_agent.codec', 'von_agent.nodepool', 'von_agent.util', 'von_agent.wallet',
+    'von_agent', 'von_agent.agents', 'von_agent.codec', 'von_agent.error', 'von_agent.nodepool', 'von_agent.util', 'von_agent.wallet',
     'nacl', 'yaml']
 sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)

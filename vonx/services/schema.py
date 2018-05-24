@@ -36,7 +36,8 @@ class Schema:
         """
         Accessor for the extended schema attributes list
 
-        :return: a copy of the schema attributes
+        Returns:
+            a copy of the schema attributes
         """
         return self._attributes.copy()
 
@@ -60,7 +61,8 @@ class Schema:
         """
         Accessor for the schema attribute names
 
-        :return: the attribute names only
+        Returns:
+            the attribute names only
         """
         return tuple(attr['name'] for attr in self._attributes)
 
@@ -68,8 +70,9 @@ class Schema:
         """
         Add an attribute to the schema including optional type information
 
-        :param attr: a dict or str representing the attribute
-        :param name: the name of the attribute
+        Args:
+            attr: a dict or str representing the attribute
+            name: the name of the attribute
         """
         if isinstance(attr, Mapping):
             if name is not None:
@@ -104,7 +107,7 @@ class SchemaManager:
     @property
     def schemas(self) -> list:
         """
-        :return: a list of all loaded schemas
+        An accessor for the list of all loaded schemas
         """
         return self._schemas.copy()
 
@@ -112,8 +115,9 @@ class SchemaManager:
         """
         Add a schema to the manager
 
-        :param schema: a Schema or dict instance
-        :param override: replace an existing schema if any
+        Args:
+            schema: a Schema or dict instance
+            override: replace an existing schema if any
         """
         if not isinstance(schema, Schema):
             if not isinstance(schema, Mapping):
@@ -134,8 +138,9 @@ class SchemaManager:
         """
         Remove an existing schema from the manager
 
-        :param schema: the schema name
-        :param version: the schema version
+        Args:
+            schema: the schema name
+            version: the schema version
         """
         if isinstance(schema, str):
             schema = self.find(schema, version)
@@ -145,8 +150,9 @@ class SchemaManager:
         """
         Load a list of schemas and add each to the manager
 
-        :param values: the list of schema definitions
-        :param override: replace existing defined schemas of the same name and version
+        Args:
+            values: the list of schema definitions
+            override: replace existing defined schemas of the same name and version
         """
         for spec in values:
             self.add_schema(spec, override)
@@ -155,9 +161,12 @@ class SchemaManager:
         """
         Locate a defined schema
 
-        :param name: the schema name
-        :param version: the schema version
-        :return: the located Schema instance, if any
+        Args:
+            name: the schema name
+            version: the schema version
+
+        Returns:
+            the located Schema instance, if any
         """
         found = None
         for schema in self._schemas:

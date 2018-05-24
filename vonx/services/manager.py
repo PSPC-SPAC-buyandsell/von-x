@@ -17,6 +17,7 @@
 
 import logging
 import os
+from typing import Mapping
 
 from . import config, exchange as exch, schema
 
@@ -24,8 +25,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ServiceManager:
-    def __init__(self, env):
-        self._env = env
+    def __init__(self, env: Mapping=None):
+        self._env = env or {}
         self._exchange = exch.Exchange()
         self._executor_cls = exch.RequestExecutor
         self._proc_locals = {'pid': os.getpid()}
@@ -76,10 +77,13 @@ class ServiceManager:
         """
         Load a YAML configuration file with defined variables replaced in the result
 
-        :param settings_key: the name of an environment variable defining an alternative
-            configuration path
-        :param default_path: the default path to the configuration file
-        :return: the parsed YAML configuration with variables replaced
+        Args:
+            settings_key: the name of an environment variable defining an alternative
+                configuration path
+            default_path: the default path to the configuration file
+
+        Returns:
+            the parsed YAML configuration with variables replaced
         """
         path = self._env.get(settings_key)
         if not path:
@@ -90,7 +94,8 @@ class ServiceManager:
         """
         Load a named section from the global services.yml configuration
 
-        :param section: the configuration key
+        Args:
+            section: the configuration key
         """
         if self._services_cfg is None:
             self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
@@ -128,7 +133,8 @@ class ServiceManager:
         """
         Accessor for all process-local variables
 
-        :return: a dictionary of currently-defined variables
+        Returns:
+            a dictionary of currently-defined variables
         """
         pid = os.getpid()
         if self._proc_locals['pid'] != pid:
@@ -153,24 +159,29 @@ class ServiceManager:
         """
         Fetch a defined service by name
 
-        :param name: the string identifier for the service
+        Args:
+            name: the string identifier for the service
+
+        Returns:
+            the service instance, or None if not found
         """
-        return self._services[name]
+        return self._services.get(name)
 
     def get_endpoint(self, pid: str, loop=None) -> exch.Endpoint:
         """
         Get an endpoint for sending messages to a service on the message exchange.
         Requests will be handled by the executor for this manager in this process.
 
-        :param pid: the identifier for the endpoint on the message bus
-        :param loop: the current event loop, if any
+        Args:
+            pid: the identifier for the endpoint on the message bus
+            loop: the current event loop, if any
         """
         ploc = self.proc_locals
         name = 'endpt_' + pid
         if name not in ploc:
             ploc[name] = self.executor.get_endpoint(pid)
         if loop:
-            ploc[name].async_loop(loop)
+            ploc[name].loop = loop
         return ploc[name]
 
     def get_service_endpoint(self, name: str, loop=None) -> exch.Endpoint:
@@ -178,8 +189,9 @@ class ServiceManager:
         Get an endpoint for one of the services defined by this manager.
         This Endpoint can be used for sending process-safe messages and receiving results.
 
-        :param name: the string identifier for the service
-        :param loop: the current event loop, if any
+        Args:
+            name: the string identifier for the service
+            loop: the current event loop, if any
         """
         if name in self._services:
             return self.get_endpoint(self._services[name].pid, loop)

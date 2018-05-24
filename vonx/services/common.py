@@ -23,7 +23,7 @@ class StandardServiceManager(manager.ServiceManager):
     A standard ServiceManager with IssuerManager and ProverManager services
     """
 
-    def init_services(self):
+    def init_services(self) -> None:
         super(StandardServiceManager, self).init_services()
 
         # Issuer manager - handles ready, status, submit_cred

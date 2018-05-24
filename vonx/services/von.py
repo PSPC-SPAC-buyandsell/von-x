@@ -28,6 +28,7 @@ from von_agent.agents import (
     Issuer as VonIssuer,
     HolderProver as VonHolderProver,
     Verifier as VonVerifier)
+from von_agent.error import AbsentSchema, AbsentCredDef
 from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 from von_agent.util import (
@@ -37,12 +38,90 @@ from von_agent.util import (
     schema_id,
     schema_key)
 
+from vonx.services.schema import Schema
 from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
 
+class AgentWrapper:
+    """
+    A wrapper for the :class:`_BaseAgent` instance which handles configuration loading
+    and allows the wallet to be kept open between requests
+    """
+    def __init__(self, wallet_config, instance_cls, issuer_type, ext_cfg=None):
+        if not wallet_config:
+            raise ValueError('Empty wallet configuration')
+        wallet_seed = wallet_config.get('seed')
+        if not wallet_seed:
+            raise ValueError('Missing wallet seed')
+        if len(wallet_seed) != 32:
+            raise ValueError('Wallet seed length is not 32 characters: {}'.format(wallet_seed))
+        genesis_path = wallet_config.get('genesis_path')
+        if not genesis_path:
+            raise ValueError('Missing genesis_path')
+        wallet_name = wallet_config.get('name')
+        if not wallet_name:
+            raise ValueError('Missing wallet name')
+
+        self._pool = NodePool(
+            wallet_name + '-' + issuer_type,
+            genesis_path)
+
+        self._instance_cls = instance_cls
+        self._instance = None
+        self._wallet = Wallet(
+            self._pool,
+            wallet_seed,
+            wallet_name + '-' + issuer_type + '-Wallet')
+        self._ext_cfg = ext_cfg
+        self._opened = None
+        self._keep_open = False
+
+    def keep_open(self, flag=True):
+        """
+        Set the keep-open flag to keep the wallet open between requests
+        """
+        self._keep_open = flag
+
+    async def open(self) -> _BaseAgent:
+        """
+        Open the connection to the transaction pool and wallet
+        """
+        if self._opened:
+            return self._opened
+        await self._pool.open()
+        self._instance = self._instance_cls(await self._wallet.create(), self._ext_cfg)
+        self._opened = await self._instance.open()
+        if isinstance(self._instance, VonHolderProver):
+            # seems odd
+            await self._instance.create_master_secret(str(uuid.uuid4()))
+        return self._opened
+
+    async def close(self):
+        """
+        Close the wallet and transaction pool connections
+        """
+        if self._opened:
+            await self._instance.close()
+            await self._pool.close()
+        self._opened = None
+        self._keep_open = False
+
+    async def __aenter__(self):
+        return await self.open()
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            LOGGER.exception('Exception in VON %s:', self._wallet.name)
+        if not self._keep_open:
+            await self.close()
+
+
 class VonClient:
+    """
+    A class for managing interactions with the ledger
+    """
     def __init__(self, config=None):
         self.config = {'id': None}
         self.issuer_did = None
@@ -52,7 +131,7 @@ class VonClient:
         if config:
             self.config.update(config)
 
-    async def sync(self):
+    async def sync(self) -> None:
         """
         Find our DID, and initialize our schemas and credential defs on the ledger.
         """
@@ -83,11 +162,17 @@ class VonClient:
         LOGGER.info('VON client synced: %s', self.config['id'])
 
     @property
-    def id(self):
+    def id(self) -> str:
+        """
+        Accessor for the identifier for the issuer service
+        """
         return self.config.get('id')
 
     @property
-    def wallet_config(self):
+    def wallet_config(self) -> dict:
+        """
+        Accessor for the wallet configuration settings
+        """
         cfg = dict(self.config.get('wallet') or {})
         if not cfg.get('name'):
             cfg['name'] = self.id
@@ -96,16 +181,22 @@ class VonClient:
         return cfg
 
     @property
-    def issuer_config(self):
+    def issuer_config(self) -> dict:
+        """
+        Accessor for the issuer configuration settings
+        """
         cfg = {}
         endpoint = self.config.get('endpoint')
         if endpoint:
             cfg['endpoint'] = endpoint
         return cfg
 
-    async def check_genesis_path(self):
+    async def check_genesis_path(self) -> str:
         """
         Make sure that the genesis path is defined, and download the transaction file if needed.
+
+        Returns:
+            the resolved genesis transaction path
         """
         path = self.config.get('genesis_path')
         if not path:
@@ -124,9 +215,9 @@ class VonClient:
             raise ValueError("genesis_path must not point to a directory")
         return path
 
-    async def fetch_genesis_txn(self, ledger_url, target_path):
+    async def fetch_genesis_txn(self, ledger_url: str, target_path: str) -> bool:
         """
-        Download the genesis transaction file from the ledger server.
+        Download the genesis transaction file from the ledger server
         """
         LOGGER.info('Fetching genesis transaction file from %s/genesis', ledger_url)
         async with aiohttp.ClientSession(read_timeout=30) as client:
@@ -147,9 +238,9 @@ class VonClient:
             output_file.write(data)
         return True
 
-    async def check_registration(self, issuer, seed=None):
+    async def check_registration(self, issuer: VonIssuer, seed=None):
         """
-        Look up our nym on the ledger and register it if not present.
+        Look up our nym on the ledger and register it if not present
         """
         did = issuer.did
         LOGGER.debug('Checking DID registration %s', did)
@@ -184,9 +275,9 @@ class VonClient:
                     raise RuntimeError(
                         'DID registration failed: {}'.format(nym_info))
 
-    async def check_endpoint(self, issuer):
+    async def check_endpoint(self, issuer: VonIssuer):
         """
-        Look up our endpoint on the ledger and register it if not present.
+        Look up our endpoint on the ledger and register it if not present
         """
         endpoint = self.config.get('endpoint')
         if not endpoint:
@@ -202,21 +293,23 @@ class VonClient:
             LOGGER.debug('Endpoint stored: %s', endp_info)
         return endp_info
 
-    async def publish_schema(self, issuer, schema):
+    async def publish_schema(self, issuer: VonIssuer, schema: Schema):
         """
-        Check the ledger for a specific schema and version, and publish it if not found.
+        Check the ledger for a specific schema and version, and publish it if not found
+
+        Returns:
+            a tuple of the ledger and credential definitions stored on the ledger
         """
         LOGGER.info('Checking for schema: %s (%s)', schema.name, schema.version)
         # Check if schema exists on ledger
-        s_key = schema_key(schema_id(issuer.did, schema.name, schema.version))
-        LOGGER.info('%s', s_key)
-        schema_json = await issuer.get_schema(s_key)
-        ledger_schema = json.loads(schema_json)
 
-        # If not found, send the schema to the ledger
-        if ledger_schema:
+        try:
+            s_key = schema_key(schema_id(issuer.did, schema.name, schema.version))
+            schema_json = await issuer.get_schema(s_key)
+            ledger_schema = json.loads(schema_json)
             log_json('Schema found on ledger:', ledger_schema, LOGGER)
-        else:
+        except AbsentSchema:
+            # If not found, send the schema to the ledger
             LOGGER.info('Publishing schema: %s (%s)', schema.name, schema.version)
             schema_json = await issuer.send_schema(json.dumps({
                 'name': schema.name,
@@ -229,36 +322,43 @@ class VonClient:
 
         # Check if credential definition has been published
         LOGGER.info('Checking for credential def: %s (%s)', schema.name, schema.version)
-        cred_def_json = await issuer.get_cred_def(cred_def_id(issuer.did, ledger_schema['seqNo']))
-        cred_def = json.loads(cred_def_json)
 
-        # If credential definition is not found then publish it
-        if cred_def:
+        try:
+            cred_def_json = await issuer.get_cred_def(cred_def_id(issuer.did, ledger_schema['seqNo']))
+            cred_def = json.loads(cred_def_json)
             log_json('Credential def found on ledger:', cred_def, LOGGER)
-        else:
+        except AbsentCredDef:
+            # If credential definition is not found then publish it
             LOGGER.info('Publishing credential def: %s (%s)', schema.name, schema.version)
             cred_def_json = await issuer.send_cred_def(schema_json)
             cred_def = json.loads(cred_def_json)
             log_json('Published credential def:', cred_def, LOGGER)
         return (ledger_schema, cred_def)
 
-    async def create_issuer(self):
-        # retrieve genesis transaction if necessary
+    async def create_issuer(self) -> AgentWrapper:
+        """
+        Return the :class:`AgentWrapper` for our :class:`Issuer` instance, creating it if necessary
+        """
         await self.check_genesis_path()
         if not self._issuer:
-            self._issuer = Agent(self.wallet_config, VonIssuer, 'Issuer', self.issuer_config)
+            self._issuer = AgentWrapper(self.wallet_config, VonIssuer, 'Issuer', self.issuer_config)
             self._issuer.keep_open() # !! keeps the pool and wallet open for this instance
         return self._issuer
 
-    async def create_verifier(self):
-        # retrieve genesis transaction if necessary
+    async def create_verifier(self) -> AgentWrapper:
+        """
+        Return the :class:`AgentWrapper` for our :class:`Verifier` instance, creating it if necessary
+        """
         await self.check_genesis_path()
         if not self._verifier:
-            self._verifier = Agent(self.wallet_config, VonVerifier, 'Verifier')
+            self._verifier = AgentWrapper(self.wallet_config, VonVerifier, 'Verifier')
             # self._verifier.keep_open() # !! keeps the pool and wallet open for this instance
         return self._verifier
 
     async def resolve_did_from_seed(self, seed):
+        """
+        Resolve the DID for a wallet given its seed
+        """
         #cfg = {
         #    'genesis_path': await self.check_genesis_path(),
         #    'name': 'SeedResolve',
@@ -270,70 +370,13 @@ class VonClient:
         return seed_to_did(seed)
 
     def get_did_auth(self, header_list=None):
+        """
+        Create a :class:SignedRequestAuth representing our authentication credentials,
+        used to sign outgoing requests
+        """
         wallet = self.wallet_config
         seed = wallet.get('seed')
         if self.issuer_did and seed:
             key_id = 'did:sov:{}'.format(self.issuer_did)
             secret = seed.encode('ascii')
             return SignedRequestAuth(key_id, 'ed25519', secret, header_list)
-
-
-class Agent:
-    def __init__(self, wallet_config, instance_cls, issuer_type, ext_cfg=None):
-        if not wallet_config:
-            raise ValueError('Empty wallet configuration')
-        wallet_seed = wallet_config.get('seed')
-        if not wallet_seed:
-            raise ValueError('Missing wallet seed')
-        if len(wallet_seed) != 32:
-            raise ValueError('Wallet seed length is not 32 characters: {}'.format(wallet_seed))
-        genesis_path = wallet_config.get('genesis_path')
-        if not genesis_path:
-            raise ValueError('Missing genesis_path')
-        wallet_name = wallet_config.get('name')
-        if not wallet_name:
-            raise ValueError('Missing wallet name')
-
-        self._pool = NodePool(
-            wallet_name + '-' + issuer_type,
-            genesis_path)
-
-        self._instance_cls = instance_cls
-        self._instance = None
-        self._wallet = Wallet(
-            self._pool,
-            wallet_seed,
-            wallet_name + '-' + issuer_type + '-Wallet')
-        self._ext_cfg = ext_cfg
-        self._opened = None
-        self._keep_open = False
-
-    def keep_open(self):
-        self._keep_open = True
-
-    async def open(self):
-        if self._opened:
-            return self._opened
-        await self._pool.open()
-        self._instance = self._instance_cls(await self._wallet.create(), self._ext_cfg)
-        self._opened = await self._instance.open()
-        if isinstance(self._instance, VonHolderProver):
-            # seems odd
-            await self._instance.create_master_secret(str(uuid.uuid4()))
-        return self._opened
-
-    async def close(self):
-        if self._opened:
-            await self._instance.close()
-            await self._pool.close()
-        self._opened = None
-        self._keep_open = False
-
-    async def __aenter__(self):
-        return await self.open()
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        if exc_type is not None:
-            LOGGER.exception('Exception in VON %s:', self._wallet.name)
-        if not self._keep_open:
-            await self.close()

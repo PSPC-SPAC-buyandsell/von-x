@@ -17,6 +17,7 @@
 
 import json
 import logging
+from typing import Mapping
 
 import aiohttp
 from didauth.ext.aiohttp import SignedRequest
@@ -26,7 +27,7 @@ from von_agent.util import SchemaKey, cred_def_id
 
 import vonx
 from vonx.services import eventloop
-from vonx.services.exchange import ExchangeError, RequestProcessor, RequestExecutor
+from vonx.services.exchange import ExchangeError, Message, RequestProcessor, RequestExecutor
 from vonx.services.manager import ServiceManager
 from vonx.services.schema import Schema
 from vonx.services.tob import TobClient
@@ -36,14 +37,18 @@ from vonx.util import log_json
 LOGGER = logging.getLogger(__name__)
 
 
-def load_cred_request(cred_type, request, validate=True) -> dict:
+def load_cred_request(cred_type: Mapping, request: Mapping, validate=True) -> dict:
     """
     Convert a dictionary of input parameters into a set of only defined credential
     attributes, and optionally validate the credential format
 
-    :param cred_type: the credential type definition
-    :param request: the claim attribute values
-    :return: the loaded credential attributes
+    Args:
+        cred_type: the credential type definition
+        request: the claim attribute values
+        validate: Whether to validate the credential against its schema value restrictions
+
+    Returns:
+        The loaded credential attributes
     """
     cred = {}
     for attr in cred_type['schema'].attr_names:
@@ -53,13 +58,16 @@ def load_cred_request(cred_type, request, validate=True) -> dict:
     return cred
 
 
-def init_issuer_manager(service_manager: ServiceManager, pid='issuer-manager'):
+def init_issuer_manager(service_manager: ServiceManager, pid:str='issuer-manager'):
     """
     Initialize a standard IssuerManager from a ServiceManager instance
 
-    :param service_manager: the shared ServiceManager instance
-    :param pid:
-    :return: the IssuerManager instance
+    Args:
+        service_manager: the shared :class:`ServiceManager` instance
+        pid: the identifier for the :class:`IssuerManager` service
+
+    Returns:
+        the initialized :class:`IssuerManager` instance
     """
     env = service_manager.env
     issuers = []
@@ -130,11 +138,12 @@ class SubmitCredResponse:
 class IssuerService(RequestExecutor):
     """
     The IssuerService handles issuer initialization as well as processing of credential
-    submission and other requests surrounding the ledger or OrgBook services. It listens
+    submission and other requests surrounding the ledger or TheOrgBook services. It listens
     for requests on the exchange and performs each one in a thread pool.
+
     During synchronization it:
 
-        - Resolves the DID for the OrgBook if necessary
+        - Resolves the DID for the TheOrgBook if necessary
         - Submits schemas and credential definitions to the ledger
         - Initializes the OrgBook with our issuer information
 
@@ -149,7 +158,7 @@ class IssuerService(RequestExecutor):
         self._status = {}
         self._service_mgr = service_mgr
         self._manager_pid = manager_pid
-        self._orgbook_did = None
+        self._api_did = None
         self._update_config(spec)
         self._von_client = None
 
@@ -174,16 +183,24 @@ class IssuerService(RequestExecutor):
         if 'did' in self._config:
             self._status['did'] = self._config['did']
         if 'api_did' in self._config:
-            self._orgbook_did = self._config['api_did']
+            self._api_did = self._config['api_did']
         if 'cred_types' in spec:
             self._load_cred_types(spec['cred_types'])
             self._config['cred_types'] = self._cred_types
 
-    def set_api_did(self, did: str) -> None:
+    @property
+    def api_did(self) -> str:
+        """
+        Accessor for the DID used to access TheOrgBook
+        """
+        return self._api_did
+
+    @api_did.setter
+    def api_did(self, did: str) -> None:
         """
         Setter for the DID used to access TheOrgBook
         """
-        self._orgbook_did = did
+        self._api_did = did
 
     def _update_status(self, update=None, silent=False) -> None:
         """
@@ -240,7 +257,8 @@ class IssuerService(RequestExecutor):
         """
         Start the issuer service and run the initial synchronization
 
-        :param as_coro: return a coroutine to be run in an existing event loop
+        Args:
+            as_coro: if `True`, return a coroutine to be run in an existing event loop
         """
         #pylint: disable=broad-except
         try:
@@ -263,10 +281,10 @@ class IssuerService(RequestExecutor):
         except Exception:
             LOGGER.exception('Error starting issuer service:')
 
-    # Sync with issuer VON client, then TOB client
     async def sync(self):
         """
-        Perform the initial synchronization process with both the ledger and TheOrgBook
+        Perform the initial synchronization process with both the ledger (VonClient)
+        and TheOrgBook (TobClient)
         """
         #pylint: disable=broad-except
         self._update_status({
@@ -298,7 +316,8 @@ class IssuerService(RequestExecutor):
         """
         Create a new ClientSession which includes DID signing information in each request
 
-        :return: the ClientSession object
+        Returns:
+            the initialized ClientSession object
         """
         if 'request_class' not in kwargs:
             kwargs['request_class'] = SignedRequest
@@ -317,7 +336,8 @@ class IssuerService(RequestExecutor):
         """
         Initialize a VonClient instance with the required settings for this issuer
 
-        :return: the VonClient instance
+        Returns:
+            the initialized VonClient instance
         """
         if not self._von_client:
             cfg = self._config.copy()
@@ -328,18 +348,23 @@ class IssuerService(RequestExecutor):
         """
         Initialize a TobClient instance with the required settings for this issuer
 
-        :return: the TobClient instance
+        Returns:
+            the initialized TobClient instance
         """
         cfg = self._config.copy()
         cfg['did'] = self._status['did']
         return TobClient(cfg)
 
-    def find_cred_type_for_schema(self, schema_name, schema_version=None):
+    def find_cred_type_for_schema(self, schema_name: str, schema_version:str=None):
         """
         Look up a defined credential type given the schema name and version
 
-        :param schema_name:
-        :param schema_version:
+        Args:
+            schema_name: the unique schema identifier
+            schema_version: the schema version number
+
+        Returns:
+            the credential type definition, if found, otherwise None
         """
         for ctype in self._cred_types:
             if ctype['schema'].name == schema_name \
@@ -347,24 +372,31 @@ class IssuerService(RequestExecutor):
                 return ctype
         return None
 
-    def process(self, from_pid, ident, message, ref) -> None:
+    def process(self, message: Message) -> None:
         """
         Process a message from the exchange by running a task in the executor
-        """
-        self.run_task(self.handle_request(from_pid, ident, message))
 
-    async def handle_request(self, from_pid, ident, message):
+        Args:
+            message: The message received
+        """
+        self.run_task(self.handle_request(from_pid, ident, message, ref))
+
+    async def handle_request(self, message: Message) -> bool:
         """
         Handle a single message from the exchange and send the reply if any
+
+        Args:
+            message: The message received
         """
         #pylint: disable=broad-except
         try:
-            if isinstance(message, SubmitCredRequest):
+            request = message.body
+            if isinstance(request, SubmitCredRequest):
                 try:
                     result = await self.submit_cred(
-                        message.schema_name,
-                        message.schema_version,
-                        message.attributes)
+                        request.schema_name,
+                        request.schema_version,
+                        request.attributes)
                     return self.send_noreply(from_pid, SubmitCredResponse(result), ident)
                 except Exception:
                     errmsg = IssuerError('Exception during credential submission', True)
@@ -379,8 +411,12 @@ class IssuerService(RequestExecutor):
         """
         Create a credential definition for a given issuer and schema
 
-        :param issuer:
-        :param schema:
+        Args:
+            issuer: an instance of the issuer agent created by VonAgent
+            schema: the schema definition used by this credential definition
+
+        Returns:
+            a tuple of the ledger schema definition and the new credential definition JSON
         """
         LOGGER.debug('Retrieving ledger schema: %s', schema)
 
@@ -403,10 +439,13 @@ class IssuerService(RequestExecutor):
         """
         Submit a credential to the holder, given the credential type and data
 
-        :param http_client: the HTTP client (responsible for signing headers)
-        :param cred_type: the credential type information
-        :param cred_data: the prepared credential data
-        :return: the decoded JSON result of the submission
+        Args:
+            http_client: the HTTP client (responsible for signing headers)
+            cred_type: the credential type information
+            cred_data: the prepared credential data
+
+        Returns:
+            the decoded JSON result of the credential submission request
         """
         #pylint: disable=too-many-locals
         von_client = self.init_von_client()
@@ -419,7 +458,7 @@ class IssuerService(RequestExecutor):
 
             # We create a cred offer
             schema_json = json.dumps(ledger_schema)
-            LOGGER.info('Creating cred offer for TOB at DID %s', self._orgbook_did)
+            LOGGER.info('Creating cred offer for TOB at DID %s', self._api_did)
             cred_offer_json = await von_issuer.create_cred_offer(ledger_schema['seqNo'])
             cred_offer = json.loads(cred_offer_json)
 
@@ -430,7 +469,7 @@ class IssuerService(RequestExecutor):
 
             cred_req = await tob_client.post_json(
                 http_client,
-                'indy/generate-credential-request',
+                'bcovrin/generate-claim-request',
                 {
                     'cred_offer': cred_offer_json,
                     'cred_def': cred_def_json
@@ -451,20 +490,23 @@ class IssuerService(RequestExecutor):
         # Store credential
         return await tob_client.post_json(
             http_client,
-            'indy/store-credential',
+            'bcovrin/store-claim',
             {
                 'cred_req': cred_req,
                 'cred_data': cred
             })
 
-    async def submit_cred(self, schema_name, schema_version, attribs) -> dict:
+    async def submit_cred(self, schema_name: str, schema_version: str, attribs: Mapping) -> dict:
         """
         Submit a credential to the holder
 
-        :param schema_name: the name of the schema registered on the ledger
-        :param schema_version: the schema version
-        :param attribs: a dictionary of credential attributes
-        :return: the decoded JSON result of the submission
+        Args:
+            schema_name: the name of the schema registered on the ledger
+            schema_version: the schema version
+            attribs: a dictionary of credential attributes
+
+        Returns:
+            the decoded JSON result of the credential submission request
         """
         if not self.ready():
             raise RuntimeError('Issuer service is not ready')
@@ -472,7 +514,7 @@ class IssuerService(RequestExecutor):
             raise ValueError('Missing schema name')
         if not attribs:
             raise ValueError('Missing request data')
-        if not self._orgbook_did:
+        if not self._api_did:
             raise ValueError('Missing DID for TOB')
         cred_type = self.find_cred_type_for_schema(schema_name, schema_version)
         if not cred_type:
@@ -498,7 +540,7 @@ class IssuerManager(RequestProcessor):
         self._issuers = {}
         self._issuer_specs = issuer_specs
         self._issuer_status = {}
-        self._orgbook_did = None
+        self._api_did = None
         self._service_mgr = service_mgr
         self._ready = False
         #self._init_services()
@@ -515,7 +557,7 @@ class IssuerManager(RequestProcessor):
         """
         return {
             'issuers': self._issuer_status.copy(),
-            'orgbook_did': self._orgbook_did,
+            'api_did': self._api_did,
             'ready': self._ready,
             'version': vonx.__version__
         }
@@ -536,7 +578,7 @@ class IssuerManager(RequestProcessor):
         self._stop_services()
         super(IssuerManager, self).stop(wait)
 
-    def _init_services(self):
+    def _init_services(self) -> None:
         """
         Initialize all services
         """
@@ -549,7 +591,7 @@ class IssuerManager(RequestProcessor):
         #pylint: disable=broad-except
         async def resolve():
             try:
-                await self.resolve_orgbook_did()
+                await self.resolve_api_did()
             except Exception:
                 errmsg = IssuerError('Error while resolving DID for TOB', True)
                 self.send_noreply(self.pid, errmsg)
@@ -568,14 +610,15 @@ class IssuerManager(RequestProcessor):
         """
         self._stop_issuers()
 
-    async def resolve_orgbook_did(self):
+    async def resolve_api_did(self) -> str:
         """
         Resolve the DID for TheOrgBook from given a seed if necessary.
         This action is performed once at startup.
 
-        :return: the DID of the service
+        Returns:
+            the DID of the service
         """
-        if not self._orgbook_did:
+        if not self._api_did:
             tob_did = self._env.get('TOB_INDY_DID')
             if not tob_did:
                 tob_seed = self._env.get('TOB_INDY_SEED')
@@ -587,9 +630,9 @@ class IssuerManager(RequestProcessor):
                 tob_did = await von_client.resolve_did_from_seed(tob_seed)
                 if not tob_did:
                     raise ValueError('DID for TOB could not be resolved')
-                self._orgbook_did = tob_did
+                self._api_did = tob_did
                 LOGGER.info('Resolved TOB DID to %s', tob_did)
-        return self._orgbook_did
+        return self._api_did
 
     @property
     def issuer_specs(self) -> list:
@@ -610,7 +653,11 @@ class IssuerManager(RequestProcessor):
         Given an issuer specification, return the extended specification
         with default values inserted for undefined properties
 
-        :return: the updated issuer specification
+        Args:
+            spec: the raw issuer specification
+
+        Returns:
+            the updated issuer specification
         """
         spec = spec.copy() if spec else {}
         if not 'auto_register' in spec:
@@ -621,14 +668,15 @@ class IssuerManager(RequestProcessor):
             spec['ledger_url'] = self.ledger_url
         if not 'api_url' in spec:
             spec['api_url'] = self._env.get('TOB_API_URL')
-        spec['api_did'] = self._orgbook_did
+        spec['api_did'] = self._api_did
         return spec
 
     def init_von_client(self):
         """
         Create a VonClient instance from our configuration
 
-        :return: the VonClient instance
+        Returns:
+            the initialized VonClient instance
         """
         cfg = {
             'genesis_path': self._env.get('INDY_GENESIS_PATH'),
@@ -655,26 +703,30 @@ class IssuerManager(RequestProcessor):
         sequential = not self._env.get('PARALLEL_SYNC', True)
         LOGGER.info('Starting issuers %s', (sequential and ' (sequentially)' or ''))
         for _id, service in self._issuers.items():
-            service.set_api_did(self._orgbook_did)
+            service.api_did = self._api_did
             if sequential:
                 await service.start(True)
             else:
                 # run init in a separate thread
                 service.start()
 
-    def _stop_issuers(self):
+    def _stop_issuers(self) -> None:
         """
         Stop all defined issuer services
         """
         for _id, service in self._issuers.items():
             service.stop()
 
-    def find_issuer_for_schema(self, schema_name, schema_version=None):
+    def find_issuer_for_schema(self, schema_name: str, schema_version:str=None):
         """
         Find the issuer for a particular schema and version
 
-        :param schema_name:
-        :param schema_version:
+        Args:
+            schema_name: the name of the schema as identifier on the ledger
+            schema_version: the version number of the schema
+
+        Returns:
+            a tuple of the :class:`IssuerService` instance and credential type definition, or None
         """
         for _id, service in self._issuers.items():
             cred_type = service.find_cred_type_for_schema(schema_name, schema_version)
@@ -682,34 +734,39 @@ class IssuerManager(RequestProcessor):
                 return (service, cred_type)
         return None
 
-    def process(self, from_pid, ident, message, ref) -> None:
+    def process(self, message: Message) -> None:
         """
         Process a message from the exchange and send the reply, if any
+
+        Args:
+            message: The message to be processed
         """
-        if isinstance(message, IssuerError):
-            LOGGER.error(message.format())
-        elif isinstance(message, IssuerStatus):
-            self._issuer_status[from_pid] = message.value
+        from_pid, request, ident, ref = message.from_pid, message.body, message.ident, message.ref
+
+        if isinstance(request, IssuerError):
+            LOGGER.error(request.format())
+        elif isinstance(request, IssuerStatus):
+            self._issuer_status[from_pid] = request.value
             self._update_status()
-        elif isinstance(message, ResolveSchemaRequest):
-            found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+        elif isinstance(request, ResolveSchemaRequest):
+            found = self.find_issuer_for_schema(request.schema_name, request.schema_version)
             if found:
                 self.send_noreply(from_pid, found[0].pid, ident)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
-        elif isinstance(message, SubmitCredRequest):
+        elif isinstance(request, SubmitCredRequest):
             # need to find the issuer service and forward the request there
-            found = self.find_issuer_for_schema(message.schema_name, message.schema_version)
+            found = self.find_issuer_for_schema(request.schema_name, request.schema_version)
             if found:
-                self.send(found[0].pid, ident, message, ref, from_pid)
+                self.send(found[0].pid, ident, request, ref, from_pid)
             else:
                 self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
-        elif message == 'ready':
+        elif request == 'ready':
             self.send_noreply(from_pid, self.ready(), ident)
-        elif message == 'status':
+        elif request == 'status':
             self.send_noreply(from_pid, self.status(), ident)
         else:
-            raise ValueError('Unexpected message from {}: {}'.format(from_pid, message))
+            raise ValueError('Unexpected message from {}: {}'.format(from_pid, request))
 
     def _update_status(self) -> None:
         """
