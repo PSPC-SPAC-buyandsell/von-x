@@ -1,4 +1,4 @@
-#! /usr/local/bin/python3
+#!/usr/bin/env python3
 #
 # Copyright 2017-2018 Government of Canada
 # Public Services and Procurement Canada - buyandsell.gc.ca

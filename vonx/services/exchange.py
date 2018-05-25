@@ -21,7 +21,7 @@ import logging
 import os
 import time
 import traceback
-from typing import Coroutine
+from typing import Callable
 
 from concurrent.futures import Future, ThreadPoolExecutor
 import multiprocessing as mp
@@ -39,7 +39,7 @@ class ExchangeError:
     This is not a subclass of :class:`Exception` as that cannot be pickled
     and transported over the message bus
     """
-    def __init__(self, value, exc_info=None):
+    def __init__(self, value, exc_info=True):
         self.value = value
         if exc_info is True:
             # cannot pass real exception or traceback through the message pipe
@@ -82,7 +82,7 @@ class Exchange:
         self._cmd_lock = mp.Lock()
         self._req_cond = mp.Condition(mp.Lock())
 
-    def start(self, process:bool=True):
+    def start(self, process: bool = True):
         if process:
             runner = mp.Process(target=self.run)
         else:
@@ -140,7 +140,7 @@ class Exchange:
             self._req_cond.notify_all()
         return status
 
-    def recv(self, to_pid: str, blocking:bool=True, timeout=None) -> Message:
+    def recv(self, to_pid: str, blocking: bool = True, timeout=None) -> Message:
         """
         Receive a message from the bus
 
@@ -230,7 +230,7 @@ class Endpoint:
         >>> _ = manager.send_noreply('hello')
     """
 
-    def __init__(self, pid: str, exchange: Exchange, from_pid:str=None):
+    def __init__(self, pid: str, exchange: Exchange, from_pid: str = None):
         self._pid = pid
         self._from_pid = from_pid
         self._exchange = exchange
@@ -334,7 +334,7 @@ class RequestProcessor:
             return self._thread.join()
         return None
 
-    def stop(self, _wait:bool=True) -> bool:
+    def stop(self, _wait: bool = True) -> bool:
         """
         Send a stop signal to the polling thread in order to abort polling
 
@@ -363,11 +363,11 @@ class RequestProcessor:
                         LOGGER.error(message.format())
                     else:
                         errmsg = ExchangeError('Exception during message processing', True)
-                        self.send_noreply(from_pid, errmsg, ident)
+                        self.send_noreply(message.from_pid, errmsg, message.ident)
         except Exception:
             LOGGER.exception('Exception while processing message:')
 
-    def send(self, to_pid: str, ident, message, ref=None, from_pid:str=None) -> bool:
+    def send(self, to_pid: str, ident, message, ref=None, from_pid: str = None) -> bool:
         """
         Send a message to a recipient on the exchange
 
@@ -383,7 +383,7 @@ class RequestProcessor:
         """
         return self._exchange.send(to_pid, Message(from_pid or self._pid, ident, message, ref))
 
-    def send_noreply(self, to_pid: str, message, ref=None, from_pid:str=None) -> bool:
+    def send_noreply(self, to_pid: str, message, ref=None, from_pid: str = None) -> bool:
         """
         Send a message with no reply expected
 
@@ -418,7 +418,7 @@ class RequestExecutor(RequestProcessor):
         def __init__(self, executor, pid, loop=None):
             self._executor = executor
             self._loop = loop
-            super(ExecutorEndpoint, self).__init__(
+            super(RequestExecutor.ExecutorEndpoint, self).__init__(
                 pid,
                 self._executor.exchange,
                 self._executor.pid
@@ -525,9 +525,9 @@ class RequestExecutor(RequestProcessor):
         Args:
             pid: the identifier for the receiving service
         """
-        return ExecutorEndpoint(self, pid)
+        return RequestExecutor.ExecutorEndpoint(self, pid)
 
-    def stop(self, wait:bool=True) -> None:
+    def stop(self, wait: bool = True) -> None:
         """
         Stop our polling thread and any other tasks in progress
 
@@ -540,9 +540,9 @@ class RequestExecutor(RequestProcessor):
         if self._connector:
             self._connector.close()
 
-    def run_task(self, proc: Coroutine, *args, loop=None) -> Future:
+    def run_task(self, proc: Callable, *args, loop=None) -> Future:
         """
-        Stop our polling thread and any other tasks in progress
+        Add a task to be processed, as either a coroutine or function
         """
         loop = loop or self._loop
         if asyncio.iscoroutine(proc):
@@ -572,8 +572,8 @@ class RequestExecutor(RequestProcessor):
         any tasks waiting for results
         """
         with self._req_cond:
-            if ref in self._requests:
-                self._requests[ref]['result'] = message
+            if message.ref in self._requests:
+                self._requests[message.ref]['result'] = message.body
                 self._req_cond.notify_all()
             else:
                 LOGGER.debug('unhandled message to %s/%s from %s: %s',

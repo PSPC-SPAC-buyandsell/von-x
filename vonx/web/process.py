@@ -25,7 +25,12 @@ from . import helpers
 LOGGER = logging.getLogger(__name__)
 
 
-def load_cred_request(form, request):
+def load_cred_request(form, request: web.Request) -> dict:
+    """
+    Create a new credential request from a `submit-credential` form definition, fetching
+    input from the client request as necessary
+    """
+
     cred = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
@@ -65,9 +70,14 @@ def load_cred_request(form, request):
     return cred
 
 
-async def process_form(form, request):
+async def process_form(form, request: web.Request) -> web.Response:
+    """
+    Handle `submit-credential` form processing by constructing a :class:`SubmitCredRequest`
+    and submitting it to the :class:`IssuerService`
+    """
+
     #pylint: disable=broad-except
-    if form['type'] == 'submit-cred':
+    if form['type'] == 'submit-credential':
         schema_name = form['schema_name']
         schema_version = form.get('schema_version')
         if not schema_name:

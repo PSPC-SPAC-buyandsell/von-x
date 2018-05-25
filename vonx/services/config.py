@@ -18,9 +18,10 @@
 import logging
 import os
 import re
-import yaml
-from typing import Callable, Sequence, Mapping, TextIO
+from typing import Callable, Mapping, TextIO
+
 import pkg_resources
+import yaml
 
 
 def load_resource(path: str) -> TextIO:
@@ -117,7 +118,7 @@ def load_config(path: str, env=None):
     return cfg
 
 
-def expand_string_variables(value, env: Mapping, warn:bool=True):
+def expand_string_variables(value, env: Mapping, warn: bool = True):
     """
     Expand environment variables of form `$var` and `${var}` in a string
 
@@ -158,12 +159,12 @@ def map_tree(tree, map_fn: Callable):
     """
     if isinstance(tree, Mapping):
         return {key: map_tree(value, map_fn) for (key, value) in tree.items()}
-    if isinstance(tree, Sequence):
+    if isinstance(tree, (list, tuple)):
         return [map_tree(value, map_fn) for value in tree]
     return map_fn(tree)
 
 
-def expand_tree_variables(tree, env: Mapping, warn:bool=True):
+def expand_tree_variables(tree, env: Mapping, warn: bool = True):
     """
     Expand environment variables of form `$var` and `${var}` in a configuration tree.
     This is used to allow variable insertion in issuer and route definitions

@@ -37,5 +37,4 @@ async def init_web(manager: ServiceManager):
         root_app = web.Application()
         root_app.add_subapp(base, app)
         return root_app
-    else:
-        return app
+    return app

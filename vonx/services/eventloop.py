@@ -16,7 +16,7 @@
 #
 
 import asyncio
-import threading
+from concurrent.futures import Future
 from types import CoroutineType
 import logging
 
@@ -41,29 +41,7 @@ def run_coro(coro: CoroutineType):
     return event_loop.run_until_complete(coro)
 
 
-def run_in_thread(coro: CoroutineType):
-    """
-    Run an async coroutine in a new thread when we aren't already inside an event loop
-
-    Args:
-        coro (CoroutineType): The coroutine to execute
-    Returns:
-        A `Future` which can be used to access the result of the coroutine
-    """
-    loop = asyncio.new_event_loop()
-    def start_sync_loop(loop):
-        asyncio.set_event_loop(loop)
-        loop.run_forever()
-    thread = threading.Thread(target=start_sync_loop, args=(loop,))
-    thread.start()
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
-    async def done(_future):
-        loop.stop()
-    future.add_done_callback(done)
-    return future
-
-
-def run_in_executor(executor, coro: CoroutineType):
+def run_in_executor(executor, coro: CoroutineType) -> Future:
     """
     Run an async coroutine in an executor when we aren't already inside an event loop
 
@@ -73,8 +51,8 @@ def run_in_executor(executor, coro: CoroutineType):
         A `Future` which can be used to access the result of the coroutine
     """
     loop = asyncio.new_event_loop()
-    def run_sync_loop(loop):
+    def run_sync_loop(loop, coro):
         asyncio.set_event_loop(loop)
         loop.run_until_complete(coro)
-    future = executor.submit(run_sync_loop, loop)
+    future = executor.submit(run_sync_loop, loop, coro)
     return future

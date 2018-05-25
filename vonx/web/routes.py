@@ -27,23 +27,23 @@ from .render import render_form
 LOGGER = logging.getLogger(__name__)
 
 
-def get_standard_routes(_app):
+def get_standard_routes(_app) -> list:
     return [
         web.get('/', views.index),
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
         #web.post('/construct-proof', views.construct_proof),
-        #web.post('/submit-cred', views.submit_cred),
+        #web.post('/submit-credential', views.submit_credential),
         #web.get('/hello', views.hello),
     ]
 
 
-def get_custom_routes(app):
+def get_custom_routes(app) -> list:
     return RouteDefinitions.load(app['manager']).routes
 
 
-def get_routes(app):
+def get_routes(app) -> list:
     return get_standard_routes(app) + get_custom_routes(app)
 
 
@@ -171,7 +171,7 @@ class RouteDefinitions:
             for form in self.forms)
 
         routes.extend(
-            web.view(issuer['path'] + '/submit-cred', views.submit_cred, name=issuer['name']+'-submit-cred')
+            web.view(issuer['path'] + '/submit-credential', views.submit_credential, name=issuer['name']+'-submit-credential')
             for issuer in self.issuers)
         routes.extend(
             web.view(issuer['path'] + '/construct-proof', views.construct_proof, name=issuer['name']+'-construct-proof')
@@ -196,7 +196,7 @@ class RouteDefinitions:
 
 
 def expand_form_definition(form, manager):
-    supported_types = ['submit-cred']
+    supported_types = ['submit-credential']
 
     form_id = form.get('id')
     form_type = form.get('type')
@@ -205,7 +205,7 @@ def expand_form_definition(form, manager):
     if form_type not in supported_types:
         raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
 
-    if form_type == 'submit-cred':
+    if form_type == 'submit-credential':
         schema = form.get('schema_name')
         version = form.get('schema_version')
         issuer = manager.get_service('issuer')

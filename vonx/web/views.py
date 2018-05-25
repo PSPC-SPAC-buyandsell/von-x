@@ -88,14 +88,14 @@ async def construct_proof(request):
         elif isinstance(result, prover.ProverError):
             ret = {'success': False, 'result': result.value}
         else:
-            raise ValueError('Unexpected result from prover')
+            raise ValueError('Unexpected result from prover: {}'.format(result))
     except Exception as e:
         LOGGER.exception('Error while requesting proof')
         ret = {'success': False, 'result': str(e)}
     return web.json_response(ret)
 
 
-async def submit_cred(request):
+async def submit_credential(request):
     schema_name = request.query.get('schema')
     schema_version = request.query.get('version') or None
     if not schema_name:

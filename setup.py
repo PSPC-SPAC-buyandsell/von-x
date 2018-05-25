@@ -34,10 +34,8 @@ setup(
     python_requires='>=3.5.3',
     install_requires=[
         'aiohttp',
-        'base58',
-        'gunicorn',
         'jinja2',
         'PyYAML',
-        'von-agent==1.0.0',
+        'von-agent==1.1.2',
     ],
 )

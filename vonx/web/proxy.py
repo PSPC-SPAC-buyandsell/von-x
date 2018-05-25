@@ -37,7 +37,8 @@ REMOVE_HEADERS = {
 
 def proxy_handler(proxy):
     """
-    A simple web proxy, not designed for large posts.
+    A simple web proxy, not designed for large posts. This allows an Issuer service
+    to make requests via von-x without knowing the web address of TheOrgBook, for instance
     """
 
     async def handle_request(request):

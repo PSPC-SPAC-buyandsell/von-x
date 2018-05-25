@@ -1,4 +1,4 @@
-#! /usr/local/bin/python3
+#!/usr/bin/env python3
 #
 # Copyright 2017-2018 Government of Canada
 # Public Services and Procurement Canada - buyandsell.gc.ca
@@ -16,9 +16,6 @@
 # limitations under the License.
 #
 
-#
-# "requests" must be installed - pip3 install requests
-#
 
 import asyncio
 import json
@@ -50,7 +47,7 @@ async def submit_cred(http_client, cred_path):
 
     try:
         response = await http_client.post(
-            '{}/submit-cred'.format(AGENT_URL),
+            '{}/submit-credential'.format(AGENT_URL),
             params={'schema': schema, 'version': version},
             json=attrs
         )

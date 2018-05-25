@@ -15,11 +15,16 @@
 # limitations under the License.
 #
 
+import asyncio
+import hashlib
 import logging
 from random import randint
 from typing import Mapping
 
+from von_agent.util import revealed_attrs, schema_id
+
 from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
+from vonx.services.issuer import ResolveSchemaRequest, ResolveSchemaResponse
 from vonx.services.manager import ServiceManager
 from vonx.services.tob import TobClient, TobClientError
 from vonx.services.von import VonClient
@@ -28,7 +33,7 @@ from vonx.util import log_json
 LOGGER = logging.getLogger(__name__)
 
 
-def init_prover_manager(service_manager: ServiceManager, pid:str='prover-manager'):
+def init_prover_manager(service_manager: ServiceManager, pid: str = 'prover-manager'):
     """
     Create an instance of the :class:`ProverManager`, loading the defined configuration
     from the :class:`ServiceManager` instance
@@ -36,6 +41,33 @@ def init_prover_manager(service_manager: ServiceManager, pid:str='prover-manager
     config_requests = service_manager.services_config('proof_requests')
     LOGGER.info('Initializing proof request manager')
     return ProverManager(pid, service_manager.exchange, service_manager.env, config_requests)
+
+
+def prepare_request_json(spec: dict):
+    """
+    Prepare the JSON payload for a proof request
+
+    Args:
+        spec: the proof request specification
+    """
+    request_json = {
+        'name': spec['name'],
+        'nonce': str(randint(10000000000, 100000000000)),  # FIXME - how best to generate?
+        'version': spec['version']
+    }
+    req_attrs = {}
+    for schema in spec['schemas']:
+        s_uniq = hashlib.sha1(schema['id'].encode('ascii')).hexdigest()
+        for attr in schema['attributes']:
+            req_attrs['{}_{}_uuid'.format(s_uniq, attr)] = {
+                'name': attr,
+                'restrictions': [{
+                    'schema_id': schema['id']
+                }]
+            }
+    request_json['requested_attributes'] = req_attrs
+    request_json['requested_predicates'] = {}
+    return request_json
 
 
 class ProverError(ExchangeError):
@@ -62,6 +94,22 @@ class ConstructProofResponse:
         self.value = value
 
 
+class ProofSpecRequest:
+    """
+    A request to get the definition for a proof request
+    """
+    def __init__(self, name):
+        self.name = name
+
+
+class ProofSpecResponse:
+    """
+    The successful response returned from a request for a proof definition
+    """
+    def __init__(self, value):
+        self.value = value
+
+
 class ProverManager(RequestExecutor):
     """
     There should only be one instance of this class in the application.
@@ -69,15 +117,19 @@ class ProverManager(RequestExecutor):
     and returning the results.
     """
 
-    def __init__(self, pid: str, exchange: Exchange, env: Mapping=None, request_specs=None):
+    def __init__(self, pid: str, exchange: Exchange, env: Mapping = None, request_specs=None):
         super(ProverManager, self).__init__(pid, exchange)
         self._env = env or {}
-        self._api_did = None
         self._request_specs = request_specs or {}
         for spec_id, spec in self._request_specs.items():
             if 'name' not in spec:
                 spec['name'] = spec_id
-        self._ready = True
+        self._ready = False
+
+    def start(self):
+        ret = super(ProverManager, self).start()
+        self.run_task(self._resolve_schemas())
+        return ret
 
     def ready(self) -> bool:
         """
@@ -90,16 +142,40 @@ class ProverManager(RequestExecutor):
         Check the extended status of the service
         """
         return {
-            'api_did': self._api_did,
             'ready': self._ready
         }
 
-    @property
-    def request_specs(self) -> list:
-        """
-        An accessor for the list of defined proof requests specifications
-        """
-        return self._request_specs
+    async def _resolve_schemas(self):
+        LOGGER.info('resolving schemas')
+        await asyncio.sleep(5)
+        while not self._ready:
+            missing = set()
+            for spec in self._request_specs.values():
+                for schema in spec['schemas']:
+                    if 'id' not in schema:
+                        s_key = schema['key']
+                        if 'did' not in s_key:
+                            missing.add( (s_key['name'], s_key['version']) )
+                        else:
+                            schema['id'] = schema_id(s_key['did'], s_key['name'], s_key['version'])
+            if not missing:
+                self._ready = True
+            else:
+                for s_key in missing:
+                    self.send('issuer-manager', None, ResolveSchemaRequest(*s_key))
+                await asyncio.sleep(1)
+        LOGGER.info('Completed prover initialization')
+
+    def _resolved_schema(self, response: ResolveSchemaResponse):
+        if not response.issuer_did:
+            return
+        for spec in self._request_specs.values():
+            for schema in spec['schemas']:
+                if 'id' not in schema:
+                    s_key = schema['key']
+                    if 'did' not in s_key and s_key['name'] == response.schema.name \
+                            and s_key['version'] == response.schema.version:
+                        s_key['did'] = response.issuer_did
 
     def init_von_client(self) -> VonClient:
         """
@@ -115,7 +191,7 @@ class ProverManager(RequestExecutor):
         }
         return VonClient(cfg)
 
-    def init_tob_client(self, url:str=None) -> TobClient:
+    def init_tob_client(self, url: str = None) -> TobClient:
         """
         Create a new :class:`TobClient` instance using default initialization parameters
 
@@ -126,33 +202,6 @@ class ProverManager(RequestExecutor):
             'api_url': url or self._env.get('TOB_API_URL')
         }
         return TobClient(cfg)
-
-    def _prepare_request_json(self, spec):
-        """
-        Prepare the JSON payload for a proof request
-
-        Args:
-            spec: the proof request specification
-        """
-        request_json = {
-            'name': spec['name'],
-            'nonce': str(randint(10000000000, 100000000000)),  # FIXME - how best to generate?
-            'version': spec['version']
-        }
-        req_attrs = {}
-        for schema in spec['schemas']:
-            for attr in schema['attributes']:
-                # FIXME - support attribute renaming
-                req_attrs[attr] = {
-                    'name': attr,
-                    'restrictions': [{
-                        # schema_key can include name, version, and did
-                        'schema_key': schema['key'].copy()
-                    }]
-                }
-        request_json['requested_attrs'] = req_attrs
-        request_json['requested_predicates'] = {}
-        return request_json
 
     async def construct_proof(self, http_client, name: str, filters: Mapping) -> dict:
         """
@@ -168,11 +217,11 @@ class ProverManager(RequestExecutor):
         spec = self._request_specs.get(name)
         if not spec:
             raise ValueError('Proof request not defined: {}'.format(name))
-        proof_request = self._prepare_request_json(spec)
-        tob_uri = spec.get('url')
 
+        tob_uri = spec.get('url')
         tob_client = self.init_tob_client(tob_uri)
         von_client = self.init_von_client()
+        proof_request = prepare_request_json(spec)
 
         log_json('Requesting proof:', {
             'filters': filters,
@@ -196,10 +245,7 @@ class ProverManager(RequestExecutor):
             return {'success': False, 'error': 'Unexpected response from server'}
 
         proof = proof_response['proof']
-        parsed_proof = {}
-        for attr in proof['requested_proof']['revealed_attrs']:
-            parsed_proof[attr] = \
-                proof['requested_proof']['revealed_attrs'][attr][1]
+        parsed_proof = revealed_attrs(proof)
 
         async with await von_client.create_verifier() as von_verifier:
             verified = await von_verifier.verify_proof(
@@ -241,13 +287,21 @@ class ProverManager(RequestExecutor):
         Args:
             message: the message received
         """
-        from_pid, request, ident, ref = message.from_pid, message.request, message.ident, message.ref
+        from_pid, request, ident = message.from_pid, message.body, message.ident
         if isinstance(request, ConstructProofRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
                 self.run_task(self._process_construct_proof(from_pid, ident, request))
+        elif isinstance(request, ResolveSchemaResponse):
+            self._resolved_schema(request)
+        elif isinstance(request, ProofSpecRequest):
+            spec = self._request_specs.get(request.name)
+            if not spec:
+                self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
+            else:
+                self.send_noreply(from_pid, ProofSpecResponse(spec), ident)
         elif request == 'ready':
             self.send_noreply(from_pid, self.ready(), ident)
         elif request == 'status':

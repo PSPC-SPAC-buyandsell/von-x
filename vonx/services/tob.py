@@ -15,7 +15,6 @@
 # limitations under the License.
 #
 
-from datetime import datetime
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -110,9 +109,9 @@ class TobClient:
         if not issuer_spec['issuer']['name']:
             raise ValueError('Missing issuer name')
 
-        cred_type_specs = self.config.get('cred_types')
+        cred_type_specs = self.config.get('credential_types')
         if not cred_type_specs:
-            raise ValueError("Missing cred_types")
+            raise ValueError("Missing credential_types")
         ctypes = []
         for type_spec in cred_type_specs:
             schema = type_spec['schema']
@@ -122,21 +121,21 @@ class TobClient:
                 'schema': schema.name,
                 'version': schema.version
             })
-        issuer_spec['cred-types'] = ctypes
+        issuer_spec['claim-types'] = ctypes
         return issuer_spec
 
-    def get_api_url(self, module:str=None) -> str:
+    def get_api_url(self, path: str = None) -> str:
         """
         Construct the URL for an API request
 
         Args:
-            module: an optional module name to be added to the URL
+            path: an optional path to be appended to the URL
         """
         url = self.api_url
         if not url.endswith('/'):
             url += '/'
-        if module:
-            url = url + module
+        if path:
+            url = url + path
         return url
 
     async def fetch_list(self, http_client, path: str) -> dict:

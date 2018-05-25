@@ -33,8 +33,6 @@ from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 from von_agent.util import (
     cred_def_id,
-    creds_for,
-    revealed_attrs,
     schema_id,
     schema_key)
 
@@ -42,6 +40,10 @@ from vonx.services.schema import Schema
 from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
+
+
+async def resolve_did_from_seed(seed):
+    return seed_to_did(seed)
 
 
 class AgentWrapper:
@@ -63,6 +65,11 @@ class AgentWrapper:
         wallet_name = wallet_config.get('name')
         if not wallet_name:
             raise ValueError('Missing wallet name')
+        wallet_type = wallet_config.get('type', None) # or virtual?
+        wallet_params = wallet_config.get('params', {})
+        if not 'freshness_time' in wallet_params:
+            wallet_params['freshness_time'] = 0
+        wallet_creds = {'key': ''}
 
         self._pool = NodePool(
             wallet_name + '-' + issuer_type,
@@ -73,7 +80,10 @@ class AgentWrapper:
         self._wallet = Wallet(
             self._pool,
             wallet_seed,
-            wallet_name + '-' + issuer_type + '-Wallet')
+            wallet_name + '-' + issuer_type + '-Wallet',
+            wallet_type,
+            wallet_params,
+            wallet_creds)
         self._ext_cfg = ext_cfg
         self._opened = None
         self._keep_open = False
@@ -94,8 +104,8 @@ class AgentWrapper:
         self._instance = self._instance_cls(await self._wallet.create(), self._ext_cfg)
         self._opened = await self._instance.open()
         if isinstance(self._instance, VonHolderProver):
-            # seems odd
-            await self._instance.create_master_secret(str(uuid.uuid4()))
+            # NOTE: should only create this once, and only in the root wallet (virtual_wallet == None)
+            await self._instance.create_link_secret(str(uuid.uuid4()))
         return self._opened
 
     async def close(self):
@@ -135,7 +145,7 @@ class VonClient:
         """
         Find our DID, and initialize our schemas and credential defs on the ledger.
         """
-        cred_types = self.config.get('cred_types')
+        cred_types = self.config.get('credential_types')
         if not cred_types:
             raise ValueError("Missing issuer credential types")
 
@@ -330,7 +340,7 @@ class VonClient:
         except AbsentCredDef:
             # If credential definition is not found then publish it
             LOGGER.info('Publishing credential def: %s (%s)', schema.name, schema.version)
-            cred_def_json = await issuer.send_cred_def(schema_json)
+            cred_def_json = await issuer.send_cred_def(schema_json, revocation=False)
             cred_def = json.loads(cred_def_json)
             log_json('Published credential def:', cred_def, LOGGER)
         return (ledger_schema, cred_def)
@@ -355,20 +365,6 @@ class VonClient:
             # self._verifier.keep_open() # !! keeps the pool and wallet open for this instance
         return self._verifier
 
-    async def resolve_did_from_seed(self, seed):
-        """
-        Resolve the DID for a wallet given its seed
-        """
-        #cfg = {
-        #    'genesis_path': await self.check_genesis_path(),
-        #    'name': 'SeedResolve',
-        #    'seed': seed
-        #}
-        #async with Agent(cfg, _BaseAgent, 'Util') as agent:
-        #    agent_did = agent.did
-        #return agent_did
-        return seed_to_did(seed)
-
     def get_did_auth(self, header_list=None):
         """
         Create a :class:SignedRequestAuth representing our authentication credentials,
@@ -380,3 +376,4 @@ class VonClient:
             key_id = 'did:sov:{}'.format(self.issuer_did)
             secret = seed.encode('ascii')
             return SignedRequestAuth(key_id, 'ed25519', secret, header_list)
+        return None

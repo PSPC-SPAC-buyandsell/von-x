@@ -25,7 +25,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ServiceManager:
-    def __init__(self, env: Mapping=None):
+    def __init__(self, env: Mapping = None):
         self._env = env or {}
         self._exchange = exch.Exchange()
         self._executor_cls = exch.RequestExecutor
