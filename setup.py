@@ -14,6 +14,8 @@ setup(
         '{}.templates'.format(pkg_name),
         '{}.web'.format(pkg_name),
     ],
+    package_data={'': ['*.yml']},
+    include_package_data=True,
     version=version,
     description='VON-X Connector',
     license='MIT',
