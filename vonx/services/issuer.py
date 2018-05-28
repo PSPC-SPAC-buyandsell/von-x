@@ -512,7 +512,7 @@ class IssuerService(RequestExecutor):
 
             cred_req = await tob_client.post_json(
                 http_client,
-                'bcovrin/generate-claim-request',
+                'indy/generate-claim-request',
                 {
                     'claim_offer': cred_offer_json,
                     'claim_def': cred_def_json
@@ -535,7 +535,7 @@ class IssuerService(RequestExecutor):
         # Store credential
         return await tob_client.post_json(
             http_client,
-            'bcovrin/store-claim',
+            'indy/store-claim',
             {
                 'claim_type': cred_type['schema'].name,
                 'claim_data': cred,

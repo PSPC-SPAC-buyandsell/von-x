@@ -36,42 +36,43 @@ ISSUER_PATHS = sys.argv[1:]
 
 
 ISSUER_JSON_SCHEMA = {
-  '$schema': 'http://json-schema.org/draft-04/schema',
-  'type': 'object',
-  'properties': {
-    'issuer': {
-      'type': 'object',
-      'properties': {
-        'did': {'type': 'string', 'minLength': 1}, # check length + valid characters?
-        'name': {'type': 'string', 'minLength': 1},
-        'abbreviation': {'type': 'string'},
-        'endpoint': {'type': 'string'}
-      },
-      'required': ['did', 'name']
-    },
-    'jurisdiction': {
-      'type': 'object',
-      'properties': {
-        'name': {'type': 'string', 'minLength': 1},
-        'abbreviation': {'type': 'string'}
-      },
-      'required': ['name']
-    },
-    'claim-types': {
-      'type': 'array',
-      'items': {
-        'type': 'object',
-        'properties': {
-          'name': {'type': 'string', 'minLength': 1},
-          'schema': {'type': 'string', 'minLength': 1},
-          'version': {'type': 'string', 'minLength': 1},
-          'endpoint': {'type': 'string'}
+    '$schema': 'http://json-schema.org/draft-04/schema',
+    'type': 'object',
+    'properties': {
+        'issuer': {
+            'type': 'object',
+            'properties': {
+                # check length + valid characters?
+                'did': {'type': 'string', 'minLength': 1},
+                'name': {'type': 'string', 'minLength': 1},
+                'abbreviation': {'type': 'string'},
+                'endpoint': {'type': 'string'}
+            },
+            'required': ['did', 'name']
         },
-        'required': ['name', 'schema', 'version']
-      }
-    }
-  },
-  'required': ['issuer', 'jurisdiction']
+        'jurisdiction': {
+            'type': 'object',
+            'properties': {
+                'name': {'type': 'string', 'minLength': 1},
+                'abbreviation': {'type': 'string'}
+            },
+            'required': ['name']
+        },
+        'claim-types': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'minLength': 1},
+                    'schema': {'type': 'string', 'minLength': 1},
+                    'version': {'type': 'string', 'minLength': 1},
+                    'endpoint': {'type': 'string'}
+                },
+                'required': ['name', 'schema', 'version']
+            }
+        }
+    },
+    'required': ['issuer', 'jurisdiction']
 }
 
 
@@ -87,7 +88,7 @@ async def register_issuer(http_client, issuer_path):
 
     try:
         response = await http_client.post(
-            '{}/bcovrin/register-issuer'.format(TOB_URL),
+            '{}/indy/register-issuer'.format(TOB_URL),
             json=issuer
         )
         if response.status != 200:

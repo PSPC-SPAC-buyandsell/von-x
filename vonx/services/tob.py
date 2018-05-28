@@ -24,6 +24,7 @@ class TobClientError(Exception):
     """
     A generic exception representing an issue with a TobClient operation
     """
+
     def __init__(self, status_code, message, response):
         super(TobClientError, self).__init__(message)
         self.status_code = status_code
@@ -74,7 +75,7 @@ class TobClient:
                 authentication headers
         """
         spec = self.assemble_issuer_spec()
-        response = await self.post_json(http_client, 'bcovrin/register-issuer', spec)
+        response = await self.post_json(http_client, 'indy/register-issuer', spec)
         result = response['result']
         if not response['success']:
             raise TobClientError(
