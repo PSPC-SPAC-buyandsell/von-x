@@ -121,7 +121,7 @@ class TobClient:
             schema = type_spec["schema"]
             ctypes.append(
                 {
-                    "name": type_spec.get("description") or schema.name,
+                    "description": type_spec.get("description") or schema.name,
                     "endpoint": type_spec.get("issuer_url")
                     or issuer_spec["issuer"]["url"],
                     "schema": schema.name,
