@@ -122,7 +122,7 @@ class TobClient:
                 'schema': schema.name,
                 'version': schema.version
             })
-        issuer_spec['claim-types'] = ctypes
+        issuer_spec['credential-types'] = ctypes
         return issuer_spec
 
     def get_api_url(self, path: str = None) -> str:
