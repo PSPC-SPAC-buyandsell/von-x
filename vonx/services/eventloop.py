@@ -56,3 +56,11 @@ def run_in_executor(executor, coro: CoroutineType) -> Future:
         loop.run_until_complete(coro)
     future = executor.submit(run_sync_loop, loop, coro)
     return future
+
+
+async def ensure_future(coro):
+    """
+    Wrap coroutine in a future to ensure that unhandled exceptions are logged
+    """
+    fut = asyncio.ensure_future(coro)
+    return fut.result()

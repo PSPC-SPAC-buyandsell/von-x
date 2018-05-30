@@ -25,7 +25,7 @@ from . import helpers
 LOGGER = logging.getLogger(__name__)
 
 
-def load_cred_request(form, request: web.Request) -> dict:
+def load_cred_request(form, schema, request: web.Request) -> dict:
     """
     Create a new credential request from a `submit-credential` form definition, fetching
     input from the client request as necessary
@@ -34,7 +34,7 @@ def load_cred_request(form, request: web.Request) -> dict:
     cred = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
-        for attr in form['schema'].attr_names:
+        for attr in schema.attr_names:
             cred[attr] = request.get(attr)
             LOGGER.info("credential %s %s", attr, cred[attr])
     map_attr = mapping.get('attributes') or []
@@ -90,11 +90,20 @@ async def process_form(form, request: web.Request) -> web.Response:
                 inputs = inputs.get('attributes') or {}
             else:
                 inputs = await request.post()
-            params = load_cred_request(form, inputs)
-            #return web.json_response(params)
+
             service = request.app['manager'].get_service_endpoint('issuer')
             result = await service.request(
-                issuer.SubmitCredRequest(schema_name, schema_version, params))
+                issuer.ResolveSchemaRequest(schema_name, schema_version))
+            if not isinstance(result, issuer.ResolveSchemaResponse):
+                raise ValueError(
+                    'Issuer for schema \'{}\' is not defined or not loaded'.format(schema_name))
+            schema = result.schema
+
+            params = load_cred_request(form, schema, inputs)
+            #return web.json_response(params)
+
+            result = await service.request(
+                issuer.SubmitCredRequest(schema.name, schema.version, params))
             if isinstance(result, issuer.SubmitCredResponse):
                 ret = {'success': True, 'result': result.value}
             elif isinstance(result, issuer.IssuerError):

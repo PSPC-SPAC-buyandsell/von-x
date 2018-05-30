@@ -129,7 +129,7 @@ class RouteDefinitions:
             expand_form_definition(form, manager)
             self.add_form(form)
 
-    def load_issuer_definitions(self, config: dict, manager, limit_issuers=None):
+    def load_issuer_definitions(self, config: dict, _manager, limit_issuers=None):
         for issuer_id, issuer in config.items():
             if limit_issuers is not None and issuer_id not in limit_issuers:
                 continue
@@ -195,7 +195,7 @@ class RouteDefinitions:
         return routes
 
 
-def expand_form_definition(form, manager):
+def expand_form_definition(form, _manager):
     supported_types = ['submit-credential']
 
     form_id = form.get('id')
@@ -204,20 +204,6 @@ def expand_form_definition(form, manager):
         raise ValueError('Type not defined for form: {}'.format(form_id))
     if form_type not in supported_types:
         raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
-
-    if form_type == 'submit-credential':
-        schema = form.get('schema_name')
-        version = form.get('schema_version')
-        issuer = manager.get_service('issuer')
-        if not issuer:
-            raise RuntimeError('Issuer manager is not loaded')
-        found = issuer.find_issuer_for_schema(schema, version)
-        if not found:
-            raise ValueError(
-                'Issuer for schema \'{}\' is not defined or not loaded'.format(schema))
-        service, cred_type = found
-        form['schema'] = cred_type['schema']
-        form['issuer_id'] = service.pid
 
 
 def form_handler(form):

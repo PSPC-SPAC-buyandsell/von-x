@@ -20,6 +20,49 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
+def assemble_issuer_spec(config: dict) -> dict:
+    """
+    Create the issuer JSON definition which will be submitted to TheOrgBook
+    """
+    issuer_spec = {}
+    issuer_email = config.get('email')
+    if not issuer_email:
+        raise ValueError('Missing issuer email address')
+    issuer_did = config.get('did')
+    if not issuer_did:
+        raise ValueError('Missing issuer DID')
+
+    jurisdiction_spec = config.get('jurisdiction')
+    if not jurisdiction_spec or not 'name' in jurisdiction_spec:
+        raise ValueError('Missing jurisdiction.name')
+    issuer_spec['jurisdiction'] = jurisdiction_spec
+
+    issuer_spec['issuer'] = {
+        'did': issuer_did,
+        'name': config.get('name', ''),
+        'abbreviation': config.get('abbreviation', ''),
+        'email': issuer_email,
+        'url': config.get('url', '')
+    }
+    if not issuer_spec['issuer']['name']:
+        raise ValueError('Missing issuer name')
+
+    cred_type_specs = config.get('credential_types')
+    if not cred_type_specs:
+        raise ValueError("Missing credential_types")
+    ctypes = []
+    for type_spec in cred_type_specs:
+        schema = type_spec['schema']
+        ctypes.append({
+            'name': type_spec.get('description') or schema.name,
+            'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['url'],
+            'schema': schema.name,
+            'version': schema.version
+        })
+    issuer_spec['claim-types'] = ctypes
+    return issuer_spec
+
+
 class TobClientError(Exception):
     """
     A generic exception representing an issue with a TobClient operation
@@ -37,35 +80,10 @@ class TobClient:
     synchronization as an issuer
     """
 
-    def __init__(self, config=None):
-        self.config = {}
-        self.jurisdiction_id = None
-        self.issuer_service_id = None
-        self.synced = False
-        if config:
-            self.config.update(config)
-        self.api_url = self.config.get('api_url')
-        self.issuer_did = self.config.get('did')
+    def __init__(self, api_url: str):
+        self._api_url = api_url
 
-    async def sync(self, http_client):
-        """
-        Register ourselves as an issuer in TheOrgBook
-
-        Args:
-            http_client: The :class:`ClientSession` instance responsible for adding
-                authentication headers
-        """
-        if not self.api_url:
-            raise ValueError("Missing TOB_API_URL")
-        if not self.issuer_did:
-            raise ValueError("Missing issuer DID")
-
-        await self.register_issuer(http_client)
-
-        self.synced = True
-        LOGGER.info('TOB client synced: %s', self.config['id'])
-
-    async def register_issuer(self, http_client):
+    async def register_issuer(self, http_client, issuer_cfg: dict):
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
 
@@ -73,7 +91,7 @@ class TobClient:
             http_client: The :class:`ClientSession` instance responsible for adding
                 authentication headers
         """
-        spec = self.assemble_issuer_spec()
+        spec = assemble_issuer_spec(issuer_cfg)
         response = await self.post_json(http_client, 'bcovrin/register-issuer', spec)
         result = response['result']
         if not response['success']:
@@ -81,48 +99,7 @@ class TobClient:
                 400,
                 'Issuer service was not registered: {}'.format(result),
                 response)
-        self.jurisdiction_id = result['jurisdiction']['id']
-        self.issuer_service_id = result['issuer']['id']
         return result
-
-    def assemble_issuer_spec(self) -> dict:
-        """
-        Create the issuer JSON definition which will be submitted to TheOrgBook
-        """
-        issuer_spec = {}
-        issuer_email = self.config.get('email')
-        if not issuer_email:
-            raise ValueError('Missing issuer email address')
-
-        jurisdiction_spec = self.config.get('jurisdiction')
-        if not jurisdiction_spec or not 'name' in jurisdiction_spec:
-            raise ValueError('Missing jurisdiction.name')
-        issuer_spec['jurisdiction'] = jurisdiction_spec
-
-        issuer_spec['issuer'] = {
-            'did': self.issuer_did,
-            'name': self.config.get('name', ''),
-            'abbreviation': self.config.get('abbreviation', ''),
-            'email': issuer_email,
-            'url': self.config.get('url', '')
-        }
-        if not issuer_spec['issuer']['name']:
-            raise ValueError('Missing issuer name')
-
-        cred_type_specs = self.config.get('credential_types')
-        if not cred_type_specs:
-            raise ValueError("Missing credential_types")
-        ctypes = []
-        for type_spec in cred_type_specs:
-            schema = type_spec['schema']
-            ctypes.append({
-                'name': type_spec.get('description') or schema.name,
-                'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['url'],
-                'schema': schema.name,
-                'version': schema.version
-            })
-        issuer_spec['claim-types'] = ctypes
-        return issuer_spec
 
     def get_api_url(self, path: str = None) -> str:
         """
@@ -131,7 +108,7 @@ class TobClient:
         Args:
             path: an optional path to be appended to the URL
         """
-        url = self.api_url
+        url = self._api_url
         if not url.endswith('/'):
             url += '/'
         if path:

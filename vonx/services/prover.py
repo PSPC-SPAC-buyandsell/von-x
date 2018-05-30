@@ -21,26 +21,16 @@ import logging
 from random import randint
 from typing import Mapping
 
-from von_agent.util import revealed_attrs, schema_id
+from von_agent.util import schema_id
 
 from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
+from vonx.services.indy import VerifyProofRequest, VerifyProofResponse
 from vonx.services.issuer import ResolveSchemaRequest, ResolveSchemaResponse
 from vonx.services.manager import ServiceManager
 from vonx.services.tob import TobClient, TobClientError
-from vonx.services.von import VonClient
 from vonx.util import log_json
 
 LOGGER = logging.getLogger(__name__)
-
-
-def init_prover_manager(service_manager: ServiceManager, pid: str = 'prover-manager'):
-    """
-    Create an instance of the :class:`ProverManager`, loading the defined configuration
-    from the :class:`ServiceManager` instance
-    """
-    config_requests = service_manager.services_config('proof_requests')
-    LOGGER.info('Initializing proof request manager')
-    return ProverManager(pid, service_manager.exchange, service_manager.env, config_requests)
 
 
 def prepare_request_json(spec: dict):
@@ -120,35 +110,34 @@ class ProverManager(RequestExecutor):
     def __init__(self, pid: str, exchange: Exchange, env: Mapping = None, request_specs=None):
         super(ProverManager, self).__init__(pid, exchange)
         self._env = env or {}
+        self._ledger_pid = 'indy-ledger'
         self._request_specs = request_specs or {}
+        self._status = {
+            'ready': False,
+        }
         for spec_id, spec in self._request_specs.items():
             if 'name' not in spec:
                 spec['name'] = spec_id
-        self._ready = False
+
+    @classmethod
+    def create(cls, service_mgr: ServiceManager, pid: str = 'prover-manager'):
+        """
+        Create an instance of the :class:`ProverManager`, loading the defined configuration
+        from the :class:`ServiceManager` instance
+        """
+        config_requests = service_mgr.services_config('proof_requests')
+        LOGGER.info('Initializing proof request manager')
+        return cls(pid, service_mgr.exchange, service_mgr.env, config_requests)
 
     def start(self):
         ret = super(ProverManager, self).start()
         self.run_task(self._resolve_schemas())
         return ret
 
-    def ready(self) -> bool:
-        """
-        Check the ready status of the service
-        """
-        return self._ready
-
-    def status(self) -> dict:
-        """
-        Check the extended status of the service
-        """
-        return {
-            'ready': self._ready
-        }
-
     async def _resolve_schemas(self):
-        LOGGER.info('resolving schemas')
+        LOGGER.info('Resolving schemas for prover')
         await asyncio.sleep(5)
-        while not self._ready:
+        while not self._status['ready']:
             missing = set()
             for spec in self._request_specs.values():
                 for schema in spec['schemas']:
@@ -159,7 +148,7 @@ class ProverManager(RequestExecutor):
                         else:
                             schema['id'] = schema_id(s_key['did'], s_key['name'], s_key['version'])
             if not missing:
-                self._ready = True
+                self._status['ready'] = True
             else:
                 for s_key in missing:
                     self.send('issuer-manager', None, ResolveSchemaRequest(*s_key))
@@ -177,31 +166,15 @@ class ProverManager(RequestExecutor):
                             and s_key['version'] == response.schema.version:
                         s_key['did'] = response.issuer_did
 
-    def init_von_client(self) -> VonClient:
-        """
-        Create a new :class:`VonClient` instance using default initialization parameters
-        """
-        cfg = {
-            'genesis_path': self._env.get('INDY_GENESIS_PATH'),
-            'ledger_url': self._env.get('INDY_LEDGER_URL'),
-            'wallet': {
-                'name': 'Generic', # FIXME
-                'seed': 'verifier-seed-000000000000000000' # FIXME - what seed to use here?
-            }
-        }
-        return VonClient(cfg)
-
-    def init_tob_client(self, url: str = None) -> TobClient:
+    def init_api_client(self, url: str = None) -> TobClient:
         """
         Create a new :class:`TobClient` instance using default initialization parameters
 
         Args:
             url: a custom value for the URL of the API handling the proof request
         """
-        cfg = {
-            'api_url': url or self._env.get('TOB_API_URL')
-        }
-        return TobClient(cfg)
+        api_url = url or self._env.get('TOB_API_URL')
+        return TobClient(api_url)
 
     async def construct_proof(self, http_client, name: str, filters: Mapping) -> dict:
         """
@@ -218,9 +191,8 @@ class ProverManager(RequestExecutor):
         if not spec:
             raise ValueError('Proof request not defined: {}'.format(name))
 
-        tob_uri = spec.get('url')
-        tob_client = self.init_tob_client(tob_uri)
-        von_client = self.init_von_client()
+        api_url = spec.get('url')
+        api_client = self.init_api_client(api_url)
         proof_request = prepare_request_json(spec)
 
         log_json('Requesting proof:', {
@@ -229,7 +201,7 @@ class ProverManager(RequestExecutor):
         }, LOGGER)
 
         try:
-            proof_response = await tob_client.post_json(
+            proof_response = await api_client.post_json(
                 http_client,
                 'bcovrin/construct-proof',
                 {
@@ -245,20 +217,18 @@ class ProverManager(RequestExecutor):
             return {'success': False, 'error': 'Unexpected response from server'}
 
         proof = proof_response['proof']
-        parsed_proof = revealed_attrs(proof)
 
-        async with await von_client.create_verifier() as von_verifier:
-            verified = await von_verifier.verify_proof(
-                proof_request,
-                proof
-            )
+        msg = VerifyProofRequest(proof_request, proof)
+        reply = await self.submit(self._ledger_pid, msg)
+        if not isinstance(reply, VerifyProofResponse):
+            raise RuntimeError('Proof could not be verified, received {}'.format(reply))
 
         return {
             'success': True,
             'value': {
                 'proof': proof,
-                'parsed_proof': parsed_proof,
-                'verified': verified
+                'parsed_proof': reply.parsed_proof,
+                'verified': reply.verified,
             }
         }
 
@@ -288,23 +258,32 @@ class ProverManager(RequestExecutor):
             message: the message received
         """
         from_pid, request, ident = message.from_pid, message.body, message.ident
-        if isinstance(request, ConstructProofRequest):
+
+        if self._handle_response(message):
+            return
+
+        elif isinstance(request, ConstructProofRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
                 self.run_task(self._process_construct_proof(from_pid, ident, request))
+
         elif isinstance(request, ResolveSchemaResponse):
             self._resolved_schema(request)
+
         elif isinstance(request, ProofSpecRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
                 self.send_noreply(from_pid, ProofSpecResponse(spec), ident)
+
         elif request == 'ready':
-            self.send_noreply(from_pid, self.ready(), ident)
+            self.send_noreply(from_pid, self._status['ready'], ident)
+
         elif request == 'status':
-            self.send_noreply(from_pid, self.status(), ident)
+            self.send_noreply(from_pid, self._status.copy(), ident)
+
         else:
             raise ValueError('Unexpected message from {}: {}'.format(from_pid, request))
