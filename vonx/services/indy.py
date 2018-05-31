@@ -587,8 +587,8 @@ class IndyLedger(RequestExecutor):
 
         # format currently expected by TheOrgBook
         msg = CredOfferResponse(request.issuer_id, request.schema_def, {
-            'claim_offer': cred_offer_json,
-            'claim_def': json.dumps(schema['cred_def']),
+            'credential-offer': json.loads(cred_offer_json),
+            'credential-definition': schema['cred_def'],
         })
         return self.send_noreply(reply_to, msg, ref)
 
