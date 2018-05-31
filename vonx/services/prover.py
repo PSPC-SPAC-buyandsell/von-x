@@ -144,7 +144,7 @@ class ProverManager(RequestExecutor):
                     if 'id' not in schema:
                         s_key = schema['key']
                         if 'did' not in s_key:
-                            missing.add( (s_key['name'], s_key['version']) )
+                            missing.add((s_key['name'], s_key['version']))
                         else:
                             schema['id'] = schema_id(s_key['did'], s_key['name'], s_key['version'])
             if not missing:

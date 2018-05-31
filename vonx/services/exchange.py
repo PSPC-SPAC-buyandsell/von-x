@@ -223,12 +223,12 @@ class Exchange:
             LOGGER.exception('Error in exchange:')
 
 
-class Endpoint:
+class MessageTarget:
     """
     A wrapper for sending messages to a single target.
 
     Example:
-        >>> manager = Endpoint(manager_pid, exchange, my_pid)
+        >>> manager = MessageTarget(manager_pid, exchange, my_pid)
         >>> _ = manager.send_noreply('hello')
     """
 
@@ -247,7 +247,7 @@ class Endpoint:
     @property
     def exchange(self) -> Exchange:
         """
-        Accessor for the :class:`Exchange` used by this Endpoint
+        Accessor for the :class:`Exchange` used by this target
         """
         return self._exchange
 
@@ -287,7 +287,7 @@ class Endpoint:
         return self.send(None, message, ref, from_pid)
 
 
-class RequestProcessor:
+class MessageProcessor:
     """
     A generic message processor which polls the exchange for messages sent to
     this endpoint and runs the abstract 'process' method to perform actions
@@ -313,11 +313,11 @@ class RequestProcessor:
         """
         return self._exchange
 
-    def get_endpoint(self, pid) -> Endpoint:
+    def get_message_target(self, pid) -> MessageTarget:
         """
-        Quickly create an Endpoint for a service on the same message bus
+        Quickly create a :class:`MessageTarget` for a service on the same message bus
         """
-        return Endpoint(pid, self._exchange, self._pid)
+        return MessageTarget(pid, self._exchange, self._pid)
 
     def start(self) -> Thread:
         """
@@ -404,68 +404,14 @@ class RequestProcessor:
         pass
 
 
-class RequestExecutor(RequestProcessor):
+class RequestExecutor(MessageProcessor):
     """
-    An implementation of :class:`RequestProcessor` which starts a thread for each outgoing request
+    An subclass of :class:`MessageProcessor` which starts a thread for each outgoing request
     to wait for responses. One of these should live in each process which wants to perform
     async requests via the :class:`Exchange` (like a webserver process). It normally assumes that
     all incoming messages are simply responses to earlier requests.
     Processing should not block the main thread (much) to avoid breaking asyncio.
     """
-
-
-    class ExecutorEndpoint(Endpoint):
-        """
-        An endpoint for a RequestExecutor which uses submit() to poll
-        for responses to requests.
-        """
-
-        def __init__(self, executor, pid, loop=None):
-            self._executor = executor
-            self._loop = loop
-            super(RequestExecutor.ExecutorEndpoint, self).__init__(
-                pid,
-                self._executor.exchange,
-                self._executor.pid
-            )
-
-        @property
-        def loop(self):
-            """
-            Accessor for the event loop instance
-            """
-            return self._loop
-
-        @loop.setter
-        def loop(self, newloop):
-            """
-            Setter for the event loop instance
-            """
-            self._loop = newloop
-
-        @property
-        def executor(self):
-            """
-            Accessor for the `RequestExecutor` instance
-            """
-            return self._executor
-
-        def request(self, message, timeout=None, loop=None):
-            """
-            Send a request to the recipient service, awaiting the response in
-            a method defined by the executor
-
-            Args:
-                message: The message to be sent
-                timeout: An optional timeout for the message response
-                loop: An optional event loop reference
-            """
-            return self._executor.submit(
-                self.pid,
-                message,
-                timeout=timeout,
-                loop=loop or self._loop)
-
 
     def __init__(self, pid, exchange: Exchange, max_workers=10):
         super(RequestExecutor, self).__init__(pid, exchange)
@@ -523,15 +469,6 @@ class RequestExecutor(RequestProcessor):
         """
         return self._pool
 
-    def get_endpoint(self, pid: str) -> ExecutorEndpoint:
-        """
-        Quickly create an ExecutorEndpoint for a service on the message bus
-
-        Args:
-            pid: the identifier for the receiving service
-        """
-        return RequestExecutor.ExecutorEndpoint(self, pid)
-
     def stop(self, wait: bool = True) -> None:
         """
         Stop our polling thread and any other tasks in progress
@@ -582,6 +519,7 @@ class RequestExecutor(RequestProcessor):
                     self._requests[message.ref]['result'] = message.body
                     self._req_cond.notify_all()
                     return True
+        return False
 
     def process(self, message: Message) -> None:
         """
@@ -645,7 +583,71 @@ class RequestExecutor(RequestProcessor):
         return self.http_client()
 
 
-class HelloProcessor(RequestProcessor):
+class RequestTarget:
+    """
+    An endpoint for a :class:`RequestExecutor` which uses submit() to poll
+    for responses to requests.
+    """
+
+    def __init__(self, executor: RequestExecutor, pid: str, loop=None):
+        self._executor = executor
+        self._pid = pid
+        self._loop = loop
+
+    @property
+    def pid(self):
+        """
+        Accessor for the target service identifier
+        """
+        return self._pid
+
+    @property
+    def loop(self):
+        """
+        Accessor for the event loop instance
+        """
+        return self._loop
+
+    @loop.setter
+    def loop(self, newloop):
+        """
+        Setter for the event loop instance
+        """
+        self._loop = newloop
+
+    @property
+    def executor(self):
+        """
+        Accessor for the :class:`RequestExecutor` instance
+        """
+        return self._executor
+
+    def request(self, message, timeout=None, loop=None) -> Future:
+        """
+        Send a request to the recipient service, awaiting the response in
+        a method defined by the executor
+
+        Args:
+            message: The message to be sent
+            timeout: An optional timeout for the message response
+            loop: An optional event loop reference
+        """
+        return self._executor.submit(
+            self.pid,
+            message,
+            timeout=timeout,
+            loop=loop or self._loop)
+
+
+def _create_request_target(self, pid: str, loop=None):
+    """
+    Create a :class:`RequestTarget` for a specific service
+    """
+    return RequestTarget(self, pid, loop)
+RequestExecutor.get_request_target = _create_request_target
+
+
+class HelloProcessor(MessageProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """

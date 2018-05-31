@@ -200,24 +200,7 @@ class ServiceManager:
         """
         return self._services.get(name)
 
-    def get_endpoint(self, pid: str, loop=None) -> exch.Endpoint:
-        """
-        Get an endpoint for sending messages to a service on the message exchange.
-        Requests will be handled by the executor for this manager in this process.
-
-        Args:
-            pid: the identifier for the endpoint on the message bus
-            loop: the current event loop, if any
-        """
-        ploc = self.proc_locals
-        name = 'endpt_' + pid
-        if name not in ploc:
-            ploc[name] = self.executor.get_endpoint(pid)
-        if loop:
-            ploc[name].loop = loop
-        return ploc[name]
-
-    def get_service_endpoint(self, name: str, loop=None) -> exch.Endpoint:
+    def get_message_target(self, name: str, loop=None) -> exch.MessageTarget:
         """
         Get an endpoint for one of the services defined by this manager.
         This Endpoint can be used for sending process-safe messages and receiving results.
@@ -227,5 +210,22 @@ class ServiceManager:
             loop: the current event loop, if any
         """
         if name in self._services:
-            return self.get_endpoint(self._services[name].pid, loop)
+            return self.self.executor.get_message_target(self._services[name].pid, loop)
         return None
+
+    def get_request_target(self, name: str, loop=None) -> exch.RequestTarget:
+        """
+        Get an endpoint for sending messages to a service on the message exchange.
+        Requests will be handled by the executor for this manager in this process.
+
+        Args:
+            name: the string identifier for the service
+            loop: the current event loop, if any
+        """
+        ploc = self.proc_locals
+        tg_name = 'target_' + name
+        if tg_name not in ploc:
+            if name in self._services:
+                pid = self._services[name].pid
+                ploc[tg_name] = self.executor.get_request_target(pid, loop)
+        return ploc[tg_name]

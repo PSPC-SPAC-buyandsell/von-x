@@ -28,11 +28,11 @@ LOGGER = logging.getLogger(__name__)
 def get_manager(request):
     return request.app['manager']
 
-def get_endpoint(request, service_name):
-    return get_manager(request).get_service_endpoint(service_name)
+def get_request_target(request, service_name):
+    return get_manager(request).get_request_target(service_name)
 
 def service_request(request, service_name, params):
-    return get_endpoint(request, service_name).request(params)
+    return get_request_target(request, service_name).request(params)
 
 
 async def index(_request):
@@ -62,7 +62,7 @@ async def ledger_status(request):
 
 
 async def hello(request):
-    service = get_endpoint(request, 'hello')
+    service = get_request_target(request, 'hello')
     result = await service.request('isthereanybodyoutthere')
     return web.json_response(result)
 
@@ -80,7 +80,7 @@ async def construct_proof(request):
                 text="Parameter 'filters' must be an object",
                 status=400)
     try:
-        service = get_endpoint(request, 'prover')
+        service = get_request_target(request, 'prover')
         result = await service.request(
             prover.ConstructProofRequest(proof_name, filters))
         if isinstance(result, prover.ConstructProofResponse):
@@ -106,7 +106,7 @@ async def submit_credential(request):
             text='Request body must contain the schema attributes as a JSON object',
             status=400)
     try:
-        service = get_endpoint(request, 'issuer')
+        service = get_request_target(request, 'issuer')
         result = await service.request(
             issuer.SubmitCredRequest(schema_name, schema_version, params))
         if isinstance(result, issuer.SubmitCredResponse):

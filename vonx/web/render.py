@@ -99,7 +99,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
 
     if proof_req:
         proof_name = proof_req['name']
-        service = service_mgr.get_service_endpoint('prover')
+        service = service_mgr.get_request_target('prover')
         result = await service.request(
             prover.ProofSpecRequest(proof_name))
         proof_spec = None
@@ -123,7 +123,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
             filters[attr_name] = val
 
         try:
-            service = service_mgr.get_service_endpoint('prover')
+            service = service_mgr.get_request_target('prover')
             result = await service.request(
                 prover.ConstructProofRequest(proof_name, filters))
             if isinstance(result, prover.ConstructProofResponse):
