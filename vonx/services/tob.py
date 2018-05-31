@@ -32,11 +32,6 @@ def assemble_issuer_spec(config: dict) -> dict:
     if not issuer_did:
         raise ValueError("Missing issuer DID")
 
-    jurisdiction_spec = config.get("jurisdiction")
-    if not jurisdiction_spec or not "name" in jurisdiction_spec:
-        raise ValueError("Missing jurisdiction.name")
-    issuer_spec["jurisdiction"] = jurisdiction_spec
-
     issuer_spec["issuer"] = {
         "did": issuer_did,
         "name": config.get("name", ""),
@@ -62,7 +57,7 @@ def assemble_issuer_spec(config: dict) -> dict:
                 "version": schema.version,
             }
         )
-    issuer_spec["claim-types"] = ctypes
+    issuer_spec["credential-types"] = ctypes
     return issuer_spec
 
 
