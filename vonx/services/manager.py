@@ -15,7 +15,9 @@
 # limitations under the License.
 #
 
+import asyncio
 import logging
+import multiprocessing as mp
 import os
 from typing import Mapping
 
@@ -29,7 +31,9 @@ class ServiceManager:
         self._env = env or {}
         self._exchange = exch.Exchange()
         self._executor_cls = exch.RequestExecutor
+        self._loop = None
         self._proc_locals = {'pid': os.getpid()}
+        self._process = None
         self._schema_mgr = schema.SchemaManager()
         self._services = {}
         self._services_cfg = None
@@ -41,12 +45,30 @@ class ServiceManager:
         """
         self.load_schemas()
 
-    def start(self, as_process=True) -> None:
+    def start(self) -> None:
         """
         Start the message processor and any other services
         """
-        # Run the message processor
-        self._exchange.start(as_process)
+        asyncio.get_child_watcher()
+        runner = self._process = mp.Process(target=self._start)
+        runner.start()
+
+    def _start(self) -> None:
+        self._init_process()
+        self._exchange.start()
+        self.start_services()
+        self._loop.run_forever()
+
+    def _init_process(self) -> None:
+        """
+        Initialize ourselves in a newly started process
+        """
+        # create new event loop after fork
+        asyncio.get_event_loop().close()
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+    def start_services(self) -> None:
         # Run all services
         for _id, service in self._services.items():
             service.start()
@@ -55,7 +77,18 @@ class ServiceManager:
         """
         Stop the message processor and any other services
         """
+        if self._stop_event:
+            self._stop_event.set()
+        else:
+            self._stop()
+
+    def _stop(self) -> None:
         self._exchange.stop()
+        for _id, service in self._services.items():
+            service.stop()
+
+    def stop_services(self) -> None:
+        # Run all services
         for _id, service in self._services.items():
             service.stop()
 

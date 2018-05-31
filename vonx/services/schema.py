@@ -24,12 +24,13 @@ class Schema:
     A credential schema definition
     """
 
-    def __init__(self, name, version, attributes=None):
+    def __init__(self, name, version, attributes=None, issuer_did=None):
         self.name = name
         self.version = version
         self._attributes = []
         if attributes:
             self.attributes = attributes
+        self.issuer_did = issuer_did
 
     @property
     def attributes(self) -> list:
@@ -86,11 +87,21 @@ class Schema:
         else:
             raise ValueError('Unsupported type for attribute: {}'.format(attr))
 
+    def copy(self):
+        return Schema(self.name, self.version, self._attributes)
+
     def validate(self, value) -> None:
         """
         Perform validation of a set of attribute values against the schema
         """
         pass
+
+    def compare(self, schema) -> bool:
+        if self.name == schema.name and self.version == schema.version:
+            if not self.issuer_did or not schema.issuer_did or self.issuer_did == schema.issuer_did:
+                if not self.attributes or not schema.attributes or self.attributes == schema.attributes:
+                    return True
+        return False
 
     def __repr__(self) -> str:
         return 'Schema(name={}, version={})'.format(self.name, self.version)

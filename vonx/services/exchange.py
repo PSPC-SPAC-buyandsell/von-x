@@ -29,6 +29,8 @@ from threading import Condition, Thread, get_ident
 
 import aiohttp
 
+from . import eventloop
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -343,6 +345,9 @@ class RequestProcessor:
         """
         return self.send_noreply(self._pid, 'stop')
 
+    def init_processor(self) -> None:
+        pass
+
     def run(self) -> None:
         """
         The polling loop for receiving messages from the exchange
@@ -360,7 +365,7 @@ class RequestProcessor:
                         break
                 except Exception:
                     if isinstance(message.body, ExchangeError):
-                        LOGGER.error(message.format())
+                        LOGGER.error(message.body.format())
                     else:
                         errmsg = ExchangeError('Exception during message processing', True)
                         self.send_noreply(message.from_pid, errmsg, message.ident)
@@ -473,7 +478,7 @@ class RequestExecutor(RequestProcessor):
 
     def start(self):
         """
-        Create a :class:ThreadPoolExecutor and run our polling thread to listen for messages
+        Create a :class:`ThreadPoolExecutor` and run our polling thread to listen for messages
         """
         if not self._loop:
             self._loop = asyncio.get_event_loop()
@@ -499,7 +504,7 @@ class RequestExecutor(RequestProcessor):
         """
         Initialize ourselves in a newly started process
         """
-        # create new event_loop after fork
+        # create new event loop after fork
         asyncio.get_event_loop().close()
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
@@ -546,7 +551,7 @@ class RequestExecutor(RequestProcessor):
         """
         loop = loop or self._loop
         if asyncio.iscoroutine(proc):
-            result = asyncio.run_coroutine_threadsafe(proc, loop)
+            result = asyncio.run_coroutine_threadsafe(eventloop.ensure_future(proc), loop)
         else:
             result = loop.run_in_executor(self._pool, proc, *args)
         return result
@@ -566,18 +571,25 @@ class RequestExecutor(RequestProcessor):
         result = self.run_task(self._receive, ident, timeout, loop=loop)
         return result
 
-    def process(self, message: Message) -> None:
+    def _handle_response(self, message: Message) -> bool:
         """
         Handle a message received from another service on the exchange by awaking
         any tasks waiting for results
         """
-        with self._req_cond:
-            if message.ref in self._requests:
-                self._requests[message.ref]['result'] = message.body
-                self._req_cond.notify_all()
-            else:
-                LOGGER.debug('unhandled message to %s/%s from %s: %s',
-                             self._pid, message.ref, message.from_pid, message.body)
+        if message.ref:
+            with self._req_cond:
+                if message.ref in self._requests:
+                    self._requests[message.ref]['result'] = message.body
+                    self._req_cond.notify_all()
+                    return True
+
+    def process(self, message: Message) -> None:
+        """
+        Handle a message received from another service on the exchange
+        """
+        if not self._handle_response(message):
+            LOGGER.debug('unhandled message to %s/%s from %s: %s',
+                         self._pid, message.ref, message.from_pid, message.body)
 
     def _receive(self, ident, timeout=None):
         """

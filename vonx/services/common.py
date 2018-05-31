@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-from . import issuer, prover, manager
+from . import indy, issuer, prover, manager
 
 
 class StandardServiceManager(manager.ServiceManager):
@@ -26,8 +26,11 @@ class StandardServiceManager(manager.ServiceManager):
     def init_services(self) -> None:
         super(StandardServiceManager, self).init_services()
 
-        # Issuer manager - handles ready, status, submit_cred
-        self._services['issuer'] = issuer.init_issuer_manager(self)
+        # Indy ledger
+        self._services['ledger'] = indy.IndyLedger.create(self)
+
+        # Issuer manager - handles submit_cred
+        self._services['issuer'] = issuer.IssuerManager.create(self)
 
         # Prover manager - handles construct_proof
-        self._services['prover'] = prover.init_prover_manager(self)
+        self._services['prover'] = prover.ProverManager.create(self)
