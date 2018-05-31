@@ -435,7 +435,7 @@ class IssuerManager(RequestExecutor):
         log_json("Created cred offer:", cred_offer.payload, LOGGER)
 
         cred_req = await api_client.post_json(
-            http_client, "indy/generate-claim-request", cred_offer.payload
+            http_client, "indy/generate-credential-request", cred_offer.payload
         )
         log_json("Got cred request:", cred_req, LOGGER)
 
