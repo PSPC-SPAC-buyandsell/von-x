@@ -451,7 +451,7 @@ class IssuerManager(RequestExecutor):
 
         # Store credential
         return await api_client.post_json(
-            http_client, "indy/store-claim", cred.payload
+            http_client, "indy/store-credential", cred.payload
         )
 
     def _init_api_client(self, issuer_id):
