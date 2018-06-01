@@ -302,7 +302,7 @@ class IndyIssuerConfig:
 
     def add_schema(self, schema):
         self.schemas.append(
-            {"definition": schema.copy(), "ledger": None, "cred_def": None}
+            {"definition": schema.copy(), "ledger": None, "credential_definition": None}
         )
 
     def find_schema(self, match: Schema) -> dict:
@@ -626,7 +626,7 @@ class IndyLedger(RequestExecutor):
                 log_json("Published schema:", ledger_schema, LOGGER)
             schema["ledger"] = ledger_schema
 
-        if not schema.get("cred_def"):
+        if not schema.get("credential_definition"):
             # Check if credential definition has been published
             LOGGER.info(
                 "Checking for credential def: %s (%s)",
@@ -652,7 +652,7 @@ class IndyLedger(RequestExecutor):
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Published credential def:", cred_def, LOGGER)
-            schema["cred_def"] = cred_def
+            schema["credential_definition"] = cred_def
 
     async def _handle_create_cred_offer(
         self, request: CredOfferRequest, reply_to: str, ref
@@ -683,7 +683,7 @@ class IndyLedger(RequestExecutor):
             request.schema_def,
             {
                 "credential_offer": json.loads(cred_offer_json),
-                "credential_definition": schema["cred_def"],
+                "credential_definition": schema["credential_definition"],
             },
         )
         return self.send_noreply(reply_to, msg, ref)
@@ -703,11 +703,11 @@ class IndyLedger(RequestExecutor):
         schema = issuer.find_schema(request.cred_offer.schema_def)
         cred_request = request.cred_req["credential_request"]
         cred_request_metadata = request.cred_req[
-            "credential_request_metadata_json"
+            "credential_request_metadata"
         ]
 
         (cred_json, _cred_revoc_id) = await issuer.agent.create_cred(
-            request.cred_offer.payload["claim_offer"],
+            request.cred_offer.payload["credential_offer"],
             cred_request,
             request.cred_data,
         )
@@ -715,11 +715,11 @@ class IndyLedger(RequestExecutor):
         msg = CredCreateResponse(
             request.cred_offer.issuer_id,
             {
-                "claim_type": schema["definition"].name,
-                "claim_data": json.loads(cred_json),
+                "credential_type": schema["definition"].name,
+                "credential_data": json.loads(cred_json),
                 "issuer_did": issuer.agent.did,
-                "cred_def": schema["cred_def"],
-                "cred_req_metadata": cred_request_metadata,
+                "credential_definition": schema["credential_definition"],
+                "credential_request_metadata": cred_request_metadata,
             },
         )
         return self.send_noreply(reply_to, msg, ref)
