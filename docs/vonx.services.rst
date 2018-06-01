@@ -36,6 +36,14 @@ vonx.services.exchange module
     :undoc-members:
     :show-inheritance:
 
+vonx.services.indy module
+-------------------------
+
+.. automodule:: vonx.services.indy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 vonx.services.issuer module
 ---------------------------
 
@@ -72,14 +80,6 @@ vonx.services.tob module
 ------------------------
 
 .. automodule:: vonx.services.tob
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-vonx.services.von module
-------------------------
-
-.. automodule:: vonx.services.von
     :members:
     :undoc-members:
     :show-inheritance:
