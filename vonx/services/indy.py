@@ -706,6 +706,11 @@ class IndyLedger(RequestExecutor):
             "credential_request_metadata"
         ]
 
+        LOGGER.info('-----------\n\n')
+        LOGGER.info(request.cred_offer.payload["credential_offer"])
+        LOGGER.info(cred_request)
+        LOGGER.info(request.cred_data)
+
         (cred_json, _cred_revoc_id) = await issuer.agent.create_cred(
             request.cred_offer.payload["credential_offer"],
             cred_request,
