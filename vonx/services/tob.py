@@ -57,7 +57,7 @@ def assemble_issuer_spec(config: dict) -> dict:
                 "version": schema.version,
             }
         )
-    issuer_spec["credential-types"] = ctypes
+    issuer_spec["credential_types"] = ctypes
     return issuer_spec
 
 
