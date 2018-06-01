@@ -228,4 +228,6 @@ class ServiceManager:
             if name in self._services:
                 pid = self._services[name].pid
                 ploc[tg_name] = self.executor.get_request_target(pid, loop)
+            else:
+                return None
         return ploc[tg_name]

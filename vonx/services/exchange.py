@@ -228,8 +228,9 @@ class MessageTarget:
     A wrapper for sending messages to a single target.
 
     Example:
-        >>> manager = MessageTarget(manager_pid, exchange, my_pid)
-        >>> _ = manager.send_noreply('hello')
+        >>> target = MessageTarget(target_pid, exchange, my_pid)
+        >>> target.send_noreply('hello')
+        True
     """
 
     def __init__(self, pid: str, exchange: Exchange, from_pid: str = None):
@@ -345,9 +346,6 @@ class MessageProcessor:
         """
         return self.send_noreply(self._pid, 'stop')
 
-    def init_processor(self) -> None:
-        pass
-
     def run(self) -> None:
         """
         The polling loop for receiving messages from the exchange
@@ -397,9 +395,11 @@ class MessageProcessor:
         """
         return self._exchange.send(to_pid, Message(from_pid or self._pid, None, message, ref))
 
-    def process(self, message: Message):
+    def process(self, message: Message) -> bool:
         """
         Process a message from another service and optionally send a message in response
+
+        Returns: `False` if the polling thread should terminate
         """
         pass
 
@@ -458,7 +458,7 @@ class RequestExecutor(MessageProcessor):
     @property
     def loop(self):
         """
-        Accessor for the event loop used by this `RequestExecutor`
+        Accessor for the event loop used by this :class:`RequestExecutor`
         """
         return self._loop
 
@@ -476,15 +476,20 @@ class RequestExecutor(MessageProcessor):
         Args:
             wait: whether to wait for the threads to terminate
         """
+        super(RequestExecutor, self).stop(wait)
         if self._pool:
             self._pool.shutdown(wait)
-        super(RequestExecutor, self).stop(wait)
         if self._connector:
             self._connector.close()
 
     def run_task(self, proc: Callable, *args, loop=None) -> Future:
         """
         Add a task to be processed, as either a coroutine or function
+
+        Args:
+            proc: the function or coroutine to be run
+            args: arguments to pass to the proc, if a function
+            loop: override the current asyncio loop
         """
         loop = loop or self._loop
         if asyncio.iscoroutine(proc):
@@ -496,6 +501,12 @@ class RequestExecutor(MessageProcessor):
     def submit(self, to_pid: str, message, timeout=None, loop=None) -> Future:
         """
         Submit a message to another service and run a task to poll for the results
+
+        Args:
+            to_pid: the identifier of the target service
+            message: the body of the message to be sent
+            timeout: an optional timeout to wait for a response
+            loop: override the current asyncio loop
         """
         request = {'result': None}
         ident = id(request)
@@ -512,6 +523,9 @@ class RequestExecutor(MessageProcessor):
         """
         Handle a message received from another service on the exchange by awaking
         any tasks waiting for results
+
+        Args:
+            message: the received message to be processed
         """
         if message.ref:
             with self._req_cond:
@@ -521,9 +535,12 @@ class RequestExecutor(MessageProcessor):
                     return True
         return False
 
-    def process(self, message: Message) -> None:
+    def process(self, message: Message) -> bool:
         """
         Handle a message received from another service on the exchange
+
+        Args:
+            message: the received message to be processed
         """
         if not self._handle_response(message):
             LOGGER.debug('unhandled message to %s/%s from %s: %s',
@@ -586,7 +603,13 @@ class RequestExecutor(MessageProcessor):
 class RequestTarget:
     """
     An endpoint for a :class:`RequestExecutor` which uses submit() to poll
-    for responses to requests.
+    for responses to requests. It must be created within the same process as the
+    executor instance
+
+    Example:
+        >>> target = RequestTarget(executor, target_pid)
+        >>> target.request('hello')
+        Future<...>
     """
 
     def __init__(self, executor: RequestExecutor, pid: str, loop=None):
@@ -651,8 +674,9 @@ class HelloProcessor(MessageProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """
-    def process(self, message: Message):
-        self.send_noreply(message.from_pid, 'hello from {} {}'.format(os.getpid(), get_ident()), message.ident)
+    def process(self, message: Message) -> bool:
+        self.send_noreply(message.from_pid,
+                          'hello from {} {}'.format(os.getpid(), get_ident()), message.ident)
 
 
 class ThreadedHelloProcessor(HelloProcessor):
@@ -669,18 +693,18 @@ class ThreadedHelloProcessor(HelloProcessor):
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
         return self._pool.submit(self.run)
 
-    def start_process(self):
+    def start_process(self) -> mp.Process:
         proc = mp.Process(target=lambda: self.start().result())
         proc.start()
         return proc
 
-    def process(self, message: Message):
+    def process(self, message: Message) -> bool:
         if self._blocking:
             self._delayed_process(message)
         else:
             self._pool.submit(self._delayed_process, message)
 
-    def _delayed_process(self, message: Message):
+    def _delayed_process(self, message: Message) -> bool:
         time.sleep(1)
         return super(ThreadedHelloProcessor, self).process(message)
 

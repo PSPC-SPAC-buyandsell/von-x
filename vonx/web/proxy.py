@@ -16,6 +16,7 @@
 #
 
 import logging
+from typing import Coroutine
 
 from aiohttp import web
 from aiohttp.helpers import BasicAuth
@@ -35,15 +36,18 @@ REMOVE_HEADERS = {
 }
 
 
-def proxy_handler(proxy):
+def proxy_handler(proxy_cfg: dict) -> Coroutine:
     """
     A simple web proxy, not designed for large posts. This allows an Issuer service
     to make requests via von-x without knowing the web address of TheOrgBook, for instance
+
+    Returns:
+        a coroutine to be used by aiohttp as a request handler
     """
 
     async def handle_request(request):
         path = request.match_info['path']
-        target_url = proxy['url']
+        target_url = proxy_cfg['url']
         if not target_url.endswith('/'):
             target_url += '/'
         target_url += path
@@ -53,8 +57,8 @@ def proxy_handler(proxy):
             if header_name.lower() not in REMOVE_HEADERS:
                 headers[header_name] = header_value
         auth = None
-        if 'auth' in proxy and proxy['auth'].get('type') == 'basic':
-            auth = BasicAuth(proxy['auth']['user'], proxy['auth']['password'])
+        if 'auth' in proxy_cfg and proxy_cfg['auth'].get('type') == 'basic':
+            auth = BasicAuth(proxy_cfg['auth']['user'], proxy_cfg['auth']['password'])
         # TODO set Forwarded header?
 
         mgr = request.app['manager']

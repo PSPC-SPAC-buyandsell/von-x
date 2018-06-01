@@ -232,7 +232,8 @@ class ProverManager(RequestExecutor):
             }
         }
 
-    async def _process_construct_proof(self, from_pid: str, ident, request: ConstructProofRequest) -> bool:
+    async def _process_construct_proof(self, from_pid: str, ident,
+                                       request: ConstructProofRequest) -> bool:
         """
         Process a :class:`ConstructProofRequest` and send the response to the sending service
         """
@@ -250,7 +251,7 @@ class ProverManager(RequestExecutor):
             msg = ProverError('Exception while constructing proof request')
             self.send_noreply(from_pid, msg, ident)
 
-    def process(self, message: Message):
+    def process(self, message: Message) -> bool:
         """
         Process a request received from the message bus
 

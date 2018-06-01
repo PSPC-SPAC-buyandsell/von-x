@@ -20,7 +20,9 @@ import logging
 
 
 class JsonRepr:
-    """Utility class to avoid JSON encoding debug output unless needed"""
+    """
+    Utility class to avoid JSON encoding debug output unless needed
+    """
     def __init__(self, value, indent=2):
         self.value = value
         self.indent = indent
@@ -30,6 +32,9 @@ class JsonRepr:
 
 
 def log_json(heading, data, logger=None):
+    """
+    Utility method to log JSON data for debugging
+    """
     if not logger:
         logger = logging.getLogger(__name__)
     msg = """

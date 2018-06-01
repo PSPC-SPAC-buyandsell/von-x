@@ -87,7 +87,10 @@ class Schema:
         else:
             raise ValueError('Unsupported type for attribute: {}'.format(attr))
 
-    def copy(self):
+    def copy(self) -> 'Schema':
+        """
+        Create a copy of this :class:`Schema` instance
+        """
         return Schema(self.name, self.version, self._attributes)
 
     def validate(self, value) -> None:
@@ -96,10 +99,16 @@ class Schema:
         """
         pass
 
-    def compare(self, schema) -> bool:
+    def compare(self, schema: 'Schema') -> bool:
+        """
+        Check whether this schema instance and another are compatible.
+        Note: schemas with an empty issuer DID will match schemas with a blank issuer DID,
+        or the same DID
+        """
         if self.name == schema.name and self.version == schema.version:
             if not self.issuer_did or not schema.issuer_did or self.issuer_did == schema.issuer_did:
-                if not self.attributes or not schema.attributes or self.attributes == schema.attributes:
+                if not self.attributes or not schema.attributes \
+                        or self.attributes == schema.attributes:
                     return True
         return False
 

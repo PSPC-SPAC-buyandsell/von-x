@@ -151,6 +151,9 @@ class VerifyProofResponse:
 
 
 class WalletConfig:
+    """
+    Manage configuration settings for an Indy wallet
+    """
     def __init__(self, **params):
         self.name = params.get('name')
         if not self.name:
@@ -166,6 +169,70 @@ class WalletConfig:
         if 'freshness_time' not in self.params:
             self.params['freshness_time'] = 0
         self.creds = {'key': ''}
+
+
+class IndyIssuerConfig:
+    """
+    Manage configuration settings for an Issuer, including wallet settings
+    and schemas bound for the ledger
+    """
+    def __init__(self, **params):
+        self.agent = None
+        self.auto_register = params.get('auto_register', True)
+        self.did = params.get('did')
+        self.endpoint = params.get('endpoint')
+        self.ident = params.get('id')
+        self.manager_pid = params.get('manager_pid')
+        self.registered = False
+        self.schemas = []
+        self.synced = False
+        self.wrapper = None
+        wallet_cfg = params.get('wallet') or {}
+        if 'name' not in wallet_cfg:
+            wallet_cfg['name'] = self.ident
+        self.wallet_config = WalletConfig(**wallet_cfg)
+
+        schemas = params.get('schemas')
+        if schemas:
+            for schema in schemas:
+                self.add_schema(schema)
+
+    @property
+    def extended_config(self):
+        """
+        Accessor for the extended :class:`Issuer` configuration
+        """
+        ret = {}
+        if self.endpoint:
+            ret['endpoint'] = self.endpoint
+        return ret
+
+    def add_schema(self, schema: Schema):
+        """
+        Add a schema to the Issuer definition
+
+        Args:
+            schema: the :class:`Schema` to be added
+        """
+        self.schemas.append({
+            'definition': schema.copy(),
+            'ledger': None,
+            'cred_def': None,
+        })
+
+    def get_schema_config(self, match: Schema) -> dict:
+        """
+        Find the extended information for a specific schema, including the ledger schema
+        definition and credential definition (if any)
+
+        Args:
+            match: the :class:`Schema` to be located
+        """
+        for schema in self.schemas:
+            defn = schema['definition']
+            if defn.compare(match):
+                return schema
+        return None
 
 
 class AgentWrapper:
@@ -195,11 +262,17 @@ class AgentWrapper:
         self._keep_open = False
 
     @property
-    def opened(self):
-        return self._opened
+    def opened(self) -> bool:
+        """
+        Return current state of the :class:`_BaseAgent` instance
+        """
+        return self._opened is not None
 
     @property
     def instance(self):
+        """
+        Accessor for the opened :class:`_BaseAgent` instance
+        """
         return self._instance
 
     def keep_open(self, flag=True):
@@ -220,7 +293,8 @@ class AgentWrapper:
         self._instance = self._instance_cls(await self._wallet.create(), self._ext_cfg)
         self._opened = await self._instance.open()
         if isinstance(self._instance, VonHolderProver):
-            # NOTE: should only create this once, and only in the root wallet (virtual_wallet == None)
+            # NOTE: should only create this once,
+            # and only in the root wallet (virtual_wallet == None)
             await self._instance.create_link_secret(str(uuid.uuid4()))
         return self._opened
 
@@ -242,49 +316,6 @@ class AgentWrapper:
             LOGGER.exception('Exception in VON %s:', self._wallet.name)
         if not self._keep_open:
             await self.close()
-
-
-class IndyIssuerConfig:
-    def __init__(self, **params):
-        self.agent = None
-        self.auto_register = params.get('auto_register', True)
-        self.did = params.get('did')
-        self.endpoint = params.get('endpoint')
-        self.ident = params.get('id')
-        self.manager_pid = params.get('manager_pid')
-        self.registered = False
-        self.schemas = []
-        self.synced = False
-        self.wrapper = None
-        wallet_cfg = params.get('wallet') or {}
-        if 'name' not in wallet_cfg:
-            wallet_cfg['name'] = self.ident
-        self.wallet_config = WalletConfig(**wallet_cfg)
-
-        schemas = params.get('schemas')
-        if schemas:
-            for schema in schemas:
-                self.add_schema(schema)
-
-    @property
-    def extended_config(self):
-        ret = {}
-        if self.endpoint:
-            ret['endpoint'] = self.endpoint
-
-    def add_schema(self, schema):
-        self.schemas.append({
-            'definition': schema.copy(),
-            'ledger': None,
-            'cred_def': None,
-        })
-
-    def find_schema(self, match: Schema) -> dict:
-        for schema in self.schemas:
-            defn = schema['definition']
-            if defn.compare(match):
-                return schema
-        return None
 
 
 class IndyLedger(RequestExecutor):
@@ -364,7 +395,8 @@ class IndyLedger(RequestExecutor):
 
     async def _sync(self) -> bool:
         """
-        Perform the initial setup of the ledger connection
+        Perform the initial setup of the ledger connection, including downloading the
+        genesis transaction file
         """
         async with self._sync_lock:
             await asyncio.sleep(1) # avoid odd TimeoutError on genesis txn retrieval
@@ -377,6 +409,9 @@ class IndyLedger(RequestExecutor):
     def _add_issuer(self, **params) -> str:
         """
         Add an issuer configuration
+
+        Args:
+            params: parameters to be passed to the :class:`IndyIssuerConfig` constructor
         """
         if 'id' not in params:
             raise ValueError("Missing 'id' for issuer")
@@ -384,10 +419,18 @@ class IndyLedger(RequestExecutor):
         self._issuers[cfg.ident] = cfg
         return cfg.ident
 
-    async def _sync_issuer(self, issuer: IndyIssuerConfig):
+    async def _sync_issuer(self, issuer: IndyIssuerConfig) -> None:
+        """
+        Perform issuer synchronization, registering the DID and publishing schemas
+        and credential definitions as required
+
+        Args:
+            issuer: the Indy issuer configuration
+        """
         if not issuer.synced:
             if not issuer.wrapper:
-                LOGGER.info('Init Indy issuer %s with seed %s', issuer.ident, issuer.wallet_config.seed)
+                LOGGER.info('Init Indy issuer %s with seed %s',
+                            issuer.ident, issuer.wallet_config.seed)
 
                 issuer.wallet_config.genesis_path = self._genesis_path
                 issuer.wrapper = AgentWrapper(
@@ -448,6 +491,10 @@ class IndyLedger(RequestExecutor):
     async def _fetch_genesis_txn(self, ledger_url: str, target_path: str) -> bool:
         """
         Download the genesis transaction file from the ledger server
+
+        Args:
+            ledger_url: the root address of the von-network ledger
+            target_path: the filesystem path of the genesis transaction file once downloaded
         """
         LOGGER.info('Fetching genesis transaction file from %s/genesis', ledger_url)
         async with aiohttp.ClientSession(read_timeout=30) as client:
@@ -468,9 +515,13 @@ class IndyLedger(RequestExecutor):
             output_file.write(data)
         return True
 
-    async def _check_registration(self, agent: _BaseAgent, auto_register=True):
+    async def _check_registration(self, agent: _BaseAgent, auto_register: bool = True) -> None:
         """
         Look up our nym on the ledger and register it if not present
+
+        Args:
+            agent: the initialized and opened agent to be checked
+            auto_register: whether to automatically register the DID on the ledger
         """
         did = agent.did
         LOGGER.debug('Checking DID registration %s', did)
@@ -501,9 +552,13 @@ class IndyLedger(RequestExecutor):
                     raise RuntimeError(
                         'DID registration failed: {}'.format(nym_info))
 
-    async def _check_endpoint(self, agent: _BaseAgent, endpoint: str):
+    async def _check_endpoint(self, agent: _BaseAgent, endpoint: str) -> None:
         """
         Look up our endpoint on the ledger and register it if not present
+
+        Args:
+            agent: the initialized and opened agent to be checked
+            endpoint: the endpoint to be added to the ledger, if not defined
         """
         if not endpoint:
             return None
@@ -516,13 +571,14 @@ class IndyLedger(RequestExecutor):
         if not endp_info:
             endp_info = await agent.send_endpoint()
             LOGGER.debug('Endpoint stored: %s', endp_info)
-        return endp_info
 
     async def _publish_schema(self, issuer: VonIssuer, schema: dict) -> None:
         """
-        Check the ledger for a specific schema and version, and publish it if not found
+        Check the ledger for a specific schema and version, and publish it if not found.
+        Also publish the related credential definition if not found
 
         Args:
+            issuer: the initialized and opened issuer instance publishing the schema
             schema: a dict which will be updated with the published schema and credential def
         """
 
@@ -557,18 +613,21 @@ class IndyLedger(RequestExecutor):
             LOGGER.info('Checking for credential def: %s (%s)', definition.name, definition.version)
 
             try:
-                cred_def_json = await issuer.get_cred_def(cred_def_id(issuer.did, schema['ledger']['seqNo']))
+                cred_def_json = await issuer.get_cred_def(
+                    cred_def_id(issuer.did, schema['ledger']['seqNo']))
                 cred_def = json.loads(cred_def_json)
                 log_json('Credential def found on ledger:', cred_def, LOGGER)
             except AbsentCredDef:
                 # If credential definition is not found then publish it
-                LOGGER.info('Publishing credential def: %s (%s)', definition.name, definition.version)
+                LOGGER.info('Publishing credential def: %s (%s)',
+                            definition.name, definition.version)
                 cred_def_json = await issuer.send_cred_def(schema_json, revocation=False)
                 cred_def = json.loads(cred_def_json)
                 log_json('Published credential def:', cred_def, LOGGER)
             schema['cred_def'] = cred_def
 
-    async def _handle_create_cred_offer(self, request: CredOfferRequest, reply_to: str, ref) -> bool:
+    async def _handle_create_cred_offer(self, request: CredOfferRequest,
+                                        reply_to: str, ref) -> bool:
         """
         Create a credential offer for TheOrgBook
 
@@ -578,7 +637,7 @@ class IndyLedger(RequestExecutor):
             ref: the identifier for the originating message
         """
         issuer = self._issuers[request.issuer_id]
-        schema = issuer.find_schema(request.schema_def)
+        schema = issuer.get_schema_config(request.schema_def)
 
         LOGGER.info(
             'Creating indy credential offer for issuer %s, schema %s',
@@ -602,7 +661,7 @@ class IndyLedger(RequestExecutor):
             ref: the identifier for the originating message
         """
         issuer = self._issuers[request.cred_offer.issuer_id]
-        schema = issuer.find_schema(request.cred_offer.schema_def)
+        schema = issuer.get_schema_config(request.cred_offer.schema_def)
         cred_request = request.cred_req['credential_request']
         cred_request_metadata = request.cred_req['credential_request_metadata_json']
 
@@ -620,7 +679,11 @@ class IndyLedger(RequestExecutor):
         })
         return self.send_noreply(reply_to, msg, ref)
 
-    async def get_verifier(self):
+    async def get_verifier(self) -> AgentWrapper:
+        """
+        Fetch or create an :class:`AgentWrapper` representing a standard Verifier agent,
+        used to verify proofs
+        """
         if not self._verifier:
             wallet_cfg = WalletConfig(
                 name='GenericVerifier',
@@ -648,7 +711,13 @@ class IndyLedger(RequestExecutor):
         msg = VerifyProofResponse(result, parsed_proof)
         return self.send_noreply(reply_to, msg, ref)
 
-    def process(self, message: Message) -> None:
+    async def _handle_ledger_status(self, reply_to: str, ref) -> bool:
+        url = self._ledger_url
+        async with self.http as client:
+            response = await client.get('{}/status'.format(url))
+        return self.send_noreply(reply_to, await response.text(), ref)
+
+    def process(self, message: Message) -> bool:
         """
         Process a message from the exchange and send the reply, if any
 
@@ -663,6 +732,9 @@ class IndyLedger(RequestExecutor):
         elif request == 'sync':
             self.run_task(self._sync())
             self.send_noreply(from_pid, True, ident)
+
+        elif request == 'ledger-status':
+            self.run_task(self._handle_ledger_status(from_pid, ident))
 
         elif isinstance(request, RegisterIssuerRequest):
             try:

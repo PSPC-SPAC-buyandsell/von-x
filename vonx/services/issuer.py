@@ -19,7 +19,6 @@ import asyncio
 import logging
 from typing import Mapping
 
-import aiohttp
 from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
 
 from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
@@ -122,7 +121,8 @@ class SubmitCredRequest:
     """
     The message class representing a request to submit a credential
     """
-    def __init__(self, schema_name: str, schema_version: str, attributes: Mapping, issuer_id: str = None):
+    def __init__(self, schema_name: str, schema_version: str, attributes: Mapping,
+                 issuer_id: str = None):
         self.issuer_id = issuer_id
         self.schema_name = schema_name
         self.schema_version = schema_version
@@ -157,6 +157,9 @@ class IssuerService:
         self.load_config(config, schema_mgr)
 
     def load_config(self, config: dict, schema_mgr: SchemaManager):
+        """
+        Load a standard issuer configuration and resolve references to schemas
+        """
         self.config = config
         self.api_url = config.get('api_url')
         self.cred_types = load_cred_definitions(config.get('credential_types'), schema_mgr)
@@ -183,6 +186,10 @@ class IssuerService:
         return None
 
     def get_ledger_config(self, manager_pid: str) -> dict:
+        """
+        Get a dictionary of configuration parameters used to define an issuer for the
+        ledger service
+        """
         return {
             'endpoint': self.endpoint,
             'id': self.config['id'],
@@ -192,11 +199,17 @@ class IssuerService:
         }
 
     def update_ledger_status(self, status: dict):
+        """
+        Update our status in reponse to a status update from the ledger service
+        """
         self.did = status['did']
         self.status['ledger'] = status['synced']
         self.update_ready()
 
     def update_ready(self):
+        """
+        Update our ready status based on the current ledger and API sync status
+        """
         self.status['ready'] = self.status['ledger'] and self.status['api']
 
 
@@ -274,9 +287,16 @@ class IssuerManager(RequestExecutor):
         return ret
 
     def add_issuer(self, issuer: IssuerService) -> None:
+        """
+        Add a new issuer service to the manager
+        """
         self._issuers[issuer.config['id']] = issuer
 
     async def _start(self) -> None:
+        """
+        Initial service startup; submit all registered issuers to the ledger service
+        for synchronization
+        """
         for issuer_id, issuer in self._issuers.items():
             LOGGER.info('Registering issuer: %s', issuer_id)
             msg = indy.RegisterIssuerRequest(issuer.get_ledger_config(self.pid))
@@ -286,16 +306,20 @@ class IssuerManager(RequestExecutor):
         self._status['started'] = True
 
     async def _sync(self) -> None:
+        """
+        Perform the issuer initialization process, adding any registered issuers to the
+        ledger and registering them with the API client once the ledger sync has completed
+        """
         async with self._sync_lock:
             for issuer_id, issuer in self._issuers.items():
                 if issuer.status['ledger'] and not issuer.status['ready']:
-                    async with self._http_client(issuer_id) as http_client:
+                    async with self._issuer_http_client(issuer_id) as http_client:
                         api_client = self._init_api_client(issuer_id)
                         cfg = issuer.config.copy()
                         cfg['did'] = issuer.did
                         cfg['credential_types'] = issuer.cred_types
                         try:
-                            result = await api_client.register_issuer(http_client, cfg)
+                            _result = await api_client.register_issuer(http_client, cfg)
                         except TobClientError:
                             continue
                     issuer.status['ready'] = True
@@ -361,7 +385,7 @@ class IssuerManager(RequestExecutor):
         cred_data = load_cred_request(cred_type, request.attributes)
         log_json('Credential data:', cred_data, LOGGER)
 
-        async with self._http_client(issuer_id) as http_client:
+        async with self._issuer_http_client(issuer_id) as http_client:
             reply = await self._store_cred(http_client, issuer_id, cred_type, cred_data)
             msg = SubmitCredResponse(issuer_id, reply)
             return self.send_noreply(reply_to, msg, ref)
@@ -383,7 +407,8 @@ class IssuerManager(RequestExecutor):
         offer_msg = indy.CredOfferRequest(issuer_id, cred_type['schema'])
         cred_offer = await self.submit(self._ledger_pid, offer_msg)
         if not isinstance(cred_offer, indy.CredOfferResponse):
-            raise ValueError('Unexpected response to credential offer request: {}'.format(cred_offer))
+            raise ValueError(
+                'Unexpected response to credential offer request: {}'.format(cred_offer))
         log_json('Created cred offer:', cred_offer.payload, LOGGER)
 
         cred_req = await api_client.post_json(
@@ -413,7 +438,7 @@ class IssuerManager(RequestExecutor):
         """
         return TobClient(self._issuers[issuer_id].api_url)
 
-    def _http_client(self, issuer_id=None, **kwargs):
+    def _issuer_http_client(self, issuer_id=None, **kwargs):
         """
         Create a new ClientSession which includes DID signing information in each request
 
@@ -424,7 +449,7 @@ class IssuerManager(RequestExecutor):
             kwargs['request_class'] = SignedRequest
         if issuer_id and 'auth' not in kwargs:
             kwargs['auth'] = self._did_auth(issuer_id)
-        return aiohttp.ClientSession(**kwargs)
+        return super(IssuerManager, self).http_client(**kwargs)
 
     def _did_auth(self, issuer_id, header_list=None):
         """
@@ -442,7 +467,7 @@ class IssuerManager(RequestExecutor):
             return SignedRequestAuth(key_id, 'ed25519', secret, header_list)
         return None
 
-    def process(self, message: Message) -> None:
+    def process(self, message: Message) -> bool:
         """
         Process a message from the exchange and send the reply, if any
 
@@ -453,6 +478,10 @@ class IssuerManager(RequestExecutor):
 
         if self._handle_response(message):
             return
+
+        elif request == 'sync':
+            self.run_task(self._sync())
+            self.send_noreply(from_pid, True, ident)
 
         elif isinstance(request, indy.IndyIssuerStatus):
             self._issuers[request.issuer_id].update_ledger_status(request.status)

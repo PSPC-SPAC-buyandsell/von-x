@@ -16,9 +16,11 @@
 #
 
 import logging
+from typing import Coroutine
 
-from aiohttp import web
+from aiohttp import web, ClientRequest
 
+from vonx.services.manager import ServiceManager
 from . import views
 from .process import process_form
 from .proxy import proxy_handler
@@ -28,6 +30,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 def get_standard_routes(_app) -> list:
+    """
+    Get the standard list of routes for the von-x application
+    """
     return [
         web.get('/', views.index),
         web.get('/health', views.health),
@@ -39,15 +44,24 @@ def get_standard_routes(_app) -> list:
     ]
 
 
-def get_custom_routes(app) -> list:
+def get_custom_routes(app: web.Application) -> list:
+    """
+    Get the list of routes defined by the application route settings
+    """
     return RouteDefinitions.load(app['manager']).routes
 
 
-def get_routes(app) -> list:
+def get_routes(app: web.Application) -> list:
+    """
+    Get the full list of defined routes
+    """
     return get_standard_routes(app) + get_custom_routes(app)
 
 
 class RouteDefinitions:
+    """
+    Manager class for loading and inspecting the application routing configuration
+    """
     def __init__(self):
         self.forms = []
         self.issuers = []
@@ -56,12 +70,22 @@ class RouteDefinitions:
         self.static = []
 
     @classmethod
-    def load(cls, manager):
+    def load(cls, manager: ServiceManager) -> 'RouteDefinitions':
+        """
+        Return a new instance initialized by a :class:`ServiceManager`
+        """
         inst = RouteDefinitions()
         inst.load_config(manager)
         return inst
 
-    def add_paths(self, *paths, overwrite=False):
+    def add_paths(self, *paths, overwrite: bool = False) -> None:
+        """
+        Add a list of paths to the defined routes
+
+        Args:
+            paths: one or more paths to add
+            overwrite: whether to replace an existing path
+        """
         for path in paths:
             if self.path_defined(path):
                 if not overwrite:
@@ -69,26 +93,57 @@ class RouteDefinitions:
             else:
                 self.paths.append(path)
 
-    def add_form(self, form):
+    def add_form(self, form: dict) -> None:
+        """
+        Add a form route definition
+
+        Args:
+            form: a dictionary of form configuration parameters
+        """
         self.add_paths(form['path'])
         self.forms.append(form)
 
-    def add_issuer(self, issuer):
+    def add_issuer(self, issuer: dict) -> None:
+        """
+        Add an issuer route definition
+
+        Args:
+            issuer: a dictionary of issuer configuration parameters
+        """
         self.add_paths(issuer['path'])
         self.issuers.append(issuer)
 
-    def add_proxy(self, proxy):
+    def add_proxy(self, proxy: dict) -> None:
+        """
+        Add a proxy route definition
+
+        Args:
+            proxy: a dictionary of proxy configuration parameters
+        """
         self.add_paths(proxy['path'])
         self.proxies.append(proxy)
 
-    def add_static(self, static):
+    def add_static(self, static: dict) -> None:
+        """
+        Add a static resource route definition
+
+        Args:
+            static: a dictionary of static resource configuration parameters
+        """
         self.add_paths(static['path'])
         self.static.append(static)
 
-    def path_defined(self, path):
+    def path_defined(self, path: str) -> bool:
+        """
+        Check whether a given path is defined by a previously-added route
+        """
         return path in self.paths
 
-    def load_config(self, manager):
+    def load_config(self, manager: ServiceManager) -> bool:
+        """
+        Load the standard route configuration defined by a :class:`ServiceManager` instance
+        and its environment variables
+        """
         config = manager.load_config_path('ROUTES_CONFIG_PATH', 'routes.yml')
         if not config:
             return False
@@ -99,7 +154,7 @@ class RouteDefinitions:
             else None
 
         forms = config.get('forms') or {}
-        self.load_form_definitions(forms, manager, limit_forms)
+        self.load_form_definitions(forms, limit_forms)
 
         limit_issuers = manager.env.get('ISSUERS')
         limit_issuers = limit_forms.split() \
@@ -107,7 +162,7 @@ class RouteDefinitions:
             else None
 
         issuers = config.get('issuers') or {}
-        self.load_issuer_definitions(issuers, manager, limit_issuers)
+        self.load_issuer_definitions(issuers, limit_issuers)
 
         proxy = config.get('proxy') or {}
         self.load_proxy_definitions(proxy)
@@ -117,7 +172,10 @@ class RouteDefinitions:
 
         return True
 
-    def load_form_definitions(self, config: dict, manager, limit_forms=None):
+    def load_form_definitions(self, config: dict, limit_forms=None) -> None:
+        """
+        Load a dictionary of form definitions from the application route configuration
+        """
         for form_id, form in config.items():
             if limit_forms is not None and form_id not in limit_forms:
                 continue
@@ -126,10 +184,13 @@ class RouteDefinitions:
                 form['name'] = form_id
             if not form.get('path'):
                 form['path'] = '/' + form['name']
-            expand_form_definition(form, manager)
+            check_form_definition(form)
             self.add_form(form)
 
-    def load_issuer_definitions(self, config: dict, _manager, limit_issuers=None):
+    def load_issuer_definitions(self, config: dict, limit_issuers=None) -> None:
+        """
+        Load a dictionary of issuer definitions from the application route configuration
+        """
         for issuer_id, issuer in config.items():
             if limit_issuers is not None and issuer_id not in limit_issuers:
                 continue
@@ -140,7 +201,10 @@ class RouteDefinitions:
                 issuer['path'] = '/' + issuer['name']
             self.add_issuer(issuer)
 
-    def load_static_definitions(self, config: dict):
+    def load_static_definitions(self, config: dict) -> None:
+        """
+        Load a dictionary of static resource definitions from the application route configuration
+        """
         for static_id, static in config.items():
             static_id = static['id'] = static.get('id', static_id)
             if not 'target' in static:
@@ -151,7 +215,10 @@ class RouteDefinitions:
                 static['path'] = '/' + static['name']
             self.add_static(static)
 
-    def load_proxy_definitions(self, config: dict):
+    def load_proxy_definitions(self, config: dict) -> None:
+        """
+        Load a dictionary of proxy definitions from the application route configuration
+        """
         for proxy_id, proxy in config.items():
             proxy_id = proxy['id'] = proxy.get('id', proxy_id)
             if not 'url' in proxy:
@@ -163,7 +230,10 @@ class RouteDefinitions:
             self.add_proxy(proxy)
 
     @property
-    def routes(self):
+    def routes(self) -> list:
+        """
+        Accessor for the combined list of routes defined by our configuration
+        """
         routes = []
 
         routes.extend(
@@ -171,10 +241,12 @@ class RouteDefinitions:
             for form in self.forms)
 
         routes.extend(
-            web.view(issuer['path'] + '/submit-credential', views.submit_credential, name=issuer['name']+'-submit-credential')
+            web.view(issuer['path'] + '/submit-credential', views.submit_credential,
+                     name=issuer['name']+'-submit-credential')
             for issuer in self.issuers)
         routes.extend(
-            web.view(issuer['path'] + '/construct-proof', views.construct_proof, name=issuer['name']+'-construct-proof')
+            web.view(issuer['path'] + '/construct-proof', views.construct_proof,
+                     name=issuer['name']+'-construct-proof')
             for issuer in self.issuers)
 
         routes.extend(
@@ -195,7 +267,10 @@ class RouteDefinitions:
         return routes
 
 
-def expand_form_definition(form, _manager):
+def check_form_definition(form: dict) -> None:
+    """
+    Verify a form definition and expand properties as required
+    """
     supported_types = ['submit-credential']
 
     form_id = form.get('id')
@@ -206,8 +281,11 @@ def expand_form_definition(form, _manager):
         raise ValueError('Unknown form type for {}: {}'.format(form_id, form_type))
 
 
-def form_handler(form):
-    async def process(request):
+def form_handler(form: dict) -> Coroutine:
+    """
+    Return a request handler for processing form routes
+    """
+    async def process(request: ClientRequest):
         if request.method == 'GET' or request.method == 'HEAD':
             return await render_form(form, request)
         elif request.method == 'POST':

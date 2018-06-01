@@ -16,58 +16,99 @@
 #
 #pylint: disable=broad-except
 
+from concurrent.futures import Future
+import json
 import logging
 
-from aiohttp import web
+from aiohttp import web, ClientRequest, ClientResponse
 
 from vonx.services import issuer, prover
+from vonx.services.exchange import RequestTarget
+from vonx.services.manager import ServiceManager
 
 LOGGER = logging.getLogger(__name__)
 
 
-def get_manager(request):
+def get_manager(request: web.Request) -> ServiceManager:
+    """
+    Fetch the service manager for the current application
+    """
     return request.app['manager']
 
-def get_request_target(request, service_name):
+def get_request_target(request: ClientRequest, service_name: str) -> RequestTarget:
+    """
+    Create a :class:`RequestTarget` to process requests to a specific service
+
+    Args:
+        request: the incoming HTTP request
+        service_name: the name of the service registered with the service manager
+    """
     return get_manager(request).get_request_target(service_name)
 
-def service_request(request, service_name, params):
-    return get_request_target(request, service_name).request(params)
+def service_request(request: ClientRequest, service_name: str, message) -> Future:
+    """
+    Handle a single request to a running service and await the result in a thread
+
+    Args:
+        request: the incoming HTTP request
+        service_name: the name of the service registered with the service manager
+        message: the body of the message to be sent
+    """
+    return get_request_target(request, service_name).request(message)
 
 
-async def index(_request):
+async def index(_request: ClientRequest) -> ClientResponse:
+    """
+    Respond with the default application index page
+    """
     return web.FileResponse('vonx/templates/index.html')
 
 
-async def health(request):
+async def health(request: ClientRequest) -> ClientResponse:
+    """
+    Respond with HTTP code 200 if services are ready to accept new credentials, 451 otherwise
+    """
     result = await service_request(request, 'issuer', 'ready')
     return web.Response(
         text='ok' if result else '',
         status=200 if result else 451)
 
 
-async def status(request):
+async def status(request: ClientRequest) -> ClientResponse:
+    """
+    Respond with the current status of the application in JSON format
+    """
     #result = get_manager(request).exchange.status()
     result = await service_request(request, 'issuer', 'status')
     return web.json_response(result)
 
 
-async def ledger_status(request):
-    mgr = get_manager(request)
-    service = mgr.get_service('issuer')
-    ledger_url = service.get_ledger_url()
-    async with mgr.executor.http as client:
-        response = await client.get('{}/status'.format(ledger_url))
-    return web.Response(text=await response.text())
+async def ledger_status(request: ClientRequest) -> ClientResponse:
+    """
+    Respond with the status JSON retrieved from the Indy ledger (von-network)
+    """
+    #pylint: disable=broad-except
+    result = await service_request(request, 'ledger', 'ledger-status')
+    try:
+        jresult = json.loads(result)
+        return web.json_response(jresult)
+    except Exception:
+        return web.Response(text=result)
 
 
-async def hello(request):
-    service = get_request_target(request, 'hello')
-    result = await service.request('isthereanybodyoutthere')
+async def hello(request: ClientRequest) -> ClientResponse:
+    """
+    Send a test request to the `HelloProcessor` service and return the response
+    """
+    result = await service_request(request, 'hello', 'isthereanybodyoutthere')
     return web.json_response(result)
 
 
-async def construct_proof(request):
+async def construct_proof(request: ClientRequest) -> ClientResponse:
+    """
+    Ask the :class:`ProverManager` service to perform a proof request and respond with
+    the result
+    """
     proof_name = request.query.get('name')
     if not proof_name:
         return web.Response(text="Missing 'name' parameter", status=400)
@@ -80,8 +121,8 @@ async def construct_proof(request):
                 text="Parameter 'filters' must be an object",
                 status=400)
     try:
-        service = get_request_target(request, 'prover')
-        result = await service.request(
+        result = await service_request(
+            request, 'prover',
             prover.ConstructProofRequest(proof_name, filters))
         if isinstance(result, prover.ConstructProofResponse):
             ret = {'success': True, 'result': result.value}
@@ -95,7 +136,11 @@ async def construct_proof(request):
     return web.json_response(ret)
 
 
-async def submit_credential(request):
+async def submit_credential(request: ClientRequest) -> ClientResponse:
+    """
+    Ask the :class:`IssuerManager` service to issue a credential to the Holder
+    (TheOrgBook) and respond with the result
+    """
     schema_name = request.query.get('schema')
     schema_version = request.query.get('version') or None
     if not schema_name:
@@ -106,8 +151,8 @@ async def submit_credential(request):
             text='Request body must contain the schema attributes as a JSON object',
             status=400)
     try:
-        service = get_request_target(request, 'issuer')
-        result = await service.request(
+        result = await service_request(
+            request, 'issuer',
             issuer.SubmitCredRequest(schema_name, schema_version, params))
         if isinstance(result, issuer.SubmitCredResponse):
             ret = {'success': True, 'result': result.value}

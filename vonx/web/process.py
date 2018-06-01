@@ -73,7 +73,7 @@ def load_cred_request(form, schema, request: web.Request) -> dict:
 async def process_form(form, request: web.Request) -> web.Response:
     """
     Handle `submit-credential` form processing by constructing a :class:`SubmitCredRequest`
-    and submitting it to the :class:`IssuerService`
+    and submitting it to the :class:`IssuerManager` service
     """
 
     #pylint: disable=broad-except
