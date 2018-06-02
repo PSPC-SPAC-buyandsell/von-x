@@ -25,41 +25,38 @@ def assemble_issuer_spec(config: dict) -> dict:
     Create the issuer JSON definition which will be submitted to TheOrgBook
     """
     issuer_spec = {}
-    issuer_email = config.get('email')
+    issuer_email = config.get("email")
     if not issuer_email:
-        raise ValueError('Missing issuer email address')
-    issuer_did = config.get('did')
+        raise ValueError("Missing issuer email address")
+    issuer_did = config.get("did")
     if not issuer_did:
-        raise ValueError('Missing issuer DID')
+        raise ValueError("Missing issuer DID")
 
-    jurisdiction_spec = config.get('jurisdiction')
-    if not jurisdiction_spec or not 'name' in jurisdiction_spec:
-        raise ValueError('Missing jurisdiction.name')
-    issuer_spec['jurisdiction'] = jurisdiction_spec
-
-    issuer_spec['issuer'] = {
-        'did': issuer_did,
-        'name': config.get('name', ''),
-        'abbreviation': config.get('abbreviation', ''),
-        'email': issuer_email,
-        'url': config.get('url', '')
+    issuer_spec["issuer"] = {
+        "did": issuer_did,
+        "name": config.get("name", ""),
+        "abbreviation": config.get("abbreviation", ""),
+        "email": issuer_email,
+        "url": config.get("url", ""),
     }
-    if not issuer_spec['issuer']['name']:
-        raise ValueError('Missing issuer name')
+    if not issuer_spec["issuer"]["name"]:
+        raise ValueError("Missing issuer name")
 
-    cred_type_specs = config.get('credential_types')
+    cred_type_specs = config.get("credential_types")
     if not cred_type_specs:
         raise ValueError("Missing credential_types")
     ctypes = []
     for type_spec in cred_type_specs:
-        schema = type_spec['schema']
-        ctypes.append({
-            'name': type_spec.get('description') or schema.name,
-            'endpoint': type_spec.get('issuer_url') or issuer_spec['issuer']['url'],
-            'schema': schema.name,
-            'version': schema.version
-        })
-    issuer_spec['claim-types'] = ctypes
+        schema = type_spec["schema"]
+        ctypes.append(
+            {
+                "name": type_spec.get("description") or schema.name,
+                "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
+                "schema": schema.name,
+                "version": schema.version,
+            }
+        )
+    issuer_spec["credential_types"] = ctypes
     return issuer_spec
 
 
@@ -67,6 +64,7 @@ class TobClientError(Exception):
     """
     A generic exception representing an issue with a TobClient operation
     """
+
     def __init__(self, status_code, message, response):
         super(TobClientError, self).__init__(message)
         self.status_code = status_code
@@ -92,13 +90,16 @@ class TobClient:
                 authentication headers
         """
         spec = assemble_issuer_spec(issuer_cfg)
-        response = await self.post_json(http_client, 'bcovrin/register-issuer', spec)
-        result = response['result']
-        if not response['success']:
+        response = await self.post_json(
+            http_client, "indy/register-issuer", spec
+        )
+        result = response["result"]
+        if not response["success"]:
             raise TobClientError(
                 400,
-                'Issuer service was not registered: {}'.format(result),
-                response)
+                "Issuer service was not registered: {}".format(result),
+                response,
+            )
         return result
 
     def get_api_url(self, path: str = None) -> str:
@@ -109,8 +110,8 @@ class TobClient:
             path: an optional path to be appended to the URL
         """
         url = self._api_url
-        if not url.endswith('/'):
-            url += '/'
+        if not url.endswith("/"):
+            url += "/"
         if path:
             url = url + path
         return url
@@ -125,15 +126,16 @@ class TobClient:
             path: The relative path to the API method
         """
         url = self.get_api_url(path)
-        LOGGER.debug('fetch_list: %s', url)
+        LOGGER.debug("fetch_list: %s", url)
         response = await http_client.get(url)
         if response.status != 200:
             raise TobClientError(
                 response.status,
-                'Bad response from fetch_list: ({}) {}'.format(
-                    response.status,
-                    await response.text()),
-                response)
+                "Bad response from fetch_list: ({}) {}".format(
+                    response.status, await response.text()
+                ),
+                response,
+            )
         return await response.json()
 
     async def post_json(self, http_client, path: str, data):
@@ -147,13 +149,14 @@ class TobClient:
             data: The body of the request, to be converted to JSON
         """
         url = self.get_api_url(path)
-        LOGGER.debug('post_json: %s', url)
+        LOGGER.debug("post_json: %s", url)
         response = await http_client.post(url, json=data)
         if response.status != 200 and response.status != 201:
             raise TobClientError(
                 response.status,
-                'Bad response from post_json: ({}) {}'.format(
-                    response.status,
-                    await response.text()),
-                response)
+                "Bad response from post_json: ({}) {}".format(
+                    response.status, await response.text()
+                ),
+                response,
+            )
         return await response.json()

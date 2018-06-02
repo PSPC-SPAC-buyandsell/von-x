@@ -21,7 +21,12 @@ from typing import Mapping
 
 from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
 
-from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
+from vonx.services.exchange import (
+    Exchange,
+    ExchangeError,
+    Message,
+    RequestExecutor,
+)
 from vonx.services import indy
 from vonx.services.manager import ServiceManager
 from vonx.services.schema import Schema, SchemaManager
@@ -45,10 +50,10 @@ def load_cred_request(cred_type: Mapping, request: Mapping, validate=True) -> di
         The loaded credential attributes
     """
     cred = {}
-    for attr in cred_type['schema'].attr_names:
+    for attr in cred_type["schema"].attr_names:
         cred[attr] = request.get(attr)
     if validate:
-        cred_type['schema'].validate(cred)
+        cred_type["schema"].validate(cred)
     return cred
 
 
@@ -57,19 +62,19 @@ def load_cred_definitions(values: list, schema_mgr: SchemaManager) -> list:
     Load the credential types defined by our config into a standard format
     """
     cred_types = []
-    for ctype in (values or []):
-        if 'schema' not in ctype:
+    for ctype in values or []:
+        if "schema" not in ctype:
             raise ValueError("Credential type must define 'schema'")
-        if isinstance(ctype['schema'], str):
-            name = ctype['schema']
+        if isinstance(ctype["schema"], str):
+            name = ctype["schema"]
             version = None
             attributes = None
-        elif isinstance(ctype['schema'], dict):
-            name = ctype['schema'].get('name')
-            version = ctype['schema'].get('version')
-            attributes = ctype['schema'].get('attributes')
+        elif isinstance(ctype["schema"], dict):
+            name = ctype["schema"].get("name")
+            version = ctype["schema"].get("version")
+            attributes = ctype["schema"].get("attributes")
         else:
-            raise ValueError('Credential type schema must be string or dict')
+            raise ValueError("Credential type schema must be string or dict")
         if not name:
             raise ValueError("Credential type schema missing 'name'")
         if not version or not attributes:
@@ -79,14 +84,17 @@ def load_cred_definitions(values: list, schema_mgr: SchemaManager) -> list:
                 attributes = schema.attr_names
             else:
                 raise ValueError(
-                    'Schema definition not found: {} {}'.format(name, version))
+                    "Schema definition not found: {} {}".format(name, version)
+                )
         else:
             schema = Schema(name, version, attributes)
-        cred_types.append({
-            'description': ctype.get('description'),
-            'issuer_url': ctype.get('issuer_url'),
-            'schema': schema
-        })
+        cred_types.append(
+            {
+                "description": ctype.get("description"),
+                "issuer_url": ctype.get("issuer_url"),
+                "schema": schema,
+            }
+        )
     return cred_types
 
 
@@ -94,6 +102,7 @@ class IssuerError(ExchangeError):
     """
     A message class for issues handling messages in the IssuerManager
     """
+
     pass
 
 
@@ -101,6 +110,7 @@ class ResolveSchemaRequest:
     """
     The message class representing an request to resolve a schema
     """
+
     def __init__(self, schema_name, schema_version=None, issuer_id: str = None):
         self.issuer_id = issuer_id
         self.schema_name = schema_name
@@ -111,6 +121,7 @@ class ResolveSchemaResponse:
     """
     The message class representing the response to a schema resolution request
     """
+
     def __init__(self, issuer_id: str, schema, issuer_did=None):
         self.issuer_id = issuer_id
         self.schema = schema
@@ -133,6 +144,7 @@ class SubmitCredResponse:
     """
     The message class representing the response from a SubmitCredRequest
     """
+
     def __init__(self, issuer_id: str, value):
         self.issuer_id = issuer_id
         self.value = value
@@ -142,17 +154,14 @@ class IssuerService:
     """
     Manage configuration and status for a single issuer
     """
+
     def __init__(self, config: dict, schema_mgr: SchemaManager):
         self.api_url = None
         self.config = None
         self.cred_types = []
         self.did = None
         self.endpoint = None
-        self.status = {
-            'api': False,
-            'ledger': False,
-            'ready': False,
-        }
+        self.status = {"api": False, "ledger": False, "ready": False}
         self.wallet_seed = None
         self.load_config(config, schema_mgr)
 
@@ -161,12 +170,14 @@ class IssuerService:
         Load a standard issuer configuration and resolve references to schemas
         """
         self.config = config
-        self.api_url = config.get('api_url')
-        self.cred_types = load_cred_definitions(config.get('credential_types'), schema_mgr)
-        self.endpoint = config.get('url')
-        wallet = config.get('wallet')
+        self.api_url = config.get("api_url")
+        self.cred_types = load_cred_definitions(
+            config.get("credential_types"), schema_mgr
+        )
+        self.endpoint = config.get("url")
+        wallet = config.get("wallet")
         if wallet:
-            self.wallet_seed = wallet.get('seed')
+            self.wallet_seed = wallet.get("seed")
 
     def find_cred_type(self, schema_name: str, schema_version: str = None):
         """
@@ -180,8 +191,9 @@ class IssuerService:
             the credential type definition, if found, otherwise None
         """
         for ctype in self.cred_types:
-            if ctype['schema'].name == schema_name \
-                    and (not schema_version or ctype['schema'].version == schema_version):
+            if ctype["schema"].name == schema_name and (
+                    not schema_version or ctype["schema"].version == schema_version
+                ):
                 return ctype
         return None
 
@@ -191,26 +203,26 @@ class IssuerService:
         ledger service
         """
         return {
-            'endpoint': self.endpoint,
-            'id': self.config['id'],
-            'manager_pid': manager_pid,
-            'schemas': [ctype['schema'] for ctype in self.cred_types],
-            'wallet': self.config['wallet'],
+            "endpoint": self.endpoint,
+            "id": self.config["id"],
+            "manager_pid": manager_pid,
+            "schemas": [ctype["schema"] for ctype in self.cred_types],
+            "wallet": self.config["wallet"],
         }
 
     def update_ledger_status(self, status: dict):
         """
         Update our status in reponse to a status update from the ledger service
         """
-        self.did = status['did']
-        self.status['ledger'] = status['synced']
+        self.did = status["did"]
+        self.status["ledger"] = status["synced"]
         self.update_ready()
 
     def update_ready(self):
         """
         Update our ready status based on the current ledger and API sync status
         """
-        self.status['ready'] = self.status['ledger'] and self.status['api']
+        self.status["ready"] = self.status["ledger"] and self.status["api"]
 
 
 class IssuerManager(RequestExecutor):
@@ -230,15 +242,12 @@ class IssuerManager(RequestExecutor):
         super(IssuerManager, self).__init__(pid, exchange)
         self._env = env
         self._issuers = {}
-        self._ledger_pid = 'indy-ledger'
-        self._status = {
-            'ready': False,
-            'started': False,
-        }
+        self._ledger_pid = "indy-ledger"
+        self._status = {"ready": False, "started": False}
         self._sync_lock = None
 
     @classmethod
-    def create(cls, service_mgr: ServiceManager, pid: str = 'issuer-manager'):
+    def create(cls, service_mgr: ServiceManager, pid: str = "issuer-manager"):
         """
         Initialize a standard :class:`IssuerManager` from a :class:`ServiceManager` instance
 
@@ -252,30 +261,35 @@ class IssuerManager(RequestExecutor):
         env = service_mgr.env
         issuers = []
         issuer_ids = []
-        limit_issuers = env.get('ISSUERS')
-        limit_issuers = limit_issuers.split() \
-            if (limit_issuers and limit_issuers != 'all') \
+        limit_issuers = env.get("ISSUERS")
+        limit_issuers = (
+            limit_issuers.split()
+            if (limit_issuers and limit_issuers != "all")
             else None
-        config_issuers = service_mgr.services_config('issuers')
+        )
+        config_issuers = service_mgr.services_config("issuers")
         if not config_issuers:
-            raise ValueError('No issuers defined by configuration')
+            raise ValueError("No issuers defined by configuration")
         for issuer_key, issuer_cfg in config_issuers.items():
-            if not 'id' in issuer_cfg:
-                issuer_cfg['id'] = issuer_key
-            if limit_issuers is None or issuer_cfg['id'] in limit_issuers:
+            if not "id" in issuer_cfg:
+                issuer_cfg["id"] = issuer_key
+            if limit_issuers is None or issuer_cfg["id"] in limit_issuers:
                 issuers.append(issuer_cfg)
-                issuer_ids.append(issuer_cfg['id'])
+                issuer_ids.append(issuer_cfg["id"])
         if issuers:
-            LOGGER.info('Initializing processor for services: %s', ', '.join(issuer_ids))
+            LOGGER.info(
+                "Initializing processor for services: %s",
+                ", ".join(issuer_ids),
+            )
             mgr = cls(pid, service_mgr.exchange, env)
             for issuer_cfg in issuers:
-                if 'api_url' not in issuer_cfg:
-                    issuer_cfg['api_url'] = env.get('TOB_API_URL')
+                if "api_url" not in issuer_cfg:
+                    issuer_cfg["api_url"] = env.get("TOB_API_URL")
                 svc = IssuerService(issuer_cfg, service_mgr.schema_manager)
                 mgr.add_issuer(svc)
             return mgr
         else:
-            raise ValueError('No defined issuers referenced by ISSUERS')
+            raise ValueError("No defined issuers referenced by ISSUERS")
 
     def start(self):
         """
@@ -290,7 +304,7 @@ class IssuerManager(RequestExecutor):
         """
         Add a new issuer service to the manager
         """
-        self._issuers[issuer.config['id']] = issuer
+        self._issuers[issuer.config["id"]] = issuer
 
     async def _start(self) -> None:
         """
@@ -298,12 +312,16 @@ class IssuerManager(RequestExecutor):
         for synchronization
         """
         for issuer_id, issuer in self._issuers.items():
-            LOGGER.info('Registering issuer: %s', issuer_id)
-            msg = indy.RegisterIssuerRequest(issuer.get_ledger_config(self.pid))
+            LOGGER.info("Registering issuer: %s", issuer_id)
+            msg = indy.RegisterIssuerRequest(
+                issuer.get_ledger_config(self.pid)
+            )
             reply = await self.submit(self._ledger_pid, msg)
             if not isinstance(reply, indy.RegisterIssuerResponse):
-                raise RuntimeError('Error registering issuer {}: {}'.format(issuer_id, reply))
-        self._status['started'] = True
+                raise RuntimeError(
+                    "Error registering issuer {}: {}".format(issuer_id, reply)
+                )
+        self._status["started"] = True
 
     async def _sync(self) -> None:
         """
@@ -312,17 +330,17 @@ class IssuerManager(RequestExecutor):
         """
         async with self._sync_lock:
             for issuer_id, issuer in self._issuers.items():
-                if issuer.status['ledger'] and not issuer.status['ready']:
+                if issuer.status["ledger"] and not issuer.status["ready"]:
                     async with self._issuer_http_client(issuer_id) as http_client:
                         api_client = self._init_api_client(issuer_id)
                         cfg = issuer.config.copy()
-                        cfg['did'] = issuer.did
-                        cfg['credential_types'] = issuer.cred_types
+                        cfg["did"] = issuer.did
+                        cfg["credential_types"] = issuer.cred_types
                         try:
                             _result = await api_client.register_issuer(http_client, cfg)
                         except TobClientError:
                             continue
-                    issuer.status['ready'] = True
+                    issuer.status["ready"] = True
             self._update_status()
 
     def _find_issuer_for_schema(self, schema_name: str, schema_version: str = None):
@@ -342,7 +360,8 @@ class IssuerManager(RequestExecutor):
                 return (issuer_id, cred_type)
         return None
 
-    async def _handle_submit_cred(self, request: SubmitCredRequest, reply_to: str, ref) -> bool:
+    async def _handle_submit_cred(self, request: SubmitCredRequest,
+                                  reply_to: str, ref) -> bool:
         """
         Submit a credential to the holder
 
@@ -353,44 +372,52 @@ class IssuerManager(RequestExecutor):
             the decoded JSON result of the credential submission request
         """
         errmsg = None
-        if not self._status['ready']:
-            errmsg = IssuerError('Issuer is not ready to accept credentials')
+        if not self._status["ready"]:
+            errmsg = IssuerError("Issuer is not ready to accept credentials")
         elif not request.schema_name:
-            errmsg = IssuerError('Missing schema name')
+            errmsg = IssuerError("Missing schema name")
         elif not request.attributes:
-            errmsg = IssuerError('Missing credential attributes')
+            errmsg = IssuerError("Missing credential attributes")
         if errmsg:
             return self.send_noreply(reply_to, errmsg, ref)
 
         issuer_id = request.issuer_id
         if issuer_id:
             if issuer_id not in self._issuers:
-                msg = IssuerError('Unknown issuer ID: {}'.format(issuer_id))
+                msg = IssuerError("Unknown issuer ID: {}".format(issuer_id))
                 return self.send_noreply(reply_to, msg, ref)
             cred_type = self._issuers[issuer_id].find_cred_type(
-                request.schema_name, request.schema_version)
+                request.schema_name, request.schema_version
+            )
         else:
             found = self._find_issuer_for_schema(
-                request.schema_name, request.schema_version)
+                request.schema_name, request.schema_version
+            )
             if found:
                 issuer_id, cred_type = found
             else:
                 cred_type = None
 
         if not cred_type:
-            msg = IssuerError('Error locating credential type: {}/{}'.format(
-                request.schema_name, request.schema_version))
+            msg = IssuerError(
+                "Error locating credential type: {}/{}".format(
+                    request.schema_name, request.schema_version
+                )
+            )
             return self.send_noreply(reply_to, msg, ref)
 
         cred_data = load_cred_request(cred_type, request.attributes)
-        log_json('Credential data:', cred_data, LOGGER)
+        log_json("Credential data:", cred_data, LOGGER)
 
         async with self._issuer_http_client(issuer_id) as http_client:
-            reply = await self._store_cred(http_client, issuer_id, cred_type, cred_data)
+            reply = await self._store_cred(
+                http_client, issuer_id, cred_type, cred_data
+            )
             msg = SubmitCredResponse(issuer_id, reply)
             return self.send_noreply(reply_to, msg, ref)
 
-    async def _store_cred(self, http_client, issuer_id: str, cred_type, cred_data) -> dict:
+    async def _store_cred(self, http_client, issuer_id: str,
+                          cred_type, cred_data) -> dict:
         """
         Submit a credential to the holder, given the credential type and data
 
@@ -404,30 +431,35 @@ class IssuerManager(RequestExecutor):
         """
         api_client = self._init_api_client(issuer_id)
 
-        offer_msg = indy.CredOfferRequest(issuer_id, cred_type['schema'])
+        offer_msg = indy.CredOfferRequest(issuer_id, cred_type["schema"])
         cred_offer = await self.submit(self._ledger_pid, offer_msg)
         if not isinstance(cred_offer, indy.CredOfferResponse):
             raise ValueError(
-                'Unexpected response to credential offer request: {}'.format(cred_offer))
-        log_json('Created cred offer:', cred_offer.payload, LOGGER)
+                "Unexpected response to credential offer request: {}".format(
+                    cred_offer
+                )
+            )
+        log_json("Created cred offer:", cred_offer.payload, LOGGER)
 
         cred_req = await api_client.post_json(
-            http_client,
-            'bcovrin/generate-claim-request',
-            cred_offer.payload)
-        log_json('Got cred request:', cred_req, LOGGER)
+            http_client, "indy/generate-credential-request", cred_offer.payload
+        )
+        log_json("Got cred request:", cred_req, LOGGER)
 
         cred_msg = indy.CredCreateRequest(cred_offer, cred_req, cred_data)
         cred = await self.submit(self._ledger_pid, cred_msg)
         if not isinstance(cred, indy.CredCreateResponse):
-            raise ValueError('Unexpected response to credential creation request: {}'.format(cred))
-        log_json('Created credential:', cred.payload, LOGGER)
+            raise ValueError(
+                "Unexpected response to credential creation request: {}".format(
+                    cred
+                )
+            )
+        log_json("Created credential:", cred.payload, LOGGER)
 
         # Store credential
         return await api_client.post_json(
-            http_client,
-            'bcovrin/store-claim',
-            cred.payload)
+            http_client, "indy/store-credential", cred.payload
+        )
 
     def _init_api_client(self, issuer_id):
         """
@@ -445,10 +477,10 @@ class IssuerManager(RequestExecutor):
         Returns:
             the initialized ClientSession object
         """
-        if 'request_class' not in kwargs:
-            kwargs['request_class'] = SignedRequest
-        if issuer_id and 'auth' not in kwargs:
-            kwargs['auth'] = self._did_auth(issuer_id)
+        if "request_class" not in kwargs:
+            kwargs["request_class"] = SignedRequest
+        if issuer_id and "auth" not in kwargs:
+            kwargs["auth"] = self._did_auth(issuer_id)
         return super(IssuerManager, self).http_client(**kwargs)
 
     def _did_auth(self, issuer_id, header_list=None):
@@ -457,14 +489,14 @@ class IssuerManager(RequestExecutor):
         used to sign outgoing requests
         """
         if issuer_id not in self._issuers:
-            raise ValueError('Unknown issuer ID: {}'.format(issuer_id))
+            raise ValueError("Unknown issuer ID: {}".format(issuer_id))
         issuer = self._issuers[issuer_id]
         if issuer.did and issuer.wallet_seed:
-            key_id = 'did:sov:{}'.format(issuer.did)
+            key_id = "did:sov:{}".format(issuer.did)
             secret = issuer.wallet_seed
             if isinstance(secret, str):
-                secret = secret.encode('ascii')
-            return SignedRequestAuth(key_id, 'ed25519', secret, header_list)
+                secret = secret.encode("ascii")
+            return SignedRequestAuth(key_id, "ed25519", secret, header_list)
         return None
 
     def process(self, message: Message) -> bool:
@@ -474,7 +506,11 @@ class IssuerManager(RequestExecutor):
         Args:
             message: The message to be processed
         """
-        from_pid, request, ident = message.from_pid, message.body, message.ident
+        from_pid, request, ident = (
+            message.from_pid,
+            message.body,
+            message.ident,
+        )
 
         if self._handle_response(message):
             return
@@ -484,44 +520,52 @@ class IssuerManager(RequestExecutor):
             self.send_noreply(from_pid, True, ident)
 
         elif isinstance(request, indy.IndyIssuerStatus):
-            self._issuers[request.issuer_id].update_ledger_status(request.status)
+            self._issuers[request.issuer_id].update_ledger_status(
+                request.status
+            )
             self._update_status()
             self.run_task(self._sync())
 
         elif isinstance(request, ResolveSchemaRequest):
-            found = self._find_issuer_for_schema(request.schema_name, request.schema_version)
+            found = self._find_issuer_for_schema(
+                request.schema_name, request.schema_version
+            )
             if found:
                 issuer_id = found[0]
                 issuer_did = self._issuers[issuer_id].did
-                schema = found[1]['schema']
+                schema = found[1]["schema"]
                 msg = ResolveSchemaResponse(found[0], schema, issuer_did)
                 self.send_noreply(from_pid, msg, ident)
             else:
-                self.send_noreply(from_pid, IssuerError('No issuer found for schema'), ident)
+                self.send_noreply(
+                    from_pid, IssuerError("No issuer found for schema"), ident
+                )
 
         elif isinstance(request, SubmitCredRequest):
             self.run_task(self._handle_submit_cred(request, from_pid, ident))
 
-        elif request == 'ready':
-            self.send_noreply(from_pid, self._status['ready'], ident)
+        elif request == "ready":
+            self.send_noreply(from_pid, self._status["ready"], ident)
 
-        elif request == 'status':
+        elif request == "status":
             self.send_noreply(from_pid, self._status.copy(), ident)
 
         else:
-            raise ValueError('Unexpected message from {}: {}'.format(from_pid, request))
+            raise ValueError(
+                "Unexpected message from {}: {}".format(from_pid, request)
+            )
 
     def _update_status(self) -> None:
         """
         Update the overall synchronization status after an update from one issuer service
         and begin synchronization if necessary
         """
-        prev_ready = self._status['ready']
+        prev_ready = self._status["ready"]
         ready = True
         for issuer in self._issuers.values():
-            if not issuer.status['ready']:
+            if not issuer.status["ready"]:
                 ready = False
-        self._status['ready'] = ready
+        self._status["ready"] = ready
 
         if ready and not prev_ready:
-            LOGGER.info('Completed issuer manager initialization')
+            LOGGER.info("Completed issuer manager initialization")

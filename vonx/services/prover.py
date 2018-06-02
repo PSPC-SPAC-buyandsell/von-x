@@ -203,7 +203,7 @@ class ProverManager(RequestExecutor):
         try:
             proof_response = await api_client.post_json(
                 http_client,
-                'bcovrin/construct-proof',
+                'indy/construct-proof',
                 {
                     'filters': filters,
                     'proof_request': proof_request
