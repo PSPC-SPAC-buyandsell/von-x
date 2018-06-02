@@ -21,11 +21,11 @@ import logging
 import os
 import time
 import traceback
-from typing import Callable
+from typing import Awaitable, Callable
 
 from concurrent.futures import Future, ThreadPoolExecutor
 import multiprocessing as mp
-from threading import Condition, Thread, get_ident
+from threading import get_ident, Thread
 
 import aiohttp
 
@@ -325,7 +325,7 @@ class MessageProcessor:
         Run a thread to poll for received messages
         """
         # FIXME start exchange here if it's not running? need to track running status
-        self._thread = Thread(target=self.run)
+        self._thread = Thread(target=self._poll_messages)
         self._thread.start()
         return self._thread
 
@@ -346,29 +346,36 @@ class MessageProcessor:
         """
         return self.send_noreply(self._pid, 'stop')
 
-    def run(self) -> None:
+    def _poll_messages(self) -> None:
         """
         The polling loop for receiving messages from the exchange
         """
         #pylint: disable=broad-except
         try:
             while True:
+                # blocks until a message is available
                 message = self._exchange.recv(self._pid)
                 LOGGER.debug('%s processing message: %s', self._pid, message.body)
                 if message.body == 'stop':
                     break
                 # FIXME catch exception here and return it to the sender
                 try:
-                    if self.process(message) is False:
+                    if self._process_message(message) is False:
                         break
                 except Exception:
-                    if isinstance(message.body, ExchangeError):
-                        LOGGER.error(message.body.format())
-                    else:
-                        errmsg = ExchangeError('Exception during message processing', True)
-                        self.send_noreply(message.from_pid, errmsg, message.ident)
+                    errmsg = ExchangeError('Exception during message processing', True)
+                    self._reply_with_error(message, errmsg)
         except Exception:
             LOGGER.exception('Exception while processing message:')
+
+    def _reply_with_error(self, from_message: Message, errmsg: ExchangeError) -> bool:
+        """
+        Send an error message back to the sender of a previous message
+        """
+        if isinstance(from_message.body, ExchangeError):
+            LOGGER.error(from_message.body.format())
+            return False
+        return self.send_noreply(from_message.from_pid, errmsg, from_message.ident)
 
     def send(self, to_pid: str, ident, message, ref=None, from_pid: str = None) -> bool:
         """
@@ -395,7 +402,7 @@ class MessageProcessor:
         """
         return self._exchange.send(to_pid, Message(from_pid or self._pid, None, message, ref))
 
-    def process(self, message: Message) -> bool:
+    def _process_message(self, message: Message) -> bool:
         """
         Process a message from another service and optionally send a message in response
 
@@ -413,24 +420,24 @@ class RequestExecutor(MessageProcessor):
     Processing should not block the main thread (much) to avoid breaking asyncio.
     """
 
-    def __init__(self, pid, exchange: Exchange, max_workers=10):
+    def __init__(self, pid, exchange: Exchange):
         super(RequestExecutor, self).__init__(pid, exchange)
         self._connector = None
         self._loop = None
-        self._max_workers = max_workers
-        self._pool = None
-        self._req_cond = Condition()
+        self._req_lock = None
         self._requests = {}
+        self._runner = None
 
     def start(self):
         """
-        Create a :class:`ThreadPoolExecutor` and run our polling thread to listen for messages
+        Initialize our :class:`eventloop.Runner` and run our polling thread to listen for messages
         """
-        if not self._loop:
-            self._loop = asyncio.get_event_loop()
-        self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
+        self._loop = asyncio.get_event_loop()
+        self._runner = eventloop.Runner()
+        self._runner.start()
+        self._req_lock = asyncio.Lock(loop=self._runner.loop)
         # Poll for results in a thread from our thread pool
-        return self.run_task(self.run)
+        return self.run_thread(self._poll_messages)
 
     # In the webserver environment, the process we're concerned with has already started
     # so just use start() instead
@@ -439,35 +446,17 @@ class RequestExecutor(MessageProcessor):
         Start this executor in a new process
         """
         def start():
-            self.init_process()
             self.start()
-            self._loop.run_until_complete()
+            self._runner.join()
         proc = mp.Process(target=start)
         proc.start()
         return proc
 
-    def init_process(self) -> None:
+    def runner(self) -> eventloop.Runner:
         """
-        Initialize ourselves in a newly started process
+        Accessor for the event loop runner instance used to execute tasks
         """
-        # create new event loop after fork
-        asyncio.get_event_loop().close()
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-
-    @property
-    def loop(self):
-        """
-        Accessor for the event loop used by this :class:`RequestExecutor`
-        """
-        return self._loop
-
-    @property
-    def pool(self) -> ThreadPoolExecutor:
-        """
-        Accessor for the :class:`ThreadPoolExecutor` used to execute tasks
-        """
-        return self._pool
+        return self._runner
 
     def stop(self, wait: bool = True) -> None:
         """
@@ -477,49 +466,81 @@ class RequestExecutor(MessageProcessor):
             wait: whether to wait for the threads to terminate
         """
         super(RequestExecutor, self).stop(wait)
-        if self._pool:
-            self._pool.shutdown(wait)
+        self._runner.stop(wait)
         if self._connector:
             self._connector.close()
 
-    def run_task(self, proc: Callable, *args, loop=None) -> Future:
+    def run_task(self, proc: Awaitable) -> asyncio.Future:
+        """
+        Add a coroutine task to be performed by the runner
+
+        Args:
+            proc: the coroutine to be executed in the runner's event loop
+        """
+        return self._runner.run_task(proc)
+
+    def run_thread(self, proc: Callable, *args) -> asyncio.Future:
         """
         Add a task to be processed, as either a coroutine or function
 
         Args:
-            proc: the function or coroutine to be run
+            proc: the function to be run in the :class:`ThreadPoolExecutor`
             args: arguments to pass to the proc, if a function
-            loop: override the current asyncio loop
         """
-        loop = loop or self._loop
-        if asyncio.iscoroutine(proc):
-            result = asyncio.run_coroutine_threadsafe(eventloop.ensure_future(proc), loop)
-        else:
-            result = loop.run_in_executor(self._pool, proc, *args)
-        return result
+        return self._runner.run_in_executor(None, proc, *args)
 
-    def submit(self, to_pid: str, message, timeout=None, loop=None) -> Future:
+    async def _send_request(self, to_pid: str, request, future: Future,
+                            timeout: int = None) -> None:
+        """
+        Send a request to a target service on the exchange and add it to our
+        collection to automatically associate the response later
+
+        Args:
+            to_pid: the target service identifier
+            request: the message payload
+            future: used to return the response to (potentially) another thread
+            timeout: an optional timeout before cancelling the request
+        """
+        ident = id(request)
+        result = None
+        async with self._req_lock:
+            self._requests[ident] = future
+        # TODO: this is a blocking call. we may want to run another thread to send
+        # messages as they're added to a queue
+        result = self.send(to_pid, ident, request)
+        if not result:
+            future.set_exception(RuntimeError('Request could not be processed'))
+        elif timeout:
+            self.run_task(self._cancel_request(ident, timeout))
+
+    async def _cancel_request(self, ident, timeout: int = None) -> None:
+        """
+        Cancel an outstanding request
+
+        Args:
+            ident: the request identifier
+            timeout: an optional timeout to wait before cancelling
+        """
+        if timeout:
+            await asyncio.sleep(timeout)
+        async with self._req_lock:
+            if ident in self._requests and not self._requests[ident].done():
+                self._requests[ident].cancel()
+
+    def submit(self, to_pid: str, message, timeout: int = None) -> asyncio.Future:
         """
         Submit a message to another service and run a task to poll for the results
 
         Args:
             to_pid: the identifier of the target service
             message: the body of the message to be sent
-            timeout: an optional timeout to wait for a response
-            loop: override the current asyncio loop
+            timeout: an optional timeout to wait before cancelling the request
         """
-        request = {'result': None}
-        ident = id(request)
-        result = None
-        with self._req_cond:
-            self._requests[ident] = request
-        result = self.send(to_pid, ident, message)
-        if not result:
-            raise RuntimeError('Request could not be processed')
-        result = self.run_task(self._receive, ident, timeout, loop=loop)
-        return result
+        result = Future()
+        self.run_task(self._send_request(to_pid, message, result, timeout))
+        return asyncio.wrap_future(result)
 
-    def _handle_response(self, message: Message) -> bool:
+    async def _handle_message(self, message: Message) -> bool:
         """
         Handle a message received from another service on the exchange by awaking
         any tasks waiting for results
@@ -527,52 +548,43 @@ class RequestExecutor(MessageProcessor):
         Args:
             message: the received message to be processed
         """
+        result = False
         if message.ref:
-            with self._req_cond:
+            async with self._req_lock:
                 if message.ref in self._requests:
-                    self._requests[message.ref]['result'] = message.body
-                    self._req_cond.notify_all()
-                    return True
-        return False
+                    if not self._requests[message.ref].cancelled():
+                        self._requests[message.ref].set_result(message.body)
+                    result = True
+                self._requests = {
+                    ident: req for ident, req in self._requests.items() if not req.done()}
+        return result
 
-    def process(self, message: Message) -> bool:
+    async def _handle_message_task(self, message: Message) -> None:
+        """
+        Handle message processing within our own event loop
+
+        Args:
+            message: the message received from the exchange
+        """
+        #pylint: disable=broad-except
+        try:
+            if not await self._handle_message(message):
+                LOGGER.debug('unhandled message to %s/%s from %s: %s',
+                             self._pid, message.ref, message.from_pid, message.body)
+        except Exception:
+            errmsg = ExchangeError('Exception during message processing', True)
+            self._reply_with_error(message, errmsg)
+
+    def _process_message(self, message: Message) -> bool:
         """
         Handle a message received from another service on the exchange
 
         Args:
             message: the received message to be processed
         """
-        if not self._handle_response(message):
-            LOGGER.debug('unhandled message to %s/%s from %s: %s',
-                         self._pid, message.ref, message.from_pid, message.body)
-
-    def _receive(self, ident, timeout=None):
-        """
-        For a particular listener task, await a response from another service
-
-        Args:
-            ident: The identifier of the message we sent
-            timeout: An optional timeout (in seconds) before aborting
-
-        Returns:
-            The contents of the message we received, or None
-        """
-        with self._req_cond:
-            ret = None
-            if ident in self._requests:
-                ret = self._requests[ident]['result']
-                while ret is None:
-                    self._req_cond.wait(timeout)
-                    if ident not in self._requests:
-                        LOGGER.debug('Ident not found in requests')
-                        break
-                    ret = self._requests[ident]['result']
-                    if ret != None or timeout != None:
-                        break
-            else:
-                LOGGER.debug('Ident not found in requests')
-            del self._requests[ident]
-        return ret
+        # push the handling of the message into our own event loop
+        self.run_task(self._handle_message_task(message))
+        return True
 
     @property
     def tcp_connector(self) -> aiohttp.TCPConnector:
@@ -599,6 +611,15 @@ class RequestExecutor(MessageProcessor):
         """
         return self.http_client()
 
+    def get_request_target(self, pid: str) -> 'RequestTarget':
+        """
+        Create a :class:`RequestTarget` for a specific service
+
+        Args:
+            pid: the identifer of the target service
+        """
+        return RequestTarget(self, pid)
+
 
 class RequestTarget:
     """
@@ -612,10 +633,9 @@ class RequestTarget:
         Future<...>
     """
 
-    def __init__(self, executor: RequestExecutor, pid: str, loop=None):
+    def __init__(self, executor: RequestExecutor, pid: str):
         self._executor = executor
         self._pid = pid
-        self._loop = loop
 
     @property
     def pid(self):
@@ -625,27 +645,13 @@ class RequestTarget:
         return self._pid
 
     @property
-    def loop(self):
-        """
-        Accessor for the event loop instance
-        """
-        return self._loop
-
-    @loop.setter
-    def loop(self, newloop):
-        """
-        Setter for the event loop instance
-        """
-        self._loop = newloop
-
-    @property
     def executor(self):
         """
         Accessor for the :class:`RequestExecutor` instance
         """
         return self._executor
 
-    def request(self, message, timeout=None, loop=None) -> Future:
+    def request(self, message, timeout: int = None) -> asyncio.Future:
         """
         Send a request to the recipient service, awaiting the response in
         a method defined by the executor
@@ -653,28 +659,18 @@ class RequestTarget:
         Args:
             message: The message to be sent
             timeout: An optional timeout for the message response
-            loop: An optional event loop reference
         """
         return self._executor.submit(
             self.pid,
             message,
-            timeout=timeout,
-            loop=loop or self._loop)
-
-
-def _create_request_target(self, pid: str, loop=None):
-    """
-    Create a :class:`RequestTarget` for a specific service
-    """
-    return RequestTarget(self, pid, loop)
-RequestExecutor.get_request_target = _create_request_target
+            timeout)
 
 
 class HelloProcessor(MessageProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """
-    def process(self, message: Message) -> bool:
+    def _process_message(self, message: Message) -> bool:
         self.send_noreply(message.from_pid,
                           'hello from {} {}'.format(os.getpid(), get_ident()), message.ident)
 
@@ -691,14 +687,14 @@ class ThreadedHelloProcessor(HelloProcessor):
 
     def start(self):
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
-        return self._pool.submit(self.run)
+        return self._pool.submit(self._poll_messages)
 
     def start_process(self) -> mp.Process:
         proc = mp.Process(target=lambda: self.start().result())
         proc.start()
         return proc
 
-    def process(self, message: Message) -> bool:
+    def _process_message(self, message: Message) -> bool:
         if self._blocking:
             self._delayed_process(message)
         else:
@@ -706,7 +702,7 @@ class ThreadedHelloProcessor(HelloProcessor):
 
     def _delayed_process(self, message: Message) -> bool:
         time.sleep(1)
-        return super(ThreadedHelloProcessor, self).process(message)
+        return super(ThreadedHelloProcessor, self)._process_message(message)
 
 
 # Testing two workers dividing requests:

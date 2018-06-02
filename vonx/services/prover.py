@@ -232,8 +232,8 @@ class ProverManager(RequestExecutor):
             }
         }
 
-    async def _process_construct_proof(self, from_pid: str, ident,
-                                       request: ConstructProofRequest) -> bool:
+    async def _handle_construct_proof(self, from_pid: str, ident,
+                                      request: ConstructProofRequest) -> bool:
         """
         Process a :class:`ConstructProofRequest` and send the response to the sending service
         """
@@ -251,7 +251,7 @@ class ProverManager(RequestExecutor):
             msg = ProverError('Exception while constructing proof request')
             self.send_noreply(from_pid, msg, ident)
 
-    def process(self, message: Message) -> bool:
+    async def _handle_message(self, message: Message) -> bool:
         """
         Process a request received from the message bus
 
@@ -260,15 +260,15 @@ class ProverManager(RequestExecutor):
         """
         from_pid, request, ident = message.from_pid, message.body, message.ident
 
-        if self._handle_response(message):
-            return
+        if await super(ProverManager, self)._handle_message(message):
+            pass
 
         elif isinstance(request, ConstructProofRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
                 self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
             else:
-                self.run_task(self._process_construct_proof(from_pid, ident, request))
+                await self._handle_construct_proof(from_pid, ident, request)
 
         elif isinstance(request, ResolveSchemaResponse):
             self._resolved_schema(request)
@@ -288,3 +288,5 @@ class ProverManager(RequestExecutor):
 
         else:
             raise ValueError('Unexpected message from {}: {}'.format(from_pid, request))
+
+        return True

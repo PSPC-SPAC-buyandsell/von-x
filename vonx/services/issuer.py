@@ -295,8 +295,8 @@ class IssuerManager(RequestExecutor):
         """
         Start the IssuerManager processing thread and related services
         """
-        self._sync_lock = asyncio.Lock()
         ret = super(IssuerManager, self).start()
+        self._sync_lock = asyncio.Lock(loop=self._runner.loop)
         self.run_task(self._start())
         return ret
 
@@ -499,7 +499,7 @@ class IssuerManager(RequestExecutor):
             return SignedRequestAuth(key_id, "ed25519", secret, header_list)
         return None
 
-    def process(self, message: Message) -> bool:
+    async def _handle_message(self, message: Message) -> bool:
         """
         Process a message from the exchange and send the reply, if any
 
@@ -512,10 +512,10 @@ class IssuerManager(RequestExecutor):
             message.ident,
         )
 
-        if self._handle_response(message):
-            return
+        if await super(IssuerManager, self)._handle_message(message):
+            pass
 
-        elif request == 'sync':
+        elif request == "sync":
             self.run_task(self._sync())
             self.send_noreply(from_pid, True, ident)
 
@@ -542,7 +542,7 @@ class IssuerManager(RequestExecutor):
                 )
 
         elif isinstance(request, SubmitCredRequest):
-            self.run_task(self._handle_submit_cred(request, from_pid, ident))
+            await self._handle_submit_cred(request, from_pid, ident)
 
         elif request == "ready":
             self.send_noreply(from_pid, self._status["ready"], ident)
@@ -554,6 +554,8 @@ class IssuerManager(RequestExecutor):
             raise ValueError(
                 "Unexpected message from {}: {}".format(from_pid, request)
             )
+
+        return True
 
     def _update_status(self) -> None:
         """

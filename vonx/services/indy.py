@@ -194,21 +194,21 @@ class IndyIssuerConfig:
     """
     def __init__(self, **params):
         self.agent = None
-        self.auto_register = params.get('auto_register', True)
-        self.did = params.get('did')
-        self.endpoint = params.get('endpoint')
-        self.ident = params.get('id')
-        self.manager_pid = params.get('manager_pid')
+        self.auto_register = params.get("auto_register", True)
+        self.did = params.get("did")
+        self.endpoint = params.get("endpoint")
+        self.ident = params.get("id")
+        self.manager_pid = params.get("manager_pid")
         self.registered = False
         self.schemas = []
         self.synced = False
         self.wrapper = None
-        wallet_cfg = params.get('wallet') or {}
-        if 'name' not in wallet_cfg:
-            wallet_cfg['name'] = self.ident
+        wallet_cfg = params.get("wallet") or {}
+        if "name" not in wallet_cfg:
+            wallet_cfg["name"] = self.ident
         self.wallet_config = WalletConfig(**wallet_cfg)
 
-        schemas = params.get('schemas')
+        schemas = params.get("schemas")
         if schemas:
             for schema in schemas:
                 self.add_schema(schema)
@@ -220,7 +220,7 @@ class IndyIssuerConfig:
         """
         ret = {}
         if self.endpoint:
-            ret['endpoint'] = self.endpoint
+            ret["endpoint"] = self.endpoint
         return ret
 
     def add_schema(self, schema: Schema):
@@ -231,9 +231,9 @@ class IndyIssuerConfig:
             schema: the :class:`Schema` to be added
         """
         self.schemas.append({
-            'definition': schema.copy(),
-            'ledger': None,
-            'cred_def': None,
+            "definition": schema.copy(),
+            "ledger": None,
+            "cred_def": None,
         })
 
     def get_schema_config(self, match: Schema) -> dict:
@@ -245,7 +245,7 @@ class IndyIssuerConfig:
             match: the :class:`Schema` to be located
         """
         for schema in self.schemas:
-            defn = schema['definition']
+            defn = schema["definition"]
             if defn.compare(match):
                 return schema
         return None
@@ -414,8 +414,8 @@ class IndyLedger(RequestExecutor):
         """
         Start listening for messages and initialize the ledger connection
         """
-        self._sync_lock = asyncio.Lock()
         ret = super(IndyLedger, self).start()
+        self._sync_lock = asyncio.Lock(loop=self._runner.loop)
         self.run_task(self._sync())
         return ret
 
@@ -801,10 +801,10 @@ class IndyLedger(RequestExecutor):
     async def _handle_ledger_status(self, reply_to: str, ref) -> bool:
         url = self._ledger_url
         async with self.http as client:
-            response = await client.get('{}/status'.format(url))
+            response = await client.get("{}/status".format(url))
         return self.send_noreply(reply_to, await response.text(), ref)
 
-    def process(self, message: Message) -> bool:
+    async def _handle_message(self, message: Message) -> bool:
         """
         Process a message from the exchange and send the reply, if any
 
@@ -817,15 +817,15 @@ class IndyLedger(RequestExecutor):
             message.ident,
         )
 
-        if self._handle_response(message):
-            return
+        if await super(IndyLedger, self)._handle_message(message):
+            pass
 
         elif request == "sync":
             self.run_task(self._sync())
             self.send_noreply(from_pid, True, ident)
 
-        elif request == 'ledger-status':
-            self.run_task(self._handle_ledger_status(from_pid, ident))
+        elif request == "ledger-status":
+            await self._handle_ledger_status(from_pid, ident)
 
         elif isinstance(request, RegisterIssuerRequest):
             try:
@@ -837,15 +837,13 @@ class IndyLedger(RequestExecutor):
             self.send_noreply(from_pid, msg, ident)
 
         elif isinstance(request, CredOfferRequest):
-            self.run_task(
-                self._handle_create_cred_offer(request, from_pid, ident)
-            )
+            await self._handle_create_cred_offer(request, from_pid, ident)
 
         elif isinstance(request, CredCreateRequest):
-            self.run_task(self._handle_create_cred(request, from_pid, ident))
+            await self._handle_create_cred(request, from_pid, ident)
 
         elif isinstance(request, VerifyProofRequest):
-            self.run_task(self._handle_verify_proof(request, from_pid, ident))
+            await self._handle_verify_proof(request, from_pid, ident)
 
         elif isinstance(request, ResolveDidRequest):
             msg = ResolveDidResponse(request.seed, seed_to_did(request.seed))
@@ -861,3 +859,5 @@ class IndyLedger(RequestExecutor):
             raise ValueError(
                 "Unexpected message from {}: {}".format(from_pid, request)
             )
+
+        return True

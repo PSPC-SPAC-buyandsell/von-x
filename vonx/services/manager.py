@@ -77,10 +77,7 @@ class ServiceManager:
         """
         Stop the message processor and any other services
         """
-        if self._stop_event:
-            self._stop_event.set()
-        else:
-            self._stop()
+        self._stop()
 
     def _stop(self) -> None:
         self._exchange.stop()
@@ -200,7 +197,7 @@ class ServiceManager:
         """
         return self._services.get(name)
 
-    def get_message_target(self, name: str, loop=None) -> exch.MessageTarget:
+    def get_message_target(self, name: str) -> exch.MessageTarget:
         """
         Get an endpoint for one of the services defined by this manager.
         This Endpoint can be used for sending process-safe messages and receiving results.
@@ -210,10 +207,10 @@ class ServiceManager:
             loop: the current event loop, if any
         """
         if name in self._services:
-            return self.self.executor.get_message_target(self._services[name].pid, loop)
+            return self.executor.get_message_target(self._services[name].pid)
         return None
 
-    def get_request_target(self, name: str, loop=None) -> exch.RequestTarget:
+    def get_request_target(self, name: str) -> exch.RequestTarget:
         """
         Get an endpoint for sending messages to a service on the message exchange.
         Requests will be handled by the executor for this manager in this process.
@@ -227,7 +224,7 @@ class ServiceManager:
         if tg_name not in ploc:
             if name in self._services:
                 pid = self._services[name].pid
-                ploc[tg_name] = self.executor.get_request_target(pid, loop)
+                ploc[tg_name] = self.executor.get_request_target(pid)
             else:
                 return None
         return ploc[tg_name]
