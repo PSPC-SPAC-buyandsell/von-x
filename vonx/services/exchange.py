@@ -25,6 +25,7 @@ from typing import Awaitable, Callable
 
 from concurrent.futures import Future, ThreadPoolExecutor
 import multiprocessing as mp
+from queue import Queue
 from threading import get_ident, Thread
 
 import aiohttp
@@ -68,6 +69,15 @@ Message.__doc__ = """
         ident: A unique identifier for the message, used to tag responses
         body: The content of the message
         ref: An optional identifier for the message being responded to
+"""
+
+QueuedMessage = collections.namedtuple('QueuedMessage', ('to_pid', 'message'))
+QueuedMessage.__doc__ = """
+    A wrapper for a message queued to be sent to the exchange
+
+    Attributes:
+        to_pid (str): The identifier of the recipient service
+        message: The message to be sent
 """
 
 
@@ -259,6 +269,15 @@ class MessageTarget:
         """
         return self._from_pid
 
+    def _send_message(self, message: Message) -> bool:
+        """
+        Perform the actual addition to the message queue
+
+        Args:
+            message: the message to be sent
+        """
+        return self._exchange.send(self._pid, message)
+
     def send(self, ident, message, ref=None, from_pid=None) -> bool:
         """
         Send a message to the recipient service
@@ -272,7 +291,7 @@ class MessageTarget:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._exchange.send(self._pid, Message(
+        return self._send_message(Message(
             from_pid if from_pid != None else self._from_pid,
             ident,
             message,
@@ -298,7 +317,7 @@ class MessageProcessor:
     def __init__(self, pid: str, exchange: Exchange):
         self._pid = pid
         self._exchange = exchange
-        self._thread = None
+        self._poll_thread = None
 
     @property
     def pid(self) -> str:
@@ -320,22 +339,19 @@ class MessageProcessor:
         """
         return MessageTarget(pid, self._exchange, self._pid)
 
-    def start(self) -> Thread:
+    def start(self) -> None:
         """
         Run a thread to poll for received messages
         """
-        # FIXME start exchange here if it's not running? need to track running status
-        self._thread = Thread(target=self._poll_messages)
-        self._thread.start()
-        return self._thread
+        self._poll_thread = Thread(target=self._poll_messages)
+        self._poll_thread.start()
 
-    def join(self):
+    def join(self) -> None:
         """
         Await our polling thread. `stop()` must be called in order to cause it to abort
         """
-        if self._thread:
-            return self._thread.join()
-        return None
+        if self._poll_thread:
+            self._poll_thread.join()
 
     def stop(self, _wait: bool = True) -> bool:
         """
@@ -358,7 +374,6 @@ class MessageProcessor:
                 LOGGER.debug('%s processing message: %s', self._pid, message.body)
                 if message.body == 'stop':
                     break
-                # FIXME catch exception here and return it to the sender
                 try:
                     if self._process_message(message) is False:
                         break
@@ -371,11 +386,25 @@ class MessageProcessor:
     def _reply_with_error(self, from_message: Message, errmsg: ExchangeError) -> bool:
         """
         Send an error message back to the sender of a previous message
+
+        Args:
+            from_message: the message which triggered the error
+            errmsg: the error message to be sent
         """
         if isinstance(from_message.body, ExchangeError):
             LOGGER.error(from_message.body.format())
             return False
         return self.send_noreply(from_message.from_pid, errmsg, from_message.ident)
+
+    def _send_message(self, to_pid: str, message: Message) -> bool:
+        """
+        Perform the actual addition to the exchange message queue
+
+        Args:
+            to_pid: the identifier of the recipient
+            message: the message to be sent
+        """
+        return self._exchange.send(to_pid, message)
 
     def send(self, to_pid: str, ident, message, ref=None, from_pid: str = None) -> bool:
         """
@@ -391,7 +420,7 @@ class MessageProcessor:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._exchange.send(to_pid, Message(from_pid or self._pid, ident, message, ref))
+        return self._send_message(to_pid, Message(from_pid or self._pid, ident, message, ref))
 
     def send_noreply(self, to_pid: str, message, ref=None, from_pid: str = None) -> bool:
         """
@@ -400,7 +429,7 @@ class MessageProcessor:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._exchange.send(to_pid, Message(from_pid or self._pid, None, message, ref))
+        return self._send_message(to_pid, Message(from_pid or self._pid, None, message, ref))
 
     def _process_message(self, message: Message) -> bool:
         """
@@ -423,21 +452,23 @@ class RequestExecutor(MessageProcessor):
     def __init__(self, pid, exchange: Exchange):
         super(RequestExecutor, self).__init__(pid, exchange)
         self._connector = None
-        self._loop = None
+        self._out_queue = None
         self._req_lock = None
         self._requests = {}
         self._runner = None
 
-    def start(self):
+    def start(self) -> None:
         """
         Initialize our :class:`eventloop.Runner` and run our polling thread to listen for messages
         """
-        self._loop = asyncio.get_event_loop()
+        self._out_queue = Queue()
         self._runner = eventloop.Runner()
         self._runner.start()
         self._req_lock = asyncio.Lock(loop=self._runner.loop)
+        # Send outgoing messages to the exchange (without blocking our event loop)
+        self.run_thread(self._send_messages)
         # Poll for results in a thread from our thread pool
-        return self.run_thread(self._poll_messages)
+        self.run_thread(self._poll_messages)
 
     # In the webserver environment, the process we're concerned with has already started
     # so just use start() instead
@@ -466,6 +497,8 @@ class RequestExecutor(MessageProcessor):
             wait: whether to wait for the threads to terminate
         """
         super(RequestExecutor, self).stop(wait)
+        self._out_queue.put_nowait(None)
+        self._out_queue.join()
         self._runner.stop(wait)
         if self._connector:
             self._connector.close()
@@ -489,6 +522,29 @@ class RequestExecutor(MessageProcessor):
         """
         return self._runner.run_in_executor(None, proc, *args)
 
+    def _send_messages(self) -> None:
+        """
+        Thread loop for sending messages added to the out-queue
+        """
+        while True:
+            msg = self._out_queue.get()
+            if msg is None:
+                self._out_queue.task_done()
+                break
+            self._exchange.send(msg.to_pid, msg.message)
+            self._out_queue.task_done()
+
+    def _send_message(self, to_pid: str, message: Message) -> bool:
+        """
+        Add the message to our out-queue for processing instead of sending directly
+
+        Args:
+            to_pid: the identifier of the recipient
+            message: the message to be sent
+        """
+        self._out_queue.put_nowait(QueuedMessage(to_pid, message))
+        return True
+
     async def _send_request(self, to_pid: str, request, future: Future,
                             timeout: int = None) -> None:
         """
@@ -505,8 +561,6 @@ class RequestExecutor(MessageProcessor):
         result = None
         async with self._req_lock:
             self._requests[ident] = future
-        # TODO: this is a blocking call. we may want to run another thread to send
-        # messages as they're added to a queue
         result = self.send(to_pid, ident, request)
         if not result:
             future.set_exception(RuntimeError('Request could not be processed'))
@@ -685,9 +739,9 @@ class ThreadedHelloProcessor(HelloProcessor):
         self._pool = None
         self._max_workers = max_workers
 
-    def start(self):
+    def start(self) -> None:
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
-        return self._pool.submit(self._poll_messages)
+        self._pool.submit(self._poll_messages)
 
     def start_process(self) -> mp.Process:
         proc = mp.Process(target=lambda: self.start().result())
