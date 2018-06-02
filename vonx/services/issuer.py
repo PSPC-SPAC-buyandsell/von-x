@@ -128,9 +128,9 @@ class ResolveSchemaResponse:
         self.issuer_did = issuer_did
 
 
-class SubmitCredRequest:
+class IssueCredRequest:
     """
-    The message class representing a request to submit a credential
+    The message class representing a request to issue a credential
     """
     def __init__(self, schema_name: str, schema_version: str, attributes: Mapping,
                  issuer_id: str = None):
@@ -140,9 +140,9 @@ class SubmitCredRequest:
         self.attributes = attributes
 
 
-class SubmitCredResponse:
+class IssueCredResponse:
     """
-    The message class representing the response from a SubmitCredRequest
+    The message class representing the response from a IssueCredRequest
     """
 
     def __init__(self, issuer_id: str, value):
@@ -331,13 +331,12 @@ class IssuerManager(RequestExecutor):
         async with self._sync_lock:
             for issuer_id, issuer in self._issuers.items():
                 if issuer.status["ledger"] and not issuer.status["ready"]:
-                    async with self._issuer_http_client(issuer_id) as http_client:
-                        api_client = self._init_api_client(issuer_id)
+                    async with self._init_api_client(issuer_id) as api_client:
                         cfg = issuer.config.copy()
                         cfg["did"] = issuer.did
                         cfg["credential_types"] = issuer.cred_types
                         try:
-                            _result = await api_client.register_issuer(http_client, cfg)
+                            _result = await api_client.register_issuer(cfg)
                         except TobClientError:
                             continue
                     issuer.status["ready"] = True
@@ -360,8 +359,8 @@ class IssuerManager(RequestExecutor):
                 return (issuer_id, cred_type)
         return None
 
-    async def _handle_submit_cred(self, request: SubmitCredRequest,
-                                  reply_to: str, ref) -> bool:
+    async def _handle_issue_cred(self, request: IssueCredRequest,
+                                 reply_to: str, ref) -> bool:
         """
         Submit a credential to the holder
 
@@ -409,28 +408,26 @@ class IssuerManager(RequestExecutor):
         cred_data = load_cred_request(cred_type, request.attributes)
         log_json("Credential data:", cred_data, LOGGER)
 
-        async with self._issuer_http_client(issuer_id) as http_client:
-            reply = await self._store_cred(
-                http_client, issuer_id, cred_type, cred_data
+        async with self._init_api_client(issuer_id) as api_client:
+            reply = await self._issue_cred(
+                api_client, issuer_id, cred_type, cred_data
             )
-            msg = SubmitCredResponse(issuer_id, reply)
+            msg = IssueCredResponse(issuer_id, reply)
             return self.send_noreply(reply_to, msg, ref)
 
-    async def _store_cred(self, http_client, issuer_id: str,
+    async def _issue_cred(self, api_client: TobClient, issuer_id: str,
                           cred_type, cred_data) -> dict:
         """
         Submit a credential to the holder, given the credential type and data
 
         Args:
-            http_client: the HTTP client (responsible for signing headers)
+            api_client: the HTTP client (responsible for signing headers)
             cred_type: the credential type information
             cred_data: the prepared credential data
 
         Returns:
             the decoded JSON result of the credential submission request
         """
-        api_client = self._init_api_client(issuer_id)
-
         offer_msg = indy.CredOfferRequest(issuer_id, cred_type["schema"])
         cred_offer = await self.submit(self._ledger_pid, offer_msg)
         if not isinstance(cred_offer, indy.CredOfferResponse):
@@ -441,8 +438,8 @@ class IssuerManager(RequestExecutor):
             )
         log_json("Created cred offer:", cred_offer.payload, LOGGER)
 
-        cred_req = await api_client.post_json(
-            http_client, "indy/generate-credential-request", cred_offer.payload
+        cred_req = await api_client.generate_credential_request(
+            cred_offer.payload
         )
         log_json("Got cred request:", cred_req, LOGGER)
 
@@ -457,25 +454,31 @@ class IssuerManager(RequestExecutor):
         log_json("Created credential:", cred.payload, LOGGER)
 
         # Store credential
-        return await api_client.post_json(
-            http_client, "indy/store-credential", cred.payload
+        return await api_client.store_credential(
+            cred.payload
         )
 
-    def _init_api_client(self, issuer_id):
+    def _init_api_client(self, issuer_id: str):
         """
-        Initialize a TobClient instance with the required settings for this issuer
+        Initialize a :class:`TobClient` instance with the required settings for this issuer
 
+        Args:
+            the unique identifier of the issuer service
         Returns:
-            the initialized TobClient instance
+            the initialized :class:`TobClient` instance
         """
-        return TobClient(self._issuers[issuer_id].api_url)
+        return TobClient(
+            self._issuer_http_client(issuer_id),
+            self._issuers[issuer_id].api_url)
 
-    def _issuer_http_client(self, issuer_id=None, **kwargs):
+    def _issuer_http_client(self, issuer_id: str = None, **kwargs):
         """
-        Create a new ClientSession which includes DID signing information in each request
+        Create a new :class:`ClientSession` which includes DID signing information in each request
 
+        Args:
+            an optional identifier for a specific issuer service (to enable DID signing)
         Returns:
-            the initialized ClientSession object
+            the initialized :class:`ClientSession` object
         """
         if "request_class" not in kwargs:
             kwargs["request_class"] = SignedRequest
@@ -485,7 +488,7 @@ class IssuerManager(RequestExecutor):
 
     def _did_auth(self, issuer_id, header_list=None):
         """
-        Create a :class:SignedRequestAuth representing our authentication credentials,
+        Create a :class:`SignedRequestAuth` representing our authentication credentials,
         used to sign outgoing requests
         """
         if issuer_id not in self._issuers:
@@ -541,8 +544,8 @@ class IssuerManager(RequestExecutor):
                     from_pid, IssuerError("No issuer found for schema"), ident
                 )
 
-        elif isinstance(request, SubmitCredRequest):
-            await self._handle_submit_cred(request, from_pid, ident)
+        elif isinstance(request, IssueCredRequest):
+            await self._handle_issue_cred(request, from_pid, ident)
 
         elif request == "ready":
             self.send_noreply(from_pid, self._status["ready"], ident)

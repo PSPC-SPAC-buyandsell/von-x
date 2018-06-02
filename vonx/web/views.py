@@ -136,7 +136,7 @@ async def construct_proof(request: ClientRequest) -> ClientResponse:
     return web.json_response(ret)
 
 
-async def submit_credential(request: ClientRequest) -> ClientResponse:
+async def issue_credential(request: ClientRequest) -> ClientResponse:
     """
     Ask the :class:`IssuerManager` service to issue a credential to the Holder
     (TheOrgBook) and respond with the result
@@ -153,14 +153,14 @@ async def submit_credential(request: ClientRequest) -> ClientResponse:
     try:
         result = await service_request(
             request, 'issuer',
-            issuer.SubmitCredRequest(schema_name, schema_version, params))
-        if isinstance(result, issuer.SubmitCredResponse):
+            issuer.IssueCredRequest(schema_name, schema_version, params))
+        if isinstance(result, issuer.IssueCredResponse):
             ret = {'success': True, 'result': result.value}
         elif isinstance(result, issuer.IssuerError):
             ret = {'success': False, 'result': result.value}
         else:
             raise ValueError('Unexpected result from issuer')
     except Exception as e:
-        LOGGER.exception('Error while submitting credential')
+        LOGGER.exception('Error while issuing credential')
         ret = {'success': False, 'result': str(e)}
     return web.json_response(ret)

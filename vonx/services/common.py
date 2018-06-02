@@ -20,17 +20,18 @@ from . import indy, issuer, prover, manager
 
 class StandardServiceManager(manager.ServiceManager):
     """
-    A standard ServiceManager with IssuerManager and ProverManager services
+    A standard :class:`ServiceManager` which starts the Indy ledger manager and
+    related services
     """
 
     def init_services(self) -> None:
         super(StandardServiceManager, self).init_services()
 
-        # Indy ledger
+        # Indy ledger - handles all ledger interactions
         self._services['ledger'] = indy.IndyLedger.create(self)
 
-        # Issuer manager - handles submit_cred
+        # Issuer manager - handles credential issuing
         self._services['issuer'] = issuer.IssuerManager.create(self)
 
-        # Prover manager - handles construct_proof
+        # Prover manager - handles proof construction and verification
         self._services['prover'] = prover.ProverManager.create(self)

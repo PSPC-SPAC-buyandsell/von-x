@@ -78,20 +78,20 @@ class TobClient:
     synchronization as an issuer
     """
 
-    def __init__(self, api_url: str):
+    def __init__(self, http_client, api_url: str):
+        self._http_client = http_client
         self._api_url = api_url
 
-    async def register_issuer(self, http_client, issuer_cfg: dict):
+    async def register_issuer(self, issuer_cfg: dict):
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
 
         Args:
-            http_client: The :class:`ClientSession` instance responsible for adding
-                authentication headers
+            issuer_cfg: the issuer configuration to be converted into JSON format
         """
         spec = assemble_issuer_spec(issuer_cfg)
         response = await self.post_json(
-            http_client, "indy/register-issuer", spec
+            "indy/register-issuer", spec
         )
         result = response["result"]
         if not response["success"]:
@@ -101,6 +101,39 @@ class TobClient:
                 response,
             )
         return result
+
+    async def generate_credential_request(self, cred_offer: dict):
+        """
+        Ask the API to generate a credential request from our credential offer
+
+        Args:
+            cred_offer: the result of preparing a credential offer
+        """
+        return await self.post_json(
+            "indy/generate-credential-request", cred_offer
+        )
+
+    async def store_credential(self, credential: dict):
+        """
+        Ask the API to store a credential
+
+        Args:
+            credential: the result of preparing a credential from a credential request
+        """
+        return await self.post_json(
+            "indy/store-credential", credential
+        )
+
+    async def construct_proof(self, proof_request: dict):
+        """
+        Ask the API to construct a proof from a proof request
+
+        Args:
+            proof_request: the prepared Indy proof request
+        """
+        return await self.post_json(
+            "indy/construct-proof", proof_request
+        )
 
     def get_api_url(self, path: str = None) -> str:
         """
@@ -116,7 +149,7 @@ class TobClient:
             url = url + path
         return url
 
-    async def fetch_list(self, http_client, path: str) -> dict:
+    async def fetch_list(self, path: str) -> dict:
         """
         A standard request to a `list`-style API method
 
@@ -127,7 +160,7 @@ class TobClient:
         """
         url = self.get_api_url(path)
         LOGGER.debug("fetch_list: %s", url)
-        response = await http_client.get(url)
+        response = await self._http_client.get(url)
         if response.status != 200:
             raise TobClientError(
                 response.status,
@@ -138,7 +171,7 @@ class TobClient:
             )
         return await response.json()
 
-    async def post_json(self, http_client, path: str, data):
+    async def post_json(self, path: str, data):
         """
         A standard POST request to an API method
 
@@ -150,7 +183,7 @@ class TobClient:
         """
         url = self.get_api_url(path)
         LOGGER.debug("post_json: %s", url)
-        response = await http_client.post(url, json=data)
+        response = await self._http_client.post(url, json=data)
         if response.status != 200 and response.status != 201:
             raise TobClientError(
                 response.status,
@@ -160,3 +193,10 @@ class TobClient:
                 response,
             )
         return await response.json()
+
+    async def __aenter__(self):
+        await self._http_client.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        await self._http_client.__aexit__(exc_type, exc_value, traceback)

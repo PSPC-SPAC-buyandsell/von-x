@@ -174,13 +174,11 @@ class ProverManager(RequestExecutor):
             url: a custom value for the URL of the API handling the proof request
         """
         api_url = url or self._env.get('TOB_API_URL')
-        return TobClient(api_url)
+        return TobClient(self.http, api_url)
 
-    async def construct_proof(self, http_client, name: str, filters: Mapping) -> dict:
+    async def construct_proof(self, name: str, filters: Mapping) -> dict:
         """
         Args:
-            http_client: The :class:`ClientSession` to use for the request, which is also
-                responsible for adding authentication headers
             name: The unique identifier for the proof request definition
             filters: A set of filter values to be applied to the request
 
@@ -192,29 +190,27 @@ class ProverManager(RequestExecutor):
             raise ValueError('Proof request not defined: {}'.format(name))
 
         api_url = spec.get('url')
-        api_client = self.init_api_client(api_url)
-        proof_request = prepare_request_json(spec)
+        async with self.init_api_client(api_url) as api_client:
+            proof_request = prepare_request_json(spec)
 
-        log_json('Requesting proof:', {
-            'filters': filters,
-            'proof_request': proof_request
-        }, LOGGER)
+            log_json('Requesting proof:', {
+                'filters': filters,
+                'proof_request': proof_request
+            }, LOGGER)
 
-        try:
-            proof_response = await api_client.post_json(
-                http_client,
-                'indy/construct-proof',
-                {
-                    'filters': filters,
-                    'proof_request': proof_request
-                })
-            log_json('Got proof response:', proof_response, LOGGER)
-        except TobClientError as e:
-            if e.status_code == 406:
-                message = await e.response.json()
-                return {'success': False, 'error': message['detail']}
-            LOGGER.exception('Error response while requesting proof:')
-            return {'success': False, 'error': 'Unexpected response from server'}
+            try:
+                proof_response = await api_client.construct_proof(
+                    {
+                        'filters': filters,
+                        'proof_request': proof_request
+                    })
+                log_json('Got proof response:', proof_response, LOGGER)
+            except TobClientError as e:
+                if e.status_code == 406:
+                    message = await e.response.json()
+                    return {'success': False, 'error': message['detail']}
+                LOGGER.exception('Error response while requesting proof:')
+                return {'success': False, 'error': 'Unexpected response from server'}
 
         proof = proof_response['proof']
 
@@ -239,8 +235,7 @@ class ProverManager(RequestExecutor):
         """
         #pylint: disable=broad-except
         try:
-            async with self.http as http_client:
-                result = await self.construct_proof(http_client, request.name, request.filters)
+            result = await self.construct_proof(request.name, request.filters)
             if result['success']:
                 reply = ConstructProofResponse(result['value'])
             else:

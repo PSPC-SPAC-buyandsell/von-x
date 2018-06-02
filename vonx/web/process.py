@@ -72,7 +72,7 @@ def load_cred_request(form, schema, request: web.Request) -> dict:
 
 async def process_form(form, request: web.Request) -> web.Response:
     """
-    Handle `submit-credential` form processing by constructing a :class:`SubmitCredRequest`
+    Handle `submit-credential` form processing by constructing a :class:`IssueCredRequest`
     and submitting it to the :class:`IssuerManager` service
     """
 
@@ -103,8 +103,8 @@ async def process_form(form, request: web.Request) -> web.Response:
             #return web.json_response(params)
 
             result = await service.request(
-                issuer.SubmitCredRequest(schema.name, schema.version, params))
-            if isinstance(result, issuer.SubmitCredResponse):
+                issuer.IssueCredRequest(schema.name, schema.version, params))
+            if isinstance(result, issuer.IssueCredResponse):
                 ret = {'success': True, 'result': result.value}
             elif isinstance(result, issuer.IssuerError):
                 ret = {'success': False, 'result': result.value}

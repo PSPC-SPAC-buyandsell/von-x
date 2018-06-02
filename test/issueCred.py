@@ -28,19 +28,19 @@ import aiohttp
 
 DEFAULT_AGENT_URL = os.environ.get('AGENT_URL', 'http://localhost:5000/bcreg')
 
-parser = argparse.ArgumentParser(description='Submit one or more credentials to von-x')
+parser = argparse.ArgumentParser(description='Issue one or more credentials via von-x')
 parser.add_argument('paths', nargs='+', help='the path to a credential JSON file')
 parser.add_argument('-u', '--url', default=DEFAULT_AGENT_URL, help='the URL of the von-x service')
-parser.add_argument('-s', '--sequential', action='store_true',
-    help='submit the credentials sequentially, not in parallel')
+parser.add_argument('-p', '--parallel', action='store_true',
+    help='submit the credentials in parallel')
 
 args = parser.parse_args()
 
 AGENT_URL = args.url
 CRED_PATHS = args.paths
-PARALLEL = not args.sequential
+PARALLEL = args.parallel
 
-async def submit_cred(http_client, cred_path, ident):
+async def issue_cred(http_client, cred_path, ident):
     with open(cred_path) as cred_file:
         cred = json.load(cred_file)
     if not cred:
@@ -58,7 +58,7 @@ async def submit_cred(http_client, cred_path, ident):
     start = time.time()
     try:
         response = await http_client.post(
-            '{}/submit-credential'.format(AGENT_URL),
+            '{}/issue-credential'.format(AGENT_URL),
             params={'schema': schema, 'version': version},
             json=attrs
         )
@@ -69,7 +69,7 @@ async def submit_cred(http_client, cred_path, ident):
         result_json = await response.json()
     except Exception as exc:
         raise Exception(
-            'Could not submit credential. '
+            'Could not issue credential. '
             'Are von-x and TheOrgBook running?') from exc
 
     elapsed = time.time() - start
@@ -81,7 +81,7 @@ async def submit_all(cred_paths, parallel=True):
         all = []
         idx = 1
         for cred_path in cred_paths:
-            req = submit_cred(http_client, cred_path, idx)
+            req = issue_cred(http_client, cred_path, idx)
             if parallel:
                 all.append(req)
             else:

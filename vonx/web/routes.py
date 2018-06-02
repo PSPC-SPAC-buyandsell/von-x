@@ -39,7 +39,7 @@ def get_standard_routes(_app) -> list:
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
         #web.post('/construct-proof', views.construct_proof),
-        #web.post('/submit-credential', views.submit_credential),
+        #web.post('/issue-credential', views.issue_credential),
         #web.get('/hello', views.hello),
     ]
 
@@ -241,8 +241,8 @@ class RouteDefinitions:
             for form in self.forms)
 
         routes.extend(
-            web.view(issuer['path'] + '/submit-credential', views.submit_credential,
-                     name=issuer['name']+'-submit-credential')
+            web.view(issuer['path'] + '/issue-credential', views.issue_credential,
+                     name=issuer['name']+'-issue-credential')
             for issuer in self.issuers)
         routes.extend(
             web.view(issuer['path'] + '/construct-proof', views.construct_proof,
@@ -271,7 +271,7 @@ def check_form_definition(form: dict) -> None:
     """
     Verify a form definition and expand properties as required
     """
-    supported_types = ['submit-credential']
+    supported_types = ['issue-credential']
 
     form_id = form.get('id')
     form_type = form.get('type')
