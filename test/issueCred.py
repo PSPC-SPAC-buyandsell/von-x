@@ -28,17 +28,23 @@ import aiohttp
 
 DEFAULT_AGENT_URL = os.environ.get('AGENT_URL', 'http://localhost:5000/bcreg')
 
-parser = argparse.ArgumentParser(description='Issue one or more credentials via von-x')
-parser.add_argument('paths', nargs='+', help='the path to a credential JSON file')
-parser.add_argument('-u', '--url', default=DEFAULT_AGENT_URL, help='the URL of the von-x service')
+parser = argparse.ArgumentParser(
+    description='Issue one or more credentials via von-x')
+parser.add_argument('paths', nargs='+',
+    help='the path to a credential JSON file')
+parser.add_argument('-c', '--count', type=int, default=1,
+    help='repeatedly issue claims this many times (for volume testing)')
 parser.add_argument('-p', '--parallel', action='store_true',
     help='submit the credentials in parallel')
+parser.add_argument('-u', '--url', default=DEFAULT_AGENT_URL,
+    help='the URL of the von-x service')
 
 args = parser.parse_args()
 
 AGENT_URL = args.url
 CRED_PATHS = args.paths
 PARALLEL = args.parallel
+REPEAT = args.count
 
 async def issue_cred(http_client, cred_path, ident):
     with open(cred_path) as cred_file:
@@ -75,21 +81,22 @@ async def issue_cred(http_client, cred_path, ident):
     elapsed = time.time() - start
     print('Response to {} from von-x ({:.2f}s):\n\n{}\n'.format(ident, elapsed, result_json))
 
-async def submit_all(cred_paths, parallel=True):
+async def submit_all(cred_paths, parallel=False, repeat=1):
     start = time.time()
     async with aiohttp.ClientSession() as http_client:
         all = []
         idx = 1
         for cred_path in cred_paths:
-            req = issue_cred(http_client, cred_path, idx)
-            if parallel:
-                all.append(req)
-            else:
-                await req
-            idx += 1
+            for ridx in range(args.count):
+                req = issue_cred(http_client, cred_path, idx)
+                if parallel:
+                    all.append(req)
+                else:
+                    await req
+                idx += 1
         if all:
             await asyncio.gather(*all)
     elapsed = time.time() - start
     print('Total time: {:.2f}s'.format(elapsed))
 
-asyncio.get_event_loop().run_until_complete(submit_all(CRED_PATHS, PARALLEL))
+asyncio.get_event_loop().run_until_complete(submit_all(CRED_PATHS, PARALLEL, REPEAT))

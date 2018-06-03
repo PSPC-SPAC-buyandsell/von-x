@@ -557,15 +557,18 @@ class RequestExecutor(MessageProcessor):
             future: used to return the response to (potentially) another thread
             timeout: an optional timeout before cancelling the request
         """
-        ident = id(request)
+        message = Message(self._pid, os.urandom(10), request)
         result = None
         async with self._req_lock:
-            self._requests[ident] = future
-        result = self.send(to_pid, ident, request)
+            if message.ident in self._requests:
+                future.set_exception(RuntimeError('Duplicate request identifier'))
+                return
+            self._requests[message.ident] = future
+        result = self._send_message(to_pid, message)
         if not result:
             future.set_exception(RuntimeError('Request could not be processed'))
         elif timeout:
-            self.run_task(self._cancel_request(ident, timeout))
+            self.run_task(self._cancel_request(message.ident, timeout))
 
     async def _cancel_request(self, ident, timeout: int = None) -> None:
         """
@@ -581,17 +584,17 @@ class RequestExecutor(MessageProcessor):
             if ident in self._requests and not self._requests[ident].done():
                 self._requests[ident].cancel()
 
-    def submit(self, to_pid: str, message, timeout: int = None) -> asyncio.Future:
+    def submit(self, to_pid: str, request, timeout: int = None) -> asyncio.Future:
         """
         Submit a message to another service and run a task to poll for the results
 
         Args:
             to_pid: the identifier of the target service
-            message: the body of the message to be sent
+            request: the body of the message to be sent
             timeout: an optional timeout to wait before cancelling the request
         """
         result = Future()
-        self.run_task(self._send_request(to_pid, message, result, timeout))
+        self.run_task(self._send_request(to_pid, request, result, timeout))
         return asyncio.wrap_future(result)
 
     async def _handle_message(self, message: Message) -> bool:
