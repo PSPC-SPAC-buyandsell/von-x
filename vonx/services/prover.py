@@ -24,7 +24,7 @@ from typing import Mapping
 from von_agent.util import schema_id
 
 from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
-from vonx.services.indy import VerifyProofRequest, VerifyProofResponse
+from vonx.services.indy import IndyVerifyProofReq, IndyVerifiedProof
 from vonx.services.issuer import ResolveSchemaRequest, ResolveSchemaResponse
 from vonx.services.manager import ServiceManager
 from vonx.services.tob import TobClient, TobClientError
@@ -214,9 +214,9 @@ class ProverManager(RequestExecutor):
 
         proof = proof_response['proof']
 
-        msg = VerifyProofRequest(proof_request, proof)
+        msg = IndyVerifyProofReq(proof_request, proof)
         reply = await self.submit(self._ledger_pid, msg)
-        if not isinstance(reply, VerifyProofResponse):
+        if not isinstance(reply, IndyVerifiedProof):
             raise RuntimeError('Proof could not be verified, received {}'.format(reply))
 
         return {

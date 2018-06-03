@@ -17,6 +17,12 @@
 
 import logging
 
+from vonx.services.indy import (
+    IndyCredOffer,
+    IndyCredential,
+    IndyCredentialRequest,
+    IndyStoredCredential)
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -102,27 +108,47 @@ class TobClient:
             )
         return result
 
-    async def generate_credential_request(self, cred_offer: dict):
+    async def generate_credential_request(
+            self, indy_offer: IndyCredOffer) -> IndyCredentialRequest:
         """
         Ask the API to generate a credential request from our credential offer
 
         Args:
-            cred_offer: the result of preparing a credential offer
+            indy_offer: the result of preparing a credential offer
         """
-        return await self.post_json(
-            "indy/generate-credential-request", cred_offer
+        result = await self.post_json(
+            "indy/generate-credential-request", {
+                "credential_offer": indy_offer.offer,
+                "credential_definition": indy_offer.cred_def,
+            }
         )
+        return IndyCredentialRequest(
+            None,
+            indy_offer,
+            result["credential_request"],
+            result["credential_request_metadata"])
 
-    async def store_credential(self, credential: dict):
+    async def store_credential(
+            self, indy_cred: IndyCredential) -> IndyStoredCredential:
         """
         Ask the API to store a credential
 
         Args:
-            credential: the result of preparing a credential from a credential request
+            indy_cred: the result of preparing a credential from a credential request
         """
-        return await self.post_json(
-            "indy/store-credential", credential
+        result = await self.post_json(
+            "indy/store-credential", {
+                "credential_type": indy_cred.schema_name,
+                "credential_data": indy_cred.cred_data,
+                "issuer_did": indy_cred.issuer_did,
+                "credential_definition": indy_cred.cred_def,
+                "credential_request_metadata": indy_cred.cred_req_metadata,
+            }
         )
+        return IndyStoredCredential(
+            None,
+            indy_cred,
+            result)
 
     async def construct_proof(self, proof_request: dict):
         """

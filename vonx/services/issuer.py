@@ -27,7 +27,11 @@ from vonx.services.exchange import (
     Message,
     RequestExecutor,
 )
-from vonx.services import indy
+from vonx.services.indy import (
+    IndyRegisterIssuerReq, IndyIssuerStatus,
+    IndyCreateCredOfferReq, IndyCredOffer,
+    IndyCreateCredentialReq, IndyCredential,
+)
 from vonx.services.manager import ServiceManager
 from vonx.services.schema import Schema, SchemaManager
 from vonx.services.tob import TobClient, TobClientError
@@ -145,8 +149,9 @@ class IssueCredResponse:
     The message class representing the response from a IssueCredRequest
     """
 
-    def __init__(self, issuer_id: str, value):
+    def __init__(self, issuer_id: str, cred, value):
         self.issuer_id = issuer_id
+        self.cred = cred
         self.value = value
 
 
@@ -313,11 +318,11 @@ class IssuerManager(RequestExecutor):
         """
         for issuer_id, issuer in self._issuers.items():
             LOGGER.info("Registering issuer: %s", issuer_id)
-            msg = indy.RegisterIssuerRequest(
+            msg = IndyRegisterIssuerReq(
                 issuer.get_ledger_config(self.pid)
             )
             reply = await self.submit(self._ledger_pid, msg)
-            if not isinstance(reply, indy.RegisterIssuerResponse):
+            if not isinstance(reply, IndyIssuerStatus):
                 raise RuntimeError(
                     "Error registering issuer {}: {}".format(issuer_id, reply)
                 )
@@ -412,7 +417,7 @@ class IssuerManager(RequestExecutor):
             reply = await self._issue_cred(
                 api_client, issuer_id, cred_type, cred_data
             )
-            msg = IssueCredResponse(issuer_id, reply)
+            msg = IssueCredResponse(issuer_id, reply.cred, reply.result)
             return self.send_noreply(reply_to, msg, ref)
 
     async def _issue_cred(self, api_client: TobClient, issuer_id: str,
@@ -428,35 +433,34 @@ class IssuerManager(RequestExecutor):
         Returns:
             the decoded JSON result of the credential submission request
         """
-        offer_msg = indy.CredOfferRequest(issuer_id, cred_type["schema"])
+        offer_msg = IndyCreateCredOfferReq(issuer_id, cred_type["schema"])
         cred_offer = await self.submit(self._ledger_pid, offer_msg)
-        if not isinstance(cred_offer, indy.CredOfferResponse):
+        if not isinstance(cred_offer, IndyCredOffer):
             raise ValueError(
                 "Unexpected response to credential offer request: {}".format(
                     cred_offer
                 )
             )
-        log_json("Created cred offer:", cred_offer.payload, LOGGER)
+        log_json("Created cred offer:", cred_offer, LOGGER)
 
-        cred_req = await api_client.generate_credential_request(
-            cred_offer.payload
-        )
+        cred_req = await api_client.generate_credential_request(cred_offer)
         log_json("Got cred request:", cred_req, LOGGER)
 
-        cred_msg = indy.CredCreateRequest(cred_offer, cred_req, cred_data)
+        cred_msg = IndyCreateCredentialReq(
+            cred_offer,
+            cred_req.result,
+            cred_req.metadata,
+            cred_data)
         cred = await self.submit(self._ledger_pid, cred_msg)
-        if not isinstance(cred, indy.CredCreateResponse):
+        if not isinstance(cred, IndyCredential):
             raise ValueError(
                 "Unexpected response to credential creation request: {}".format(
                     cred
                 )
             )
-        log_json("Created credential:", cred.payload, LOGGER)
+        log_json("Created credential:", cred, LOGGER)
 
-        # Store credential
-        return await api_client.store_credential(
-            cred.payload
-        )
+        return await api_client.store_credential(cred)
 
     def _init_api_client(self, issuer_id: str):
         """
@@ -486,10 +490,14 @@ class IssuerManager(RequestExecutor):
             kwargs["auth"] = self._did_auth(issuer_id)
         return super(IssuerManager, self).http_client(**kwargs)
 
-    def _did_auth(self, issuer_id, header_list=None):
+    def _did_auth(self, issuer_id: str, header_list=None):
         """
         Create a :class:`SignedRequestAuth` representing our authentication credentials,
         used to sign outgoing requests
+
+        Args:
+            issuer_id: the unique identifier of the issuer
+            header_list: optionally override the list of headers to sign
         """
         if issuer_id not in self._issuers:
             raise ValueError("Unknown issuer ID: {}".format(issuer_id))
@@ -522,7 +530,7 @@ class IssuerManager(RequestExecutor):
             self.run_task(self._sync())
             self.send_noreply(from_pid, True, ident)
 
-        elif isinstance(request, indy.IndyIssuerStatus):
+        elif isinstance(request, IndyIssuerStatus):
             self._issuers[request.issuer_id].update_ledger_status(
                 request.status
             )
