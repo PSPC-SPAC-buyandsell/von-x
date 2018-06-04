@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import pathlib
+from typing import Mapping
 import uuid
 
 import aiohttp
@@ -34,202 +35,208 @@ from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 from von_agent.util import cred_def_id, revealed_attrs, schema_id, schema_key
 
-from vonx.services.exchange import (
+from .base import (
     Exchange,
-    ExchangeError,
-    Message,
-    RequestExecutor,
-)
-from vonx.services.manager import ServiceManager
-from vonx.services.schema import Schema
-from vonx.util import log_json
+    ServiceBase,
+    ServiceRequest,
+    ServiceResponse,
+    ServiceError)
+from .manager import ServiceManager
+from .schema import Schema
+from .util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
 
-class IndyLedgerError(ExchangeError):
+class IndyLedgerError(ServiceError):
     """
     A message class for generic errors in processing Indy requests
     """
-
     pass
 
 
-class IndyCreateCredOfferReq:
+class IndyLedgerStatusReq(ServiceRequest):
+    """
+    A request to fetch the status of the remote ledger
+    """
+    pass
+
+
+class IndyCreateCredOfferReq(ServiceRequest):
     """
     The message class representing an request to create a credential offer
+
+    Args:
+        issuer_id (str): the identifier of the issuer service
+        schema_def (Schema): the schema used to create the credential offer
     """
+    _fields = (
+        ('issuer_id', str),
+        ('schema_def', Schema),
+    )
 
-    def __init__(self, issuer_id: str, schema: Schema):
-        self.issuer_id = issuer_id
-        self.schema_def = schema
 
-
-class IndyCredOffer:
+class IndyCredOffer(ServiceResponse):
     """
     The message class representing a successful credential offer response
+
+    Args:
+        issuer_id (str): the identifier of the issuer service
+        schema_def (Schema): the schema used to create the credential offer
+        offer (dict): the resulting credential offer
+        cred_def (dict): the credential definition used
     """
+    _fields = (
+        ('issuer_id', str),
+        ('schema_def', Schema),
+        ('offer', dict),
+        ('cred_def', dict),
+    )
 
-    def __init__(self, issuer_id: str, schema: Schema, offer: dict, cred_def: dict):
-        self.issuer_id = issuer_id
-        self.schema_def = schema
-        self.offer = offer
-        self.cred_def = cred_def
-
-
-class IndyCreateCredRequestReq:
+class IndyCreateCredRequestReq(ServiceRequest):
     """
     The message class representing an request to create a credential request
+
+    Args:
+        holder_id (str): the identifier of the holder service
+        cred_offer (IndyCredOffer): the credential offer to use as a basis
     """
+    _fields = (
+        ('holder_id', str),
+        ('cred_offer', IndyCredOffer),
+    )
 
-    def __init__(self, holder_id: str, cred_offer: IndyCredOffer):
-        self.holder_id = holder_id
-        self.cred_offer = cred_offer
-
-
-class IndyCredentialRequest:
+class IndyCredentialRequest(ServiceResponse):
     """
     The message class representing a successful credential request creation
+
+    Args:
+        holder_id (str): the identifier of the holder service
+        cred_offer (IndyCredOffer): the credential offer used as a basis
+        result (str): the resulting credential request
+        metadata (dict): the credential request metadata
     """
+    _fields = (
+        ('holder_id', str),
+        ('cred_offer', IndyCredOffer),
+        ('result', str),
+        ('metadata', dict),
+    )
 
-    def __init__(
-            self,
-            holder_id: str,
-            cred_offer: IndyCredOffer,
-            result: dict,
-            metadata: dict):
-        self.holder_id = holder_id
-        self.cred_offer = cred_offer
-        self.result = result
-        self.metadata = metadata
-
-
-class IndyCreateCredentialReq:
+class IndyCreateCredentialReq(ServiceRequest):
     """
     The message class representing an request to create a credential
     """
-
-    def __init__(
-            self,
-            cred_offer: IndyCredOffer,
-            cred_req_result: dict,
-            cred_req_metadata: dict,
-            cred_data: dict):
-        self.cred_offer = cred_offer
-        self.cred_req_result = cred_req_result
-        self.cred_req_metadata = cred_req_metadata
-        self.cred_data = cred_data
+    _fields = (
+        ('cred_offer', IndyCredOffer),
+        ('cred_req_result', str),
+        ('cred_req_metadata', dict),
+        ('cred_data', dict),
+    )
 
 
-class IndyCredential:
+class IndyCredential(ServiceResponse):
     """
     The message class representing a successful credential creation
     """
-
-    def __init__(
-            self,
-            issuer_id: str,
-            schema_name: str,
-            issuer_did: str,
-            cred_data: dict,
-            cred_def: dict,
-            cred_req_metadata: dict,
-            cred_revoc_id: str):
-        self.issuer_id = issuer_id
-        self.schema_name = schema_name
-        self.issuer_did = issuer_did
-        self.cred_data = cred_data
-        self.cred_def = cred_def
-        self.cred_req_metadata = cred_req_metadata
-        self.cred_revoc_id = cred_revoc_id
+    _fields = (
+        ('issuer_id', str),
+        ('schema_name', str),
+        ('issuer_did', str),
+        ('cred_data', dict),
+        ('cred_def', dict),
+        ('cred_req_metadata', dict),
+        ('cred_revoc_id', str),
+    )
 
 
-class IndyStoreCredentialReq:
+class IndyStoreCredentialReq(ServiceRequest):
     """
     The message class representing an request to store a credential
     """
+    _fields = (
+        ('holder_id', str),
+        ('cred', IndyCredential),
+    )
 
-    def __init__(self, holder_id: str, cred: IndyCredential):
-        self.holder_id = holder_id
-        self.cred = cred
 
-
-class IndyStoredCredential:
+class IndyStoredCredential(ServiceResponse):
     """
     The message class representing an successful response to storing a credential
     """
+    _fields = (
+        ('holder_id', str),
+        ('cred', IndyCredential),
+        ('result', dict),
+    )
 
-    def __init__(self, holder_id: str, cred: IndyCredential, result: dict):
-        self.holder_id = holder_id
-        self.cred = cred
-        self.result = result
 
-
-class IndyResolveDidReq:
+class IndyResolveDidReq(ServiceRequest):
     """
     The message class representing a request to resolve a DID
     """
+    _fields = (
+        ('seed', str),
+    )
 
-    def __init__(self, seed: str):
-        self.seed = seed
 
-
-class IndyResolvedDid:
+class IndyResolvedDid(ServiceResponse):
     """
     The message class representing a response to DID resolution request
     """
 
-    def __init__(self, seed: str, did: str):
-        self.seed = seed
-        self.did = did
+    _fields = (
+        ('seed', str),
+        ('did', str),
+    )
 
 
-class IndyRegisterIssuerReq:
+class IndyRegisterIssuerReq(ServiceRequest):
     """
     The message class representing a request to register an issuer
     """
+    _fields = (
+        ('config', dict),
+    )
 
-    def __init__(self, issuer_cfg: dict):
-        self.config = issuer_cfg
 
-
-class IndyIssuerStatusReq:
+class IndyIssuerStatusReq(ServiceRequest):
     """
     The message class representing a request for an issuer status update
     """
+    _fields = (
+        ('issuer_id', str),
+    )
 
-    def __init__(self, issuer_id: str):
-        self.issuer_id = issuer_id
 
-
-class IndyIssuerStatus:
+class IndyIssuerStatus(ServiceResponse):
     """
     The message class representing an issuer status update
     """
+    _fields = (
+        ('issuer_id', str),
+        ('status', dict),
+    )
 
-    def __init__(self, issuer_id: str, status: dict):
-        self.issuer_id = issuer_id
-        self.status = status
 
-
-class IndyVerifyProofReq:
+class IndyVerifyProofReq(ServiceRequest):
     """
     The message class representing a request to verify a proof
     """
+    _fields = (
+        ('proof_req', dict),
+        ('proof', dict),
+    )
 
-    def __init__(self, proof_req, proof):
-        self.proof_req = proof_req
-        self.proof = proof
 
-
-class IndyVerifiedProof:
+class IndyVerifiedProof(ServiceResponse):
     """
     The message class representing a successful proof verification
     """
-
-    def __init__(self, verified, parsed_proof):
-        self.verified = verified
-        self.parsed_proof = parsed_proof
+    _fields = (
+        ('verified', bool),
+        ('parsed_proof', dict),
+    )
 
 
 class WalletConfig:
@@ -418,23 +425,19 @@ class IndyIssuerConfig:
         }
 
 
-class IndyLedger(RequestExecutor):
+class IndyLedger(ServiceBase):
     """
     A class for managing interactions with the Hyperledger Indy ledger
     """
 
-    def __init__(self, pid: str, exchange: Exchange, spec: dict = None):
+    def __init__(self, pid: str, exchange: Exchange, env: Mapping, spec: dict = None):
+        super(IndyLedger, self).__init__(pid, exchange, env)
         self._config = {}
         self._genesis_path = None
         self._issuers = {}
         self._ledger_url = None
-        self._status = {}
-        self._sync_lock = None
         self._verifier = None
-
         self._update_config(spec)
-        super(IndyLedger, self).__init__(pid, exchange)
-        self._init_status()
 
     @classmethod
     def create(cls, service_mgr: ServiceManager, pid: str = "indy-ledger"):
@@ -464,7 +467,7 @@ class IndyLedger(RequestExecutor):
             "ledger_url": ledger_url,
         }
         LOGGER.info("Initializing Indy ledger service")
-        return cls(pid, service_mgr.exchange, spec)
+        return cls(pid, service_mgr.exchange, env, spec)
 
     def _update_config(self, spec) -> None:
         """
@@ -475,41 +478,18 @@ class IndyLedger(RequestExecutor):
         if "ledger_url" in spec:
             self._ledger_url = spec["ledger_url"]
 
-    def _init_status(self) -> None:
-        self._update_status(
-            {
-                "id": self._pid,
-                "ready": False,
-                "syncing": False,
-                "started": False,
-            }
-        )
-
-    def _update_status(self, update=None, _silent=False) -> None:
-        if update:
-            self._status.update(update)
-
-    def start(self):
-        """
-        Start listening for messages and initialize the ledger connection
-        """
-        ret = super(IndyLedger, self).start()
-        self._sync_lock = asyncio.Lock(loop=self._runner.loop)
-        self.run_task(self._sync())
-        return ret
-
-    async def _sync(self) -> bool:
+    async def _service_sync(self) -> bool:
         """
         Perform the initial setup of the ledger connection, including downloading the
         genesis transaction file
         """
-        async with self._sync_lock:
-            await asyncio.sleep(1)  # avoid odd TimeoutError on genesis txn retrieval
-            self._update_status({"syncing": True})
-            await self._check_genesis_path()
-            for issuer in self._issuers.values():
-                await self._sync_issuer(issuer)
-            self._update_status({"syncing": False})
+        await asyncio.sleep(1)  # avoid odd TimeoutError on genesis txn retrieval
+        await self._check_genesis_path()
+        synced = True
+        for issuer in self._issuers.values():
+            if not await self._sync_issuer(issuer):
+                synced = False
+        return synced
 
     def _add_issuer(self, **params) -> str:
         """
@@ -537,7 +517,7 @@ class IndyLedger(RequestExecutor):
             msg = IndyLedgerError('Unregistered issuer: {}'.format(issuer_id))
         return msg
 
-    async def _sync_issuer(self, issuer: IndyIssuerConfig) -> None:
+    async def _sync_issuer(self, issuer: IndyIssuerConfig) -> bool:
         """
         Perform issuer synchronization, registering the DID and publishing schemas
         and credential definitions as required
@@ -590,6 +570,7 @@ class IndyLedger(RequestExecutor):
                 )
 
             LOGGER.info("Indy issuer synced: %s", issuer.ident)
+        return issuer.synced
 
     async def _check_genesis_path(self) -> None:
         """
@@ -791,15 +772,12 @@ class IndyLedger(RequestExecutor):
                 log_json("Published credential def:", cred_def, LOGGER)
             schema["credential_definition"] = cred_def
 
-    async def _handle_create_cred_offer(self, request: IndyCreateCredOfferReq,
-                                        reply_to: str, ref) -> bool:
+    async def _handle_create_cred_offer(self, request: IndyCreateCredOfferReq):
         """
         Create a credential offer for TheOrgBook
 
         Args:
-            request: the message wrapping the request for a credential offer
-            reply_to: the service requesting this cred offer
-            ref: the identifier for the originating message
+            request: the request for a credential offer
         """
         issuer = self._issuers[request.issuer_id]
         schema = issuer.get_schema_config(request.schema_def)
@@ -813,23 +791,19 @@ class IndyLedger(RequestExecutor):
             schema["ledger"]["seqNo"]
         )
 
-        msg = IndyCredOffer(
+        return IndyCredOffer(
             request.issuer_id,
             request.schema_def,
             json.loads(cred_offer_json),
             schema["credential_definition"],
         )
-        return self.send_noreply(reply_to, msg, ref)
 
-    async def _handle_create_cred(self, request: IndyCreateCredentialReq,
-                                  reply_to: str, ref) -> bool:
+    async def _handle_create_cred(self, request: IndyCreateCredentialReq):
         """
         Create a credential for TheOrgBook
 
         Args:
-            request: the message wrapping the request to store a credential
-            reply_to: the service requesting this credential
-            ref: the identifier for the originating message
+            request: the request to store a credential
         """
         offer = request.cred_offer
         issuer = self._issuers[offer.issuer_id]
@@ -841,7 +815,7 @@ class IndyLedger(RequestExecutor):
             request.cred_data,
         )
 
-        msg = IndyCredential(
+        return IndyCredential(
             offer.issuer_id,
             schema["definition"].name,
             issuer.agent.did,
@@ -850,7 +824,6 @@ class IndyLedger(RequestExecutor):
             request.cred_req_metadata,
             cred_revoc_id,
         )
-        return self.send_noreply(reply_to, msg, ref)
 
     async def _get_verifier(self) -> AgentWrapper:
         """
@@ -867,94 +840,61 @@ class IndyLedger(RequestExecutor):
             await self._verifier.open()
         return self._verifier.instance
 
-    async def _handle_verify_proof(self, request: IndyVerifyProofReq,
-                                   reply_to: str, ref) -> bool:
+    async def _handle_verify_proof(self, request: IndyVerifyProofReq):
         """
         Verify a proof returned by TheOrgBook
 
         Args:
-            request: the message wrapping the request to verify a proof
-            reply_to: the service requesting this verification
-            ref: the identifier for the originating message
+            request: the request to verify a proof
         """
         verifier = await self._get_verifier()
         result = await verifier.verify_proof(request.proof_req, request.proof)
         parsed_proof = revealed_attrs(request.proof)
 
-        msg = IndyVerifiedProof(result, parsed_proof)
-        return self.send_noreply(reply_to, msg, ref)
+        return IndyVerifiedProof(result, parsed_proof)
 
-    async def _handle_ledger_status(self, reply_to: str, ref) -> bool:
+    async def _handle_ledger_status(self):
         """
         Download the ledger status from von-network and return it to the client
-
-        Args:
-            reply_to: the service requesting the status update
-            ref: the identifier for the originating message
         """
         url = self._ledger_url
         async with self.http as client:
             response = await client.get("{}/status".format(url))
-        return self.send_noreply(reply_to, await response.text(), ref)
+        return await response.text()
 
-    async def _handle_message(self, message: Message) -> bool:
+    async def _service_request(self, request: ServiceRequest) -> ServiceResponse:
         """
         Process a message from the exchange and send the reply, if any
 
         Args:
             message: the message to be processed
         """
-        from_pid, request, ident = (
-            message.from_pid,
-            message.body,
-            message.ident,
-        )
-
-        if await super(IndyLedger, self)._handle_message(message):
-            pass
-
-        elif request == "sync":
-            self.run_task(self._sync())
-            self.send_noreply(from_pid, True, ident)
-
-        elif request == "ledger-status":
-            await self._handle_ledger_status(from_pid, ident)
+        if isinstance(request, IndyLedgerStatusReq):
+            reply = await self._handle_ledger_status()
 
         elif isinstance(request, IndyRegisterIssuerReq):
             try:
                 issuer_id = self._add_issuer(**request.config)
-                msg = self._get_issuer_status(issuer_id)
+                reply = self._get_issuer_status(issuer_id)
                 self.run_task(self._sync())
             except ValueError as e:
-                msg = IndyLedgerError(str(e))
-            self.send_noreply(from_pid, msg, ident)
+                reply = IndyLedgerError(str(e))
 
         elif isinstance(request, IndyIssuerStatusReq):
-            status = self._get_issuer_status(request.issuer_id)
-            self.send_noreply(from_pid, status, ident)
+            reply = self._get_issuer_status(request.issuer_id)
 
         elif isinstance(request, IndyCreateCredOfferReq):
-            await self._handle_create_cred_offer(request, from_pid, ident)
+            reply = await self._handle_create_cred_offer(request)
 
         elif isinstance(request, IndyCreateCredentialReq):
-            await self._handle_create_cred(request, from_pid, ident)
+            reply = await self._handle_create_cred(request)
 
         elif isinstance(request, IndyVerifyProofReq):
-            await self._handle_verify_proof(request, from_pid, ident)
+            reply = await self._handle_verify_proof(request)
 
         elif isinstance(request, IndyResolveDidReq):
-            msg = IndyResolvedDid(request.seed, seed_to_did(request.seed))
-            self.send_noreply(from_pid, msg, ident)
-
-        elif request == "ready":
-            self.send_noreply(from_pid, self._status.get("ready"), ident)
-
-        elif request == "status":
-            self.send_noreply(from_pid, self._status.copy(), ident)
+            reply = IndyResolvedDid(request.seed, seed_to_did(request.seed))
 
         else:
-            raise ValueError(
-                "Unexpected message from {}: {}".format(from_pid, request)
-            )
-
-        return True
+            reply = None
+        return reply

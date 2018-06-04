@@ -4,6 +4,14 @@ vonx.services package
 Submodules
 ----------
 
+vonx.services.base module
+-------------------------
+
+.. automodule:: vonx.services.base
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 vonx.services.common module
 ---------------------------
 
@@ -80,6 +88,14 @@ vonx.services.tob module
 ------------------------
 
 .. automodule:: vonx.services.tob
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+vonx.services.util module
+-------------------------
+
+.. automodule:: vonx.services.util
     :members:
     :undoc-members:
     :show-inheritance:

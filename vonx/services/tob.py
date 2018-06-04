@@ -17,7 +17,7 @@
 
 import logging
 
-from vonx.services.indy import (
+from .indy import (
     IndyCredOffer,
     IndyCredential,
     IndyCredentialRequest,

@@ -16,12 +16,12 @@
 #
 
 import asyncio
-import collections
+from collections import deque
 import logging
 import os
 import time
 import traceback
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, NamedTuple, Sequence
 
 from concurrent.futures import Future, ThreadPoolExecutor
 import multiprocessing as mp
@@ -35,19 +35,115 @@ from . import eventloop
 LOGGER = logging.getLogger(__name__)
 
 
-class ExchangeError:
+_MESSAGE_FIELDS = {}
+
+def format_type_name(ctype):
+    if isinstance(ctype, Sequence):
+        return '[{}]'.format(', '.join(map(format_type_name, ctype)))
+    elif ctype is None:
+        return 'None'
+    return ctype.__name__
+
+class ExchangeMessage:
+    """
+    A common base class for exchange messages
+    """
+    __slots__ = ('_values',)
+    _fields = ()
+
+    def __init__(self, *args, **kwargs):
+        names, types, defaults, _positions = self._field_specs
+        vals = []
+        idx = 0
+        if len(args) + len(kwargs) > len(names):
+            raise TypeError("Too many arguments to constructor")
+        for idx, name in enumerate(names):
+            ftype = types.get(name)
+            if idx < len(args):
+                val = args[idx]
+            else:
+                if name in kwargs:
+                    val = kwargs[name]
+                elif name in defaults:
+                    val = defaults[name]
+                else:
+                    raise TypeError("Property not provided to constructor: {}".format(name))
+            if val is not None and ftype is not None and not isinstance(val, ftype):
+                raise TypeError("Incorrect type for property '{}' ({}), expected {}".format(
+                    name, format_type_name(type(val)), format_type_name(ftype)))
+            vals.append(val)
+        self._values = tuple(vals)
+
+    @property
+    def _field_specs(self):
+        cname = self.__class__.__name__
+        if cname not in _MESSAGE_FIELDS:
+            names = []
+            defaults = {}
+            positions = {}
+            types = {}
+            for idx, field in enumerate(self._fields):
+                if isinstance(field, tuple):
+                    name = field[0]
+                    if len(field) > 1:
+                        types[name] = field[1]
+                        if len(field) > 2:
+                            defaults[name] = field[2]
+                else:
+                    name = field
+                names.append(name)
+                positions[name] = idx
+            _MESSAGE_FIELDS[cname] = (names, types, defaults, positions)
+        return _MESSAGE_FIELDS[cname]
+
+    @property
+    def _field_names(self):
+        return self._field_specs[0]
+
+    @property
+    def _field_types(self):
+        return self._field_specs[1]
+
+    @property
+    def _field_defaults(self):
+        return self._field_specs[2]
+
+    @property
+    def _field_positions(self):
+        return self._field_specs[3]
+
+    def __getattr__(self, name):
+        if name in self._field_names:
+            return self._values[self._field_positions[name]]
+        raise AttributeError("Unknown attribute: {}".format(name))
+
+    def __getitem__(self, key):
+        if isinstance(key, (slice, int)):
+            return self._values[key]
+        return getattr(self, key)
+
+    def get(self, name, defval=None):
+        return getattr(self, name, defval)
+
+    def __repr__(self):
+        cls = self.__class__.__name__
+        params = ['{}={}'.format(fname, self[idx]) for (idx, fname) in enumerate(self._field_names)]
+        return '{}({})'.format(cls, ', '.join(params))
+
+
+class ExchangeError(ExchangeMessage):
     """
     An error class to represent an exception in message processing
 
     This is not a subclass of :class:`Exception` as that cannot be pickled
     and transported over the message bus
     """
+    _fields = ('value', 'exc_info')
     def __init__(self, value, exc_info=True):
-        self.value = value
         if exc_info is True:
             # cannot pass real exception or traceback through the message pipe
             exc_info = traceback.format_exc()
-        self.exc_info = exc_info
+        super(ExchangeError, self).__init__(value, exc_info)
 
     def format(self):
         ret = '{}'.format(self.value)
@@ -59,26 +155,32 @@ class ExchangeError:
         return 'ExchangeError(value={})'.format(self.value)
 
 
-Message = collections.namedtuple('Message', ('from_pid', 'ident', 'body', 'ref'))
-Message.__new__.__defaults__ = (None,)
-Message.__doc__ = """
+MessageWrapper = NamedTuple('MessageWrapper', [
+    ('from_pid', str),
+    ('ident', str),
+    ('message', ExchangeMessage),
+    ('ref', str)])
+MessageWrapper.__new__.__defaults__ = (None,)
+MessageWrapper.__doc__ = """
     A wrapper for a message being passed through the :class:`Exchange` message bus
 
     Attributes:
         from_pid (str): The identifier of the sending service
-        ident: A unique identifier for the message, used to tag responses
-        body: The content of the message
-        ref: An optional identifier for the message being responded to
-"""
+        ident (str): A unique identifier for the message, used to tag responses
+        message (ExchangeMessage): The message received
+        ref (str): An optional identifier for the message being responded to
+    """
 
-QueuedMessage = collections.namedtuple('QueuedMessage', ('to_pid', 'message'))
+QueuedMessage = NamedTuple('QueuedMessage', [
+    ('to_pid', str),
+    ('message', ExchangeMessage)])
 QueuedMessage.__doc__ = """
     A wrapper for a message queued to be sent to the exchange
 
     Attributes:
         to_pid (str): The identifier of the recipient service
-        message: The message to be sent
-"""
+        message (ExchangeMessage): The message to be sent
+    """
 
 
 class Exchange:
@@ -131,13 +233,13 @@ class Exchange:
             self._cmd_pipe[1].send(command)
             return self._cmd_pipe[1].recv()
 
-    def send(self, to_pid: str, message: Message) -> bool:
+    def send(self, to_pid: str, wrapper: MessageWrapper) -> bool:
         """
         Add a message to the bus, blocking until the processing thread is ready
 
         Args:
             to_pid: The identifier for the receiving service
-            message: The message to be added to the queue
+            wrapper: The message to be added to the queue
 
         Returns:
             True if the message is successfully added to the queue
@@ -146,13 +248,13 @@ class Exchange:
         # FIXME add a maximum buffer size for the message queues and allow blocking
         # until there is room in the buffer (optional blocking=True argument)
         with self._req_cond:
-            LOGGER.debug('send to %s/%s %s', to_pid, message.ref, message.body)
-            status = self._cmd('send', to_pid, message)
+            LOGGER.debug('send to %s/%s %s', to_pid, wrapper.ref, wrapper.message)
+            status = self._cmd('send', to_pid, wrapper)
             # wake all threads waiting for an incoming message
             self._req_cond.notify_all()
         return status
 
-    def recv(self, to_pid: str, blocking: bool = True, timeout=None) -> Message:
+    def recv(self, to_pid: str, blocking: bool = True, timeout=None) -> MessageWrapper:
         """
         Receive a message from the bus
 
@@ -198,7 +300,7 @@ class Exchange:
                 if command[0] == 'send':
                     to_pid = command[1]
                     if to_pid not in queue:
-                        queue[to_pid] = collections.deque()
+                        queue[to_pid] = deque()
                     queue[to_pid].append(command[2])
                     pending += 1
                     self._cmd_pipe[0].send(True)
@@ -269,7 +371,7 @@ class MessageTarget:
         """
         return self._from_pid
 
-    def _send_message(self, message: Message) -> bool:
+    def _send_message(self, message: MessageWrapper) -> bool:
         """
         Perform the actual addition to the message queue
 
@@ -278,7 +380,12 @@ class MessageTarget:
         """
         return self._exchange.send(self._pid, message)
 
-    def send(self, ident, message, ref=None, from_pid=None) -> bool:
+    def send(
+            self,
+            ident: str,
+            message: ExchangeMessage,
+            ref: str = None,
+            from_pid: str = None) -> bool:
         """
         Send a message to the recipient service
 
@@ -291,13 +398,17 @@ class MessageTarget:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._send_message(Message(
+        return self._send_message(MessageWrapper(
             from_pid if from_pid != None else self._from_pid,
             ident,
             message,
             ref))
 
-    def send_noreply(self, message, ref=None, from_pid=None) -> bool:
+    def send_noreply(
+            self,
+            message: ExchangeMessage,
+            ref: str = None,
+            from_pid: str = None) -> bool:
         """
         Send a message with no reply expected
 
@@ -333,7 +444,7 @@ class MessageProcessor:
         """
         return self._exchange
 
-    def get_message_target(self, pid) -> MessageTarget:
+    def get_message_target(self, pid: str) -> MessageTarget:
         """
         Quickly create a :class:`MessageTarget` for a service on the same message bus
         """
@@ -370,20 +481,23 @@ class MessageProcessor:
         try:
             while True:
                 # blocks until a message is available
-                message = self._exchange.recv(self._pid)
-                LOGGER.debug('%s processing message: %s', self._pid, message.body)
-                if message.body == 'stop':
+                received = self._exchange.recv(self._pid)
+                LOGGER.debug('%s processing message: %s', self._pid, received.message)
+                if received.message == 'stop':
                     break
                 try:
-                    if self._process_message(message) is False:
+                    if self._process_message(received) is False:
                         break
                 except Exception:
                     errmsg = ExchangeError('Exception during message processing', True)
-                    self._reply_with_error(message, errmsg)
+                    self._reply_with_error(received, errmsg)
         except Exception:
             LOGGER.exception('Exception while processing message:')
 
-    def _reply_with_error(self, from_message: Message, errmsg: ExchangeError) -> bool:
+    def _reply_with_error(
+            self,
+            from_message: MessageWrapper,
+            errmsg: ExchangeError) -> bool:
         """
         Send an error message back to the sender of a previous message
 
@@ -391,12 +505,12 @@ class MessageProcessor:
             from_message: the message which triggered the error
             errmsg: the error message to be sent
         """
-        if isinstance(from_message.body, ExchangeError):
-            LOGGER.error(from_message.body.format())
+        if isinstance(from_message.message, ExchangeError):
+            LOGGER.error(from_message.message.format())
             return False
         return self.send_noreply(from_message.from_pid, errmsg, from_message.ident)
 
-    def _send_message(self, to_pid: str, message: Message) -> bool:
+    def _send_message(self, to_pid: str, wrapper: MessageWrapper) -> bool:
         """
         Perform the actual addition to the exchange message queue
 
@@ -404,9 +518,15 @@ class MessageProcessor:
             to_pid: the identifier of the recipient
             message: the message to be sent
         """
-        return self._exchange.send(to_pid, message)
+        return self._exchange.send(to_pid, wrapper)
 
-    def send(self, to_pid: str, ident, message, ref=None, from_pid: str = None) -> bool:
+    def send(
+            self,
+            to_pid: str,
+            ident: str,
+            message: ExchangeMessage,
+            ref: str = None,
+            from_pid: str = None) -> bool:
         """
         Send a message to a recipient on the exchange
 
@@ -420,18 +540,27 @@ class MessageProcessor:
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._send_message(to_pid, Message(from_pid or self._pid, ident, message, ref))
+        return self._send_message(
+            to_pid,
+            MessageWrapper(from_pid or self._pid, ident, message, ref))
 
-    def send_noreply(self, to_pid: str, message, ref=None, from_pid: str = None) -> bool:
+    def send_noreply(
+            self,
+            to_pid: str,
+            message: ExchangeMessage,
+            ref: str = None,
+            from_pid: str = None) -> bool:
         """
         Send a message with no reply expected
 
         Returns:
             True if the message was successfully added to the queue
         """
-        return self._send_message(to_pid, Message(from_pid or self._pid, None, message, ref))
+        return self._send_message(
+            to_pid,
+            MessageWrapper(from_pid or self._pid, None, message, ref))
 
-    def _process_message(self, message: Message) -> bool:
+    def _process_message(self, received: MessageWrapper) -> bool:
         """
         Process a message from another service and optionally send a message in response
 
@@ -534,7 +663,7 @@ class RequestExecutor(MessageProcessor):
             self._exchange.send(msg.to_pid, msg.message)
             self._out_queue.task_done()
 
-    def _send_message(self, to_pid: str, message: Message) -> bool:
+    def _send_message(self, to_pid: str, wrapper: MessageWrapper) -> bool:
         """
         Add the message to our out-queue for processing instead of sending directly
 
@@ -542,11 +671,11 @@ class RequestExecutor(MessageProcessor):
             to_pid: the identifier of the recipient
             message: the message to be sent
         """
-        self._out_queue.put_nowait(QueuedMessage(to_pid, message))
+        self._out_queue.put_nowait(QueuedMessage(to_pid, wrapper))
         return True
 
-    async def _send_request(self, to_pid: str, request, future: Future,
-                            timeout: int = None) -> None:
+    async def _send_request(self, to_pid: str, request: ExchangeMessage,
+                            future: Future, timeout: int = None) -> None:
         """
         Send a request to a target service on the exchange and add it to our
         collection to automatically associate the response later
@@ -557,7 +686,7 @@ class RequestExecutor(MessageProcessor):
             future: used to return the response to (potentially) another thread
             timeout: an optional timeout before cancelling the request
         """
-        message = Message(self._pid, os.urandom(10), request)
+        message = MessageWrapper(self._pid, os.urandom(10), request)
         result = None
         async with self._req_lock:
             if message.ident in self._requests:
@@ -570,7 +699,7 @@ class RequestExecutor(MessageProcessor):
         elif timeout:
             self.run_task(self._cancel_request(message.ident, timeout))
 
-    async def _cancel_request(self, ident, timeout: int = None) -> None:
+    async def _cancel_request(self, ident: str, timeout: int = None) -> None:
         """
         Cancel an outstanding request
 
@@ -584,7 +713,11 @@ class RequestExecutor(MessageProcessor):
             if ident in self._requests and not self._requests[ident].done():
                 self._requests[ident].cancel()
 
-    def submit(self, to_pid: str, request, timeout: int = None) -> asyncio.Future:
+    def submit(
+            self,
+            to_pid: str,
+            request: ExchangeMessage,
+            timeout: int = None) -> asyncio.Future:
         """
         Submit a message to another service and run a task to poll for the results
 
@@ -597,50 +730,50 @@ class RequestExecutor(MessageProcessor):
         self.run_task(self._send_request(to_pid, request, result, timeout))
         return asyncio.wrap_future(result)
 
-    async def _handle_message(self, message: Message) -> bool:
+    async def _handle_message(self, received: MessageWrapper) -> bool:
         """
         Handle a message received from another service on the exchange by awaking
         any tasks waiting for results
 
         Args:
-            message: the received message to be processed
+            received: the received message to be processed
         """
         result = False
-        if message.ref:
+        if received.ref:
             async with self._req_lock:
-                if message.ref in self._requests:
-                    if not self._requests[message.ref].cancelled():
-                        self._requests[message.ref].set_result(message.body)
+                if received.ref in self._requests:
+                    if not self._requests[received.ref].cancelled():
+                        self._requests[received.ref].set_result(received.message)
                     result = True
                 self._requests = {
                     ident: req for ident, req in self._requests.items() if not req.done()}
         return result
 
-    async def _handle_message_task(self, message: Message) -> None:
+    async def _handle_message_task(self, received: MessageWrapper) -> None:
         """
         Handle message processing within our own event loop
 
         Args:
-            message: the message received from the exchange
+            received: the message received from the exchange
         """
         #pylint: disable=broad-except
         try:
-            if not await self._handle_message(message):
+            if not await self._handle_message(received):
                 LOGGER.debug('unhandled message to %s/%s from %s: %s',
-                             self._pid, message.ref, message.from_pid, message.body)
+                             self._pid, received.ref, received.from_pid, received.message)
         except Exception:
             errmsg = ExchangeError('Exception during message processing', True)
-            self._reply_with_error(message, errmsg)
+            self._reply_with_error(received, errmsg)
 
-    def _process_message(self, message: Message) -> bool:
+    def _process_message(self, received: MessageWrapper) -> bool:
         """
         Handle a message received from another service on the exchange
 
         Args:
-            message: the received message to be processed
+            received: the received message to be processed
         """
         # push the handling of the message into our own event loop
-        self.run_task(self._handle_message_task(message))
+        self.run_task(self._handle_message_task(received))
         return True
 
     @property
@@ -708,7 +841,7 @@ class RequestTarget:
         """
         return self._executor
 
-    def request(self, message, timeout: int = None) -> asyncio.Future:
+    def request(self, message: ExchangeMessage, timeout: int = None) -> asyncio.Future:
         """
         Send a request to the recipient service, awaiting the response in
         a method defined by the executor
@@ -727,9 +860,9 @@ class HelloProcessor(MessageProcessor):
     """
     A simple request processor for testing response functionality or stress testing
     """
-    def _process_message(self, message: Message) -> bool:
-        self.send_noreply(message.from_pid,
-                          'hello from {} {}'.format(os.getpid(), get_ident()), message.ident)
+    def _process_message(self, received: MessageWrapper) -> bool:
+        self.send_noreply(received.from_pid,
+                          'hello from {} {}'.format(os.getpid(), get_ident()), received.ident)
 
 
 class ThreadedHelloProcessor(HelloProcessor):
@@ -751,15 +884,15 @@ class ThreadedHelloProcessor(HelloProcessor):
         proc.start()
         return proc
 
-    def _process_message(self, message: Message) -> bool:
+    def _process_message(self, received: MessageWrapper) -> bool:
         if self._blocking:
-            self._delayed_process(message)
+            self._delayed_process(received)
         else:
-            self._pool.submit(self._delayed_process, message)
+            self._pool.submit(self._delayed_process, received)
 
-    def _delayed_process(self, message: Message) -> bool:
+    def _delayed_process(self, received: MessageWrapper) -> bool:
         time.sleep(1)
-        return super(ThreadedHelloProcessor, self)._process_message(message)
+        return super(ThreadedHelloProcessor, self)._process_message(received)
 
 
 # Testing two workers dividing requests:

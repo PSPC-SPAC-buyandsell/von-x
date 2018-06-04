@@ -159,7 +159,7 @@ async def issue_credential(request: ClientRequest) -> ClientResponse:
         elif isinstance(result, issuer.IssuerError):
             ret = {'success': False, 'result': result.value}
         else:
-            raise ValueError('Unexpected result from issuer')
+            raise ValueError('Unexpected result from issuer: {}'.format(result))
     except Exception as e:
         LOGGER.exception('Error while issuing credential')
         ret = {'success': False, 'result': str(e)}

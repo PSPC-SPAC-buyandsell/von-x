@@ -23,12 +23,12 @@ from typing import Mapping
 
 from von_agent.util import schema_id
 
-from vonx.services.exchange import Exchange, ExchangeError, Message, RequestExecutor
-from vonx.services.indy import IndyVerifyProofReq, IndyVerifiedProof
-from vonx.services.issuer import ResolveSchemaRequest, ResolveSchemaResponse
-from vonx.services.manager import ServiceManager
-from vonx.services.tob import TobClient, TobClientError
-from vonx.util import log_json
+from .base import Exchange, ServiceBase, ServiceError, ServiceRequest, ServiceResponse
+from .indy import IndyVerifyProofReq, IndyVerifiedProof
+from .issuer import ResolveSchemaRequest, ResolveSchemaResponse
+from .manager import ServiceManager
+from .tob import TobClient, TobClientError
+from .util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
@@ -60,61 +60,61 @@ def prepare_request_json(spec: dict):
     return request_json
 
 
-class ProverError(ExchangeError):
+class ProverError(ServiceError):
     """
-    A generic :class:`ExchangeError` subclass for Prover exceptions
+    A generic :class:`ServiceError` subclass for Prover exceptions
     """
     pass
 
 
-class ConstructProofRequest:
+class ConstructProofRequest(ServiceRequest):
     """
     A request to construct a proof
     """
-    def __init__(self, name, filters):
-        self.name = name
-        self.filters = filters
+    _fields = (
+        ('name', str),
+        ('filters', dict),
+    )
 
 
-class ConstructProofResponse:
+class ConstructProofResponse(ServiceResponse):
     """
     The successful response returned from a proof request
     """
-    def __init__(self, value):
-        self.value = value
+    _fields = (
+        'value',
+    )
 
 
-class ProofSpecRequest:
+class ProofSpecRequest(ServiceRequest):
     """
     A request to get the definition for a proof request
     """
-    def __init__(self, name):
-        self.name = name
+    _fields = (
+        ('name', str),
+    )
 
 
-class ProofSpecResponse:
+class ProofSpecResponse(ServiceResponse):
     """
     The successful response returned from a request for a proof definition
     """
-    def __init__(self, value):
-        self.value = value
+    _fields = (
+        ('value', dict),
+    )
 
 
-class ProverManager(RequestExecutor):
+class ProverManager(ServiceBase):
     """
     There should only be one instance of this class in the application.
     It is responsible for packaging proof requests, sending them to TheOrgBook
     and returning the results.
     """
 
-    def __init__(self, pid: str, exchange: Exchange, env: Mapping = None, request_specs=None):
-        super(ProverManager, self).__init__(pid, exchange)
-        self._env = env or {}
+    def __init__(self, pid: str, exchange: Exchange, env: Mapping, request_specs=None):
+        super(ProverManager, self).__init__(pid, exchange, env)
         self._ledger_pid = 'indy-ledger'
         self._request_specs = request_specs or {}
-        self._status = {
-            'ready': False,
-        }
         for spec_id, spec in self._request_specs.items():
             if 'name' not in spec:
                 spec['name'] = spec_id
@@ -129,15 +129,14 @@ class ProverManager(RequestExecutor):
         LOGGER.info('Initializing proof request manager')
         return cls(pid, service_mgr.exchange, service_mgr.env, config_requests)
 
-    def start(self):
-        ret = super(ProverManager, self).start()
-        self.run_task(self._resolve_schemas())
-        return ret
+    async def _service_sync(self) -> bool:
+        return await self._resolve_schemas()
 
-    async def _resolve_schemas(self):
+    async def _resolve_schemas(self) -> bool:
         LOGGER.info('Resolving schemas for prover')
         await asyncio.sleep(5)
-        while not self._status['ready']:
+        synced = False
+        while not synced:
             missing = set()
             for spec in self._request_specs.values():
                 for schema in spec['schemas']:
@@ -148,12 +147,12 @@ class ProverManager(RequestExecutor):
                         else:
                             schema['id'] = schema_id(s_key['did'], s_key['name'], s_key['version'])
             if not missing:
-                self._status['ready'] = True
+                synced = True
             else:
                 for s_key in missing:
                     self.send('issuer-manager', None, ResolveSchemaRequest(*s_key))
                 await asyncio.sleep(1)
-        LOGGER.info('Completed prover initialization')
+        return synced
 
     def _resolved_schema(self, response: ResolveSchemaResponse):
         if not response.issuer_did:
@@ -228,8 +227,7 @@ class ProverManager(RequestExecutor):
             }
         }
 
-    async def _handle_construct_proof(self, from_pid: str, ident,
-                                      request: ConstructProofRequest) -> bool:
+    async def _handle_construct_proof(self, request: ConstructProofRequest):
         """
         Process a :class:`ConstructProofRequest` and send the response to the sending service
         """
@@ -240,48 +238,38 @@ class ProverManager(RequestExecutor):
                 reply = ConstructProofResponse(result['value'])
             else:
                 reply = ProverError(result['error'])
-            self.send_noreply(from_pid, reply, ident)
         except Exception:
             LOGGER.exception('Exception while constructing proof request:')
-            msg = ProverError('Exception while constructing proof request')
-            self.send_noreply(from_pid, msg, ident)
+            reply = ProverError('Exception while constructing proof request')
+        return reply
 
-    async def _handle_message(self, message: Message) -> bool:
+    async def _service_request(self, request: ServiceRequest) -> ServiceResponse:
         """
         Process a request received from the message bus
 
         Args:
-            message: the message received
+            request: the request received
         """
-        from_pid, request, ident = message.from_pid, message.body, message.ident
-
-        if await super(ProverManager, self)._handle_message(message):
-            pass
-
-        elif isinstance(request, ConstructProofRequest):
+        if isinstance(request, ConstructProofRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
-                self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
+                reply = ProverError('Proof request not defined')
             else:
-                await self._handle_construct_proof(from_pid, ident, request)
-
-        elif isinstance(request, ResolveSchemaResponse):
-            self._resolved_schema(request)
+                reply = await self._handle_construct_proof(request)
 
         elif isinstance(request, ProofSpecRequest):
             spec = self._request_specs.get(request.name)
             if not spec:
-                self.send_noreply(from_pid, ProverError('Proof request not defined'), ident)
+                reply = ProverError('Proof request not defined')
             else:
-                self.send_noreply(from_pid, ProofSpecResponse(spec), ident)
-
-        elif request == 'ready':
-            self.send_noreply(from_pid, self._status['ready'], ident)
-
-        elif request == 'status':
-            self.send_noreply(from_pid, self._status.copy(), ident)
+                reply = ProofSpecResponse(spec)
 
         else:
-            raise ValueError('Unexpected message from {}: {}'.format(from_pid, request))
+            reply = None
+        return reply
 
-        return True
+    async def _service_response(self, response: ServiceResponse) -> bool:
+        if isinstance(response, ResolveSchemaResponse):
+            self._resolved_schema(response)
+            return True
+        return False
