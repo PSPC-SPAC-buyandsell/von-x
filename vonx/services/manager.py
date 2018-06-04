@@ -21,7 +21,8 @@ import multiprocessing as mp
 import os
 from typing import Mapping
 
-from . import config, exchange as exch, schema
+from .base import ServiceBase
+from . import exchange as exch
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,33 +32,44 @@ class ServiceManager:
         self._env = env or {}
         self._exchange = exch.Exchange()
         self._executor_cls = exch.RequestExecutor
-        self._loop = None
         self._proc_locals = {'pid': os.getpid()}
         self._process = None
-        self._schema_mgr = schema.SchemaManager()
         self._services = {}
         self._services_cfg = None
-        self.init_services()
+        self._init_services()
 
-    def init_services(self) -> None:
+    def _init_services(self) -> None:
         """
         Initialize all dependent services
         """
-        self.load_schemas()
+        pass
+
+    def add_service(self, svc_id: str, service: ServiceBase):
+        """
+        Add a service to the service manager instance
+
+        Args:
+            svc_id: the unique identifier for the service
+            service: the service instance
+        """
+        self._services[svc_id] = service
 
     def start(self) -> None:
         """
         Start the message processor and any other services
         """
         asyncio.get_child_watcher()
-        runner = self._process = mp.Process(target=self._start)
-        runner.start()
+        self._process = mp.Process(target=self._start)
+        self._process.start()
 
-    def _start(self) -> None:
+    def _start(self, wait: bool = True) -> None:
+        """
+        Run loop for the main process
+        """
         self._init_process()
         self._exchange.start()
-        self.start_services()
-        self._loop.run_forever()
+        self._start_services(wait)
+        self._exchange.join()
 
     def _init_process(self) -> None:
         """
@@ -65,29 +77,29 @@ class ServiceManager:
         """
         # create new event loop after fork
         asyncio.get_event_loop().close()
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-    def start_services(self) -> None:
-        # Run all services
-        for _id, service in self._services.items():
-            service.start()
+    def _start_services(self, wait: bool = True) -> None:
+        """
+        Start all registered services
+        """
+        for svc_id, service in self._services.items():
+            service.start(wait)
 
-    def stop(self) -> None:
+    def stop(self, wait: bool = True) -> None:
         """
         Stop the message processor and any other services
         """
-        self._stop()
-
-    def _stop(self) -> None:
+        self._stop_services(wait)
         self._exchange.stop()
-        for _id, service in self._services.items():
-            service.stop()
 
-    def stop_services(self) -> None:
-        # Run all services
+    def _stop_services(self, wait: bool = True) -> None:
+        """
+        Stop all registered services
+        """
         for _id, service in self._services.items():
-            service.stop()
+            service.stop(wait)
 
     @property
     def env(self) -> dict:
@@ -95,61 +107,6 @@ class ServiceManager:
         Accessor for our local environment dict
         """
         return self._env
-
-    @property
-    def config_root(self) -> str:
-        """
-        Accessor for the value of the CONFIG_ROOT setting, defaulting to the current directory
-        """
-        return self._env.get('CONFIG_ROOT') or os.curdir
-
-    def load_config_path(self, settings_key, default_path, env=None) -> dict:
-        """
-        Load a YAML configuration file with defined variables replaced in the result
-
-        Args:
-            settings_key: the name of an environment variable defining an alternative
-                configuration path
-            default_path: the default path to the configuration file
-
-        Returns:
-            the parsed YAML configuration with variables replaced
-        """
-        path = self._env.get(settings_key)
-        if not path:
-            path = os.path.join(self.config_root, default_path)
-        return config.load_config(path, env or self._env)
-
-    def services_config(self, section: str) -> dict:
-        """
-        Load a named section from the global services.yml configuration
-
-        Args:
-            section: the configuration key
-        """
-        if self._services_cfg is None:
-            self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
-        if self._services_cfg:
-            return self._services_cfg.get(section) or {}
-        return {}
-
-    def load_schemas(self) -> None:
-        """
-        Load any standard and custom schemas into our SchemaManager
-        """
-        std = config.load_config('vonx.config:schemas.yml')
-        if std:
-            self._schema_mgr.load(std)
-        ext = self.load_config_path('SCHEMAS_CONFIG_PATH', 'schemas.yml')
-        if ext:
-            self._schema_mgr.load(ext)
-
-    @property
-    def schema_manager(self) -> schema.SchemaManager:
-        """
-        Accessor for the SchemaManager defined by this ServiceManager
-        """
-        return self._schema_mgr
 
     @property
     def exchange(self) -> exch.Exchange:

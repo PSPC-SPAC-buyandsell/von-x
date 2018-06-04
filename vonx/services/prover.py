@@ -26,7 +26,6 @@ from von_agent.util import schema_id
 from .base import Exchange, ServiceBase, ServiceError, ServiceRequest, ServiceResponse
 from .indy import IndyVerifyProofReq, IndyVerifiedProof
 from .issuer import ResolveSchemaRequest, ResolveSchemaResponse
-from .manager import ServiceManager
 from .tob import TobClient, TobClientError
 from .util import log_json
 
@@ -118,16 +117,6 @@ class ProverManager(ServiceBase):
         for spec_id, spec in self._request_specs.items():
             if 'name' not in spec:
                 spec['name'] = spec_id
-
-    @classmethod
-    def create(cls, service_mgr: ServiceManager, pid: str = 'prover-manager'):
-        """
-        Create an instance of the :class:`ProverManager`, loading the defined configuration
-        from the :class:`ServiceManager` instance
-        """
-        config_requests = service_mgr.services_config('proof_requests')
-        LOGGER.info('Initializing proof request manager')
-        return cls(pid, service_mgr.exchange, service_mgr.env, config_requests)
 
     async def _service_sync(self) -> bool:
         return await self._resolve_schemas()

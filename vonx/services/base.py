@@ -93,7 +93,7 @@ class ServiceBase(RequestExecutor):
         }
         self._sync_lock = None
 
-    def start(self) -> None:
+    def start(self, wait: bool = True) -> None:
         """
         Start the IssuerManager processing thread and related services
         """

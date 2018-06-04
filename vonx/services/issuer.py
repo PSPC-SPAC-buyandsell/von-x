@@ -31,7 +31,6 @@ from .indy import (
     IndyCreateCredOfferReq, IndyCredOffer,
     IndyCreateCredentialReq, IndyCredential,
 )
-from .manager import ServiceManager
 from .schema import Schema, SchemaManager
 from .tob import TobClient, TobClientError
 from .util import log_json
@@ -245,51 +244,6 @@ class IssuerManager(ServiceBase):
         super(IssuerManager, self).__init__(pid, exchange, env)
         self._issuers = {}
         self._ledger_pid = "indy-ledger"
-
-    @classmethod
-    def create(cls, service_mgr: ServiceManager, pid: str = "issuer-manager"):
-        """
-        Initialize a standard :class:`IssuerManager` from a :class:`ServiceManager` instance
-
-        Args:
-            service_mgr: the shared :class:`ServiceManager` instance
-            pid: the identifier for the :class:`IssuerManager` service
-
-        Returns:
-            the initialized :class:`IssuerManager` instance
-        """
-        env = service_mgr.env
-        issuers = []
-        issuer_ids = []
-        limit_issuers = env.get("ISSUERS")
-        limit_issuers = (
-            limit_issuers.split()
-            if (limit_issuers and limit_issuers != "all")
-            else None
-        )
-        config_issuers = service_mgr.services_config("issuers")
-        if not config_issuers:
-            raise ValueError("No issuers defined by configuration")
-        for issuer_key, issuer_cfg in config_issuers.items():
-            if not "id" in issuer_cfg:
-                issuer_cfg["id"] = issuer_key
-            if limit_issuers is None or issuer_cfg["id"] in limit_issuers:
-                issuers.append(issuer_cfg)
-                issuer_ids.append(issuer_cfg["id"])
-        if issuers:
-            LOGGER.info(
-                "Initializing processor for services: %s",
-                ", ".join(issuer_ids),
-            )
-            mgr = cls(pid, service_mgr.exchange, env)
-            for issuer_cfg in issuers:
-                if "api_url" not in issuer_cfg:
-                    issuer_cfg["api_url"] = env.get("TOB_API_URL")
-                svc = IssuerService(issuer_cfg, service_mgr.schema_manager)
-                mgr.add_issuer(svc)
-            return mgr
-        else:
-            raise ValueError("No defined issuers referenced by ISSUERS")
 
     def add_issuer(self, issuer: IssuerService) -> None:
         """

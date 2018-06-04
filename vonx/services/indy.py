@@ -41,7 +41,6 @@ from .base import (
     ServiceRequest,
     ServiceResponse,
     ServiceError)
-from .manager import ServiceManager
 from .schema import Schema
 from .util import log_json
 
@@ -438,36 +437,6 @@ class IndyLedger(ServiceBase):
         self._ledger_url = None
         self._verifier = None
         self._update_config(spec)
-
-    @classmethod
-    def create(cls, service_mgr: ServiceManager, pid: str = "indy-ledger"):
-        """
-        Initialize the Hyperledger Indy service
-
-        Args:
-            service_mgr: the shared :class:`ServiceManager` instance
-            pid: the identifier for the :class:`IndyLedger` service
-
-        Returns:
-            the initialized :class:`IndyLedger` instance
-        """
-        env = service_mgr.env
-        genesis_path = env.get("INDY_GENESIS_PATH")
-        if not genesis_path:
-            raise ValueError(
-                "Indy genesis transaction path (INDY_GENESIS_PATH) not defined"
-            )
-        ledger_url = env.get("INDY_LEDGER_URL")
-        if not ledger_url:
-            raise ValueError("INDY_LEDGER_URL not defined")
-
-        spec = {
-            "auto_register": env.get("AUTO_REGISTER_DID", 1),
-            "genesis_path": genesis_path,
-            "ledger_url": ledger_url,
-        }
-        LOGGER.info("Initializing Indy ledger service")
-        return cls(pid, service_mgr.exchange, env, spec)
 
     def _update_config(self, spec) -> None:
         """

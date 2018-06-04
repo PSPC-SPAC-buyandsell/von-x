@@ -17,16 +17,15 @@
 
 import asyncio
 from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 import logging
+import multiprocessing as mp
 import os
+from queue import Queue
+from threading import get_ident, Event, Thread
 import time
 import traceback
 from typing import Awaitable, Callable, NamedTuple, Sequence
-
-from concurrent.futures import Future, ThreadPoolExecutor
-import multiprocessing as mp
-from queue import Queue
-from threading import get_ident, Thread
 
 import aiohttp
 
@@ -194,23 +193,34 @@ class Exchange:
     def __init__(self):
         self._cmd_pipe = mp.Pipe()
         self._cmd_lock = mp.Lock()
+        self._proc = None
         self._req_cond = mp.Condition(mp.Lock())
 
-    def start(self, process: bool = True):
+    def start(self, process: bool = True) -> None:
         if process:
-            runner = mp.Process(target=self.run)
+            evt = mp.Event()
+            proc = mp.Process(target=self._run, args=(evt,))
         else:
-            runner = Thread(target=self.run)
-        runner.daemon = True
-        runner.start()
-        return runner
+            evt = Event()
+            proc = Thread(target=self._run, args=(evt,))
+        proc.daemon = True
+        proc.start()
+        evt.wait()
+        self._proc = proc
+        LOGGER.info('started exchange')
 
-    def stop(self):
+    def stop(self) -> None:
         """
         Send a stop signal to the polling thread
         """
         with self._req_cond:
-            return self._cmd('stop')
+            self._cmd('stop')
+
+    def join(self) -> None:
+        """
+        Wait for the exchange to finish running
+        """
+        self._proc.join()
 
     def status(self) -> dict:
         """
@@ -286,7 +296,7 @@ class Exchange:
             raise
         return message
 
-    def run(self) -> None:
+    def _run(self, event: Event) -> None:
         """
         The message processing loop
         """
@@ -294,6 +304,7 @@ class Exchange:
         pending = 0
         processed = {}
         queue = {}
+        event.set()
         try:
             while True:
                 command = self._cmd_pipe[0].recv()
@@ -450,7 +461,7 @@ class MessageProcessor:
         """
         return MessageTarget(pid, self._exchange, self._pid)
 
-    def start(self) -> None:
+    def start(self, _wait: bool = True) -> None:
         """
         Run a thread to poll for received messages
         """
@@ -586,13 +597,13 @@ class RequestExecutor(MessageProcessor):
         self._requests = {}
         self._runner = None
 
-    def start(self) -> None:
+    def start(self, wait: bool = True) -> None:
         """
         Initialize our :class:`eventloop.Runner` and run our polling thread to listen for messages
         """
         self._out_queue = Queue()
         self._runner = eventloop.Runner()
-        self._runner.start()
+        self._runner.start(wait)
         self._req_lock = asyncio.Lock(loop=self._runner.loop)
         # Send outgoing messages to the exchange (without blocking our event loop)
         self.run_thread(self._send_messages)
@@ -875,7 +886,7 @@ class ThreadedHelloProcessor(HelloProcessor):
         self._pool = None
         self._max_workers = max_workers
 
-    def start(self) -> None:
+    def start(self, _wait: bool = True) -> None:
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
         self._pool.submit(self._poll_messages)
 
