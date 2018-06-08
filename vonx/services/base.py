@@ -142,6 +142,12 @@ class ServiceBase(RequestExecutor):
         """
         return True
 
+    async def _get_status(self) -> ServiceResponse:
+        """
+        Return the current status of the service
+        """
+        return ServiceStatus(self._status.copy())
+
     async def _handle_message(self, received: MessageWrapper) -> bool:
         """
         Process a message from the exchange and send the reply, if any
@@ -164,7 +170,7 @@ class ServiceBase(RequestExecutor):
             reply = ServiceAck()
 
         elif isinstance(request, ServiceStatusReq):
-            reply = ServiceStatus(self._status.copy())
+            reply = await self._get_status()
 
         elif isinstance(request, ServiceRequest):
             try:

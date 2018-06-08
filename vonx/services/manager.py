@@ -15,27 +15,30 @@
 # limitations under the License.
 #
 
-import asyncio
 import logging
 import multiprocessing as mp
 import os
 from typing import Mapping
 
-from .base import ServiceBase, ServiceStatus, ServiceStatusReq
+from .base import ServiceBase, ServiceStatus, ServiceStatusReq, ServiceResponse
 from . import exchange as exch
 
 LOGGER = logging.getLogger(__name__)
 
 
-class ServiceManager:
-    def __init__(self, env: Mapping = None):
-        self._env = env or {}
-        self._exchange = exch.Exchange()
+class ServiceManager(ServiceBase):
+    """
+    The standard :class:`ServiceManager` class is responsible for starting the
+    message exchange, registering itself as a service, starting any dependent
+    services, and checking the status of those services. It should normally be run
+    with `start_process()` before the web server process has forked.
+    """
+
+    def __init__(self, env: Mapping = None, pid: str = 'manager'):
+        super(ServiceManager, self).__init__(pid, exch.Exchange(), env or {})
         self._executor_cls = exch.RequestExecutor
         self._proc_locals = {'pid': os.getpid()}
-        self._process = None
         self._services = {}
-        self._services_cfg = None
         self._init_services()
 
     def _init_services(self) -> None:
@@ -68,38 +71,20 @@ class ServiceManager:
         else:
             raise RuntimeError("Unexpected response to status request: {}".format(result))
 
-    def start(self) -> None:
+    def start(self, wait: bool = True) -> None:
         """
         Start the message processor and any other services
         """
-        asyncio.get_child_watcher()
-        self._process = mp.Process(target=self._start)
-        self._process.start()
+        self._exchange.start(False)
+        super(ServiceManager, self).start(wait)
 
-    def _start(self, wait: bool = True) -> None:
-        """
-        Run loop for the main process
-        """
-        self._init_process()
-        self._exchange.start()
-        self._start_services(wait)
-        self._exchange.join()
-
-    def _init_process(self) -> None:
-        """
-        Initialize ourselves in a newly started process
-        """
-        # create new event loop after fork
-        asyncio.get_event_loop().close()
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    def _start_services(self, wait: bool = True) -> None:
+    async def _service_start(self) -> bool:
         """
         Start all registered services
         """
         for _svc_id, service in self._services.items():
-            service.start(wait)
+            service.start(True)
+        return True
 
     def stop(self, wait: bool = True) -> None:
         """
@@ -114,6 +99,17 @@ class ServiceManager:
         """
         for _id, service in self._services.items():
             service.stop(wait)
+
+    async def _get_status(self) -> ServiceResponse:
+        """
+        Return the current status of the service
+        """
+        status = self._status.copy()
+        status['services'] = {
+            svc_id: await self.get_service_status(svc_id)
+            for svc_id in self._services
+        }
+        return ServiceStatus(status)
 
     @property
     def env(self) -> dict:
@@ -166,9 +162,11 @@ class ServiceManager:
         Returns:
             the service instance, or None if not found
         """
+        if name == 'manager':
+            return self
         return self._services.get(name)
 
-    def get_message_target(self, name: str) -> exch.MessageTarget:
+    def get_service_message_target(self, name: str) -> exch.MessageTarget:
         """
         Get an endpoint for one of the services defined by this manager.
         This Endpoint can be used for sending process-safe messages and receiving results.
@@ -177,11 +175,12 @@ class ServiceManager:
             name: the string identifier for the service
             loop: the current event loop, if any
         """
-        if name in self._services:
-            return self.executor.get_message_target(self._services[name].pid)
+        svc = self.get_service(name)
+        if svc:
+            return self.executor.get_message_target(svc.pid)
         return None
 
-    def get_request_target(self, name: str) -> exch.RequestTarget:
+    def get_service_request_target(self, name: str) -> exch.RequestTarget:
         """
         Get an endpoint for sending messages to a service on the message exchange.
         Requests will be handled by the executor for this manager in this process.
@@ -193,9 +192,9 @@ class ServiceManager:
         ploc = self.proc_locals
         tg_name = 'target_' + name
         if tg_name not in ploc:
-            if name in self._services:
-                pid = self._services[name].pid
-                ploc[tg_name] = self.executor.get_request_target(pid)
+            svc = self.get_service(name)
+            if svc:
+                ploc[tg_name] = self.executor.get_request_target(svc.pid)
             else:
                 return None
         return ploc[tg_name]

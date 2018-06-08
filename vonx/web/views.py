@@ -43,7 +43,7 @@ def get_request_target(request: ClientRequest, service_name: str) -> RequestTarg
         request: the incoming HTTP request
         service_name: the name of the service registered with the service manager
     """
-    return get_manager(request).get_request_target(service_name)
+    return get_manager(request).get_service_request_target(service_name)
 
 def service_request(request: ClientRequest, service_name: str, message) -> Future:
     """
@@ -61,7 +61,7 @@ async def health(request: ClientRequest) -> ClientResponse:
     """
     Respond with HTTP code 200 if services are ready to accept new credentials, 451 otherwise
     """
-    result = await get_manager(request).get_service_status('issuer')
+    result = await get_manager(request).get_service_status('manager')
     return web.Response(
         text='ok' if result else '',
         status=200 if result else 451)
@@ -71,7 +71,7 @@ async def status(request: ClientRequest) -> ClientResponse:
     """
     Respond with the current status of the application in JSON format
     """
-    result = await get_manager(request).get_service_status('issuer')
+    result = await get_manager(request).get_service_status('manager')
     return web.json_response(result)
 
 

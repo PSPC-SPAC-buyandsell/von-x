@@ -91,7 +91,7 @@ async def process_form(form, request: web.Request) -> web.Response:
             else:
                 inputs = await request.post()
 
-            service = request.app['manager'].get_request_target('issuer')
+            service = request.app['manager'].get_service_request_target('issuer')
             result = await service.request(
                 issuer.ResolveSchemaRequest(schema_name, schema_version))
             if not isinstance(result, issuer.ResolveSchemaResponse):

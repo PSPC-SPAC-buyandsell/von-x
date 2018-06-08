@@ -32,6 +32,7 @@ class StandardServiceManager(manager.ServiceManager):
 
     def __init__(self, env: Mapping = None):
         self._schema_mgr = None
+        self._services_cfg = None
         super(StandardServiceManager, self).__init__(env)
 
     def _init_services(self) -> None:

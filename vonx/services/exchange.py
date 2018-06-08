@@ -634,8 +634,10 @@ class RequestExecutor(MessageProcessor):
         Start this executor in a new process
         """
         def _start():
+            self._init_process()
             self.start()
             self._runner.join()
+        asyncio.get_child_watcher()
         proc = mp.Process(target=_start)
         proc.start()
         return proc
@@ -678,6 +680,15 @@ class RequestExecutor(MessageProcessor):
             args: arguments to pass to the proc, if a function
         """
         return self._runner.run_in_executor(None, proc, *args)
+
+    def _init_process(self) -> None:
+        """
+        Initialize ourselves in a newly started process
+        """
+        # create new event loop after fork
+        asyncio.get_event_loop().close()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     def _send_messages(self) -> None:
         """
