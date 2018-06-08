@@ -57,18 +57,11 @@ def service_request(request: ClientRequest, service_name: str, message) -> Futur
     return get_request_target(request, service_name).request(message)
 
 
-async def index(_request: ClientRequest) -> ClientResponse:
-    """
-    Respond with the default application index page
-    """
-    return web.FileResponse('vonx/templates/index.html')
-
-
 async def health(request: ClientRequest) -> ClientResponse:
     """
     Respond with HTTP code 200 if services are ready to accept new credentials, 451 otherwise
     """
-    result = await service_request(request, 'issuer', 'ready')
+    result = await get_manager(request).get_service_status('issuer')
     return web.Response(
         text='ok' if result else '',
         status=200 if result else 451)
@@ -78,8 +71,7 @@ async def status(request: ClientRequest) -> ClientResponse:
     """
     Respond with the current status of the application in JSON format
     """
-    #result = get_manager(request).exchange.status()
-    result = await service_request(request, 'issuer', 'status')
+    result = await get_manager(request).get_service_status('issuer')
     return web.json_response(result)
 
 

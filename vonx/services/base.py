@@ -53,13 +53,11 @@ class ServiceError(ExchangeError):
     """
     pass
 
-
 class ServiceStatusReq(ServiceRequest):
     """
     Request the status of a service
     """
     pass
-
 
 class ServiceStatus(ServiceResponse):
     _fields = (
@@ -68,7 +66,6 @@ class ServiceStatus(ServiceResponse):
     """
     Request the status of a service
     """
-
 
 class ServiceSyncReq(ServiceRequest):
     """

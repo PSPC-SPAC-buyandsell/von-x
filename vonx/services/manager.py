@@ -21,7 +21,7 @@ import multiprocessing as mp
 import os
 from typing import Mapping
 
-from .base import ServiceBase
+from .base import ServiceBase, ServiceStatus, ServiceStatusReq
 from . import exchange as exch
 
 LOGGER = logging.getLogger(__name__)
@@ -53,6 +53,20 @@ class ServiceManager:
             service: the service instance
         """
         self._services[svc_id] = service
+
+    async def get_service_status(self, svc_id: str) -> dict:
+        """
+        Fetch the status of a registered service
+
+        Args:
+            svc_id: the unique identifier for the service
+        """
+        pid = self.get_service(svc_id).pid
+        result = await self.executor.submit(pid, ServiceStatusReq())
+        if isinstance(result, ServiceStatus):
+            return result.status
+        else:
+            raise RuntimeError("Unexpected response to status request: {}".format(result))
 
     def start(self) -> None:
         """

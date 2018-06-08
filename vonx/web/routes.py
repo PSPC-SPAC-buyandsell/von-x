@@ -33,7 +33,6 @@ def get_standard_routes(_app) -> list:
     Get the standard list of routes for the von-x application
     """
     return [
-        web.get('/', views.index),
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
