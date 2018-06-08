@@ -15,14 +15,39 @@
 # limitations under the License.
 #
 
+import json
+import os
 
 from aiohttp import web
+import aiohttp_jinja2
+from jinja2 import ChoiceLoader, FileSystemLoader, PackageLoader
 
-from ..services.manager import ServiceManager
+from ..services.common import StandardServiceManager
 from .routes import get_routes
 
 
-async def init_web(manager: ServiceManager):
+def _setup_jinja(manager: StandardServiceManager, app: web.Application):
+    """
+    Initialize aiohttp-jinja2 for template rendering
+    """
+
+    tpl_path = manager.env.get('TEMPLATE_PATH')
+    if not tpl_path:
+        tpl_path = os.path.join(manager.config_root, 'templates')
+    # load default templates provided by package
+    loader = PackageLoader('vonx', 'templates')
+    if tpl_path:
+        # load custom templates if present
+        # may want to use a resource loader if tpl_path looks like a package name (has a colon)
+        loader = ChoiceLoader([
+            loader,
+            FileSystemLoader(tpl_path)
+        ])
+    filters = {"jsonify": json.dumps}
+    aiohttp_jinja2.setup(app, loader=loader, filters=filters)
+
+
+async def init_web(manager: StandardServiceManager):
     """
     Initialize the web server application
     """
@@ -31,7 +56,9 @@ async def init_web(manager: ServiceManager):
     app = web.Application()
     app['base_href'] = base
     app['manager'] = manager
+    app['static_root_url'] = base + 'assets'
     app.add_routes(get_routes(app))
+    _setup_jinja(manager, app)
 
     if base != '/':
         root_app = web.Application()

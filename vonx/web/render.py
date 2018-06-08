@@ -15,67 +15,14 @@
 # limitations under the License.
 #
 
-import json
 import logging
-import os
 
 from aiohttp import web
-from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader, nodes
-from jinja2.ext import Extension
+import aiohttp_jinja2
 
 from vonx.services import prover, manager
 
 LOGGER = logging.getLogger(__name__)
-
-
-class StaticExtension(Extension):
-    """
-    Jinja2 extension to return a URL for a static resource
-    """
-    tags = set(['static'])
-
-    def parse(self, parser):
-        lineno = next(parser.stream).lineno
-
-        args = [parser.parse_expression()]
-
-        return nodes.Output([
-            nodes.MarkSafe(nodes.Const('assets/')),
-            nodes.MarkSafe(args[0]),
-        ], lineno=lineno)
-
-
-def jinja_env(mgr: manager.ServiceManager):
-    """
-    Construct an :class:`Environment` to pass to jinja2 to configure rendering
-    """
-    tpl_path = mgr.env.get('TEMPLATE_PATH')
-    if not tpl_path:
-        tpl_path = os.path.join(mgr.config_root, 'templates')
-    # load default templates provided by package
-    loader = PackageLoader('vonx', 'templates')
-    if tpl_path:
-        # load custom templates if present
-        # may want to use a resource loader if tpl_path looks like a package name (has a colon)
-        loader = ChoiceLoader([
-            loader,
-            FileSystemLoader(tpl_path)
-        ])
-    env = Environment(
-        extensions=[StaticExtension],
-        loader=loader)
-    env.filters['jsonify'] = json.dumps
-    return env
-
-
-def render_template(name: str, env: Environment, variables=None):
-    """
-    Render a jinja2 template
-    """
-    if not variables:
-        variables = {}
-    template = env.get_template(name)
-    return template.render(**variables)
 
 
 async def render_form(form: dict, request: web.Request) -> web.Response:
@@ -163,5 +110,4 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
     tpl_vars.update(form)
     tpl_vars['path'] = request.rel_url
 
-    tpl_env = jinja_env(service_mgr)
-    return web.Response(text=render_template(tpl_name, tpl_env, tpl_vars), content_type='text/html')
+    return aiohttp_jinja2.render_template(tpl_name, request, tpl_vars)

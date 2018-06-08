@@ -36,7 +36,7 @@ setup(
     python_requires='>=3.5.3',
     install_requires=[
         'aiohttp~=3.3.0',
-        'jinja2',
+        'aiohttp-jinja2~=1.0.0',
         'PyYAML',
         'von-agent==1.1.2',
     ],
