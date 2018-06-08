@@ -289,7 +289,7 @@ class IssuerManager(ServiceBase):
                     except TobClientError as e:
                         issuer.status["sync_error"] = str(e)
                         LOGGER.error("Issuer %s API registration failed: %s",
-                            issuer_id, str(e))
+                                     issuer_id, str(e))
             if not issuer.status["ready"]:
                 synced = False
         return synced

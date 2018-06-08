@@ -544,9 +544,6 @@ class IndyLedger(ServiceBase):
     async def _check_genesis_path(self) -> None:
         """
         Make sure that the genesis path is defined, and download the transaction file if needed.
-
-        Returns:
-            the resolved genesis transaction path
         """
         if not self._genesis_path:
             path = self._config.get("genesis_path")
