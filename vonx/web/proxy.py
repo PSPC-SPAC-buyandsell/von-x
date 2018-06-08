@@ -45,7 +45,7 @@ def proxy_handler(proxy_cfg: dict) -> Coroutine:
         a coroutine to be used by aiohttp as a request handler
     """
 
-    async def handle_request(request):
+    async def _handle_request(request):
         path = request.match_info['path']
         target_url = proxy_cfg['url']
         if not target_url.endswith('/'):
@@ -87,4 +87,4 @@ def proxy_handler(proxy_cfg: dict) -> Coroutine:
 
         return response
 
-    return handle_request
+    return _handle_request

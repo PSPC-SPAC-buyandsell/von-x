@@ -37,6 +37,9 @@ LOGGER = logging.getLogger(__name__)
 _MESSAGE_FIELDS = {}
 
 def format_type_name(ctype):
+    """
+    Convert a type or list of types to a string
+    """
     if isinstance(ctype, Sequence):
         return '[{}]'.format(', '.join(map(format_type_name, ctype)))
     elif ctype is None:
@@ -121,7 +124,14 @@ class ExchangeMessage:
             return self._values[key]
         return getattr(self, key)
 
-    def get(self, name, defval=None):
+    def get(self, name: str, defval=None):
+        """
+        Get a property of the message by name
+
+        Args:
+            name: the property name
+            defval: the default value to return if the property is not defined
+        """
         return getattr(self, name, defval)
 
     def __repr__(self):
@@ -144,7 +154,11 @@ class ExchangeError(ExchangeMessage):
             exc_info = traceback.format_exc()
         super(ExchangeError, self).__init__(value, exc_info)
 
-    def format(self):
+    def format(self) -> str:
+        """
+        Format this :class:`ExchangeError` instance as a string including the
+        traceback, if any
+        """
         ret = '{}'.format(self.value)
         if self.exc_info:
             ret += "\n" + str(self.exc_info)
@@ -197,6 +211,9 @@ class Exchange:
         self._req_cond = mp.Condition(mp.Lock())
 
     def start(self, process: bool = True) -> None:
+        """
+        Start the message exchange as a thread or process
+        """
         if process:
             evt = mp.Event()
             proc = mp.Process(target=self._run, args=(evt,))
@@ -616,10 +633,10 @@ class RequestExecutor(MessageProcessor):
         """
         Start this executor in a new process
         """
-        def start():
+        def _start():
             self.start()
             self._runner.join()
-        proc = mp.Process(target=start)
+        proc = mp.Process(target=_start)
         proc.start()
         return proc
 
@@ -891,6 +908,9 @@ class ThreadedHelloProcessor(HelloProcessor):
         self._pool.submit(self._poll_messages)
 
     def start_process(self) -> mp.Process:
+        """
+        Start this demo processor as a process instead of a thread
+        """
         proc = mp.Process(target=lambda: self.start().result())
         proc.start()
         return proc

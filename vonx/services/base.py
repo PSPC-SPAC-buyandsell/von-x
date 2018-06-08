@@ -123,6 +123,7 @@ class ServiceBase(RequestExecutor):
         """
         Service sync process
         """
+        #pylint: disable=broad-except
         async with self._sync_lock:
             prev = self._status["synced"]
             self._update_status(syncing=True)
@@ -151,6 +152,7 @@ class ServiceBase(RequestExecutor):
         Args:
             received: The message to be processed
         """
+        #pylint: disable=broad-except
         from_pid, request, ident = (
             received.from_pid,
             received.message,

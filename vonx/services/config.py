@@ -131,7 +131,7 @@ def expand_string_variables(value, env: Mapping, warn: bool = True):
     """
     if not isinstance(value, str):
         return value
-    def replace_var(matched):
+    def _replace_var(matched):
         default = None
         var = matched.group(1)
         if matched.group(2):
@@ -144,7 +144,7 @@ def expand_string_variables(value, env: Mapping, warn: bool = True):
             logging.getLogger(__name__).warning('Configuration variable not defined: %s', var)
             found = ''
         return found
-    return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', replace_var, value)
+    return re.sub(r'\$(?:(\w+)|\{([^}]*?)(:-([^}]*))?\})', _replace_var, value)
 
 
 def map_tree(tree, map_fn: Callable):

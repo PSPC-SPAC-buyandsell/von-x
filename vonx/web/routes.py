@@ -285,10 +285,10 @@ def form_handler(form: dict) -> Coroutine:
     """
     Return a request handler for processing form routes
     """
-    async def process(request: ClientRequest):
+    async def _process(request: ClientRequest):
         if request.method == 'GET' or request.method == 'HEAD':
             return await render_form(form, request)
         elif request.method == 'POST':
             return await process_form(form, request)
         return web.Response(status=405)
-    return process
+    return _process

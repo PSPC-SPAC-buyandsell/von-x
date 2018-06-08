@@ -12,6 +12,9 @@ def uuid() -> str:
 
 
 def pst():
+    """
+    Generate a random PST number
+    """
     return '%d%d%d%d%d %d%d%d%d' % tuple(randrange(10) for i in range(9))
 
 

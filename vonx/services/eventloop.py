@@ -53,10 +53,10 @@ def run_in_executor(executor: Executor, coro: Coroutine) -> Future:
         A `Future` which can be used to access the result of the coroutine
     """
     loop = asyncio.new_event_loop()
-    def run_sync_loop(loop, coro):
+    def _run_sync_loop(loop, coro):
         asyncio.set_event_loop(loop)
         loop.run_until_complete(coro)
-    future = executor.submit(run_sync_loop, loop, coro)
+    future = executor.submit(_run_sync_loop, loop, coro)
     return future
 
 
@@ -157,6 +157,14 @@ class Runner:
         return result
 
     def run_in_executor(self, executor: Executor, func: Callable, *args) -> asyncio.Future:
+        """
+        Run a function in an executor, in the runner's event loop
+
+        Args:
+            executor: the Executor to use, may be None for the default ThreadPoolExecutor
+            func: the function to run
+            args: arguments to pass to the function
+        """
         if not self._active:
             raise RuntimeError('Runner is not active')
         coro = self._loop.run_in_executor(executor, func, *args)

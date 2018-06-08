@@ -84,7 +84,7 @@ class ServiceManager:
         """
         Start all registered services
         """
-        for svc_id, service in self._services.items():
+        for _svc_id, service in self._services.items():
             service.start(wait)
 
     def stop(self, wait: bool = True) -> None:
