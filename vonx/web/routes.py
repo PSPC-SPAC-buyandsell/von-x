@@ -23,7 +23,6 @@ from aiohttp import web, ClientRequest
 from vonx.services.manager import ServiceManager
 from . import views
 from .process import process_form
-from .proxy import proxy_handler
 from .render import render_form
 
 LOGGER = logging.getLogger(__name__)
@@ -66,8 +65,6 @@ class RouteDefinitions:
         self.forms = []
         self.issuers = []
         self.paths = []
-        self.proxies = []
-        self.static = []
 
     @classmethod
     def load(cls, manager: ServiceManager) -> 'RouteDefinitions':
@@ -113,26 +110,6 @@ class RouteDefinitions:
         self.add_paths(issuer['path'])
         self.issuers.append(issuer)
 
-    def add_proxy(self, proxy: dict) -> None:
-        """
-        Add a proxy route definition
-
-        Args:
-            proxy: a dictionary of proxy configuration parameters
-        """
-        self.add_paths(proxy['path'])
-        self.proxies.append(proxy)
-
-    def add_static(self, static: dict) -> None:
-        """
-        Add a static resource route definition
-
-        Args:
-            static: a dictionary of static resource configuration parameters
-        """
-        self.add_paths(static['path'])
-        self.static.append(static)
-
     def path_defined(self, path: str) -> bool:
         """
         Check whether a given path is defined by a previously-added route
@@ -163,12 +140,6 @@ class RouteDefinitions:
 
         issuers = config.get('issuers') or {}
         self.load_issuer_definitions(issuers, limit_issuers)
-
-        proxy = config.get('proxy') or {}
-        self.load_proxy_definitions(proxy)
-
-        static = config.get('static') or {}
-        self.load_static_definitions(static)
 
         return True
 
@@ -201,34 +172,6 @@ class RouteDefinitions:
                 issuer['path'] = '/' + issuer['name']
             self.add_issuer(issuer)
 
-    def load_static_definitions(self, config: dict) -> None:
-        """
-        Load a dictionary of static resource definitions from the application route configuration
-        """
-        for static_id, static in config.items():
-            static_id = static['id'] = static.get('id', static_id)
-            if not 'target' in static:
-                raise ValueError('Missing target path for static resource: {}'.format(static_id))
-            if not 'name' in static:
-                static['name'] = static_id
-            if not static.get('path'):
-                static['path'] = '/' + static['name']
-            self.add_static(static)
-
-    def load_proxy_definitions(self, config: dict) -> None:
-        """
-        Load a dictionary of proxy definitions from the application route configuration
-        """
-        for proxy_id, proxy in config.items():
-            proxy_id = proxy['id'] = proxy.get('id', proxy_id)
-            if not 'url' in proxy:
-                raise ValueError('Missing url for proxy: {}'.format(proxy_id))
-            if not 'name' in proxy:
-                proxy['name'] = proxy_id
-            if not proxy.get('path'):
-                proxy['path'] = '/' + proxy['name']
-            self.add_proxy(proxy)
-
     @property
     def routes(self) -> list:
         """
@@ -244,25 +187,11 @@ class RouteDefinitions:
             web.view(issuer['path'] + '/issue-credential', views.issue_credential,
                      name=issuer['name']+'-issue-credential')
             for issuer in self.issuers)
+
         routes.extend(
             web.view(issuer['path'] + '/construct-proof', views.construct_proof,
                      name=issuer['name']+'-construct-proof')
             for issuer in self.issuers)
-
-        routes.extend(
-            web.view(proxy['path']+'/{path:.*}', proxy_handler(proxy), name=proxy['name'])
-            for proxy in self.proxies)
-
-        routes.extend(
-            web.static(
-                static['path'],
-                static['target'],
-                # follow_symlinks=,
-                # append_version=
-                show_index=False,
-                name=static['name'])
-            for static in self.static
-        )
 
         return routes
 
