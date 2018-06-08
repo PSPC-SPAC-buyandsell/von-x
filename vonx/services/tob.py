@@ -17,6 +17,8 @@
 
 import logging
 
+import aiohttp
+
 from .indy import (
     IndyCredOffer,
     IndyCredential,
@@ -71,11 +73,33 @@ class TobClientError(Exception):
     A generic exception representing an issue with a TobClient operation
     """
 
-    def __init__(self, status_code, message, response):
+    def __init__(self, status_code, message: str, response=None):
         super(TobClientError, self).__init__(message)
         self.status_code = status_code
         self.message = message
         self.response = response
+
+
+async def _handle_request_error(method: str, response=None):
+    """
+    Handle an exception or bad response from an HTTP request
+    """
+    if isinstance(response, Exception):
+        code = getattr(response, 'code', None)
+        raise TobClientError(
+            code,
+            "Exception during {}: ({}) {}".format(
+                method, code, str(response)
+            ),
+        )
+    if response and response.status != 200 and response.status != 201:
+        raise TobClientError(
+            response.status,
+            "Bad response from {}: ({}) {}".format(
+                method, response.status, await response.text()
+            ),
+            response,
+        )
 
 
 class TobClient:
@@ -186,15 +210,11 @@ class TobClient:
         """
         url = self.get_api_url(path)
         LOGGER.debug("fetch_list: %s", url)
-        response = await self._http_client.get(url)
-        if response.status != 200:
-            raise TobClientError(
-                response.status,
-                "Bad response from fetch_list: ({}) {}".format(
-                    response.status, await response.text()
-                ),
-                response,
-            )
+        try:
+            response = await self._http_client.get(url)
+        except aiohttp.ClientError as e:
+            response = e
+        await _handle_request_error('fetch_list', response)
         return await response.json()
 
     async def post_json(self, path: str, data):
@@ -206,18 +226,17 @@ class TobClient:
                 authentication headers
             path: The relative path to the API method
             data: The body of the request, to be converted to JSON
+
+        Returns:
+            the decoded JSON response
         """
         url = self.get_api_url(path)
         LOGGER.debug("post_json: %s", url)
-        response = await self._http_client.post(url, json=data)
-        if response.status != 200 and response.status != 201:
-            raise TobClientError(
-                response.status,
-                "Bad response from post_json: ({}) {}".format(
-                    response.status, await response.text()
-                ),
-                response,
-            )
+        try:
+            response = await self._http_client.post(url, json=data)
+        except aiohttp.ClientError as e:
+            response = e
+        await _handle_request_error('post_json', response)
         return await response.json()
 
     async def __aenter__(self):

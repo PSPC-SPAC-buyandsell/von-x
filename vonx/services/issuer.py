@@ -283,9 +283,13 @@ class IssuerManager(ServiceBase):
                     cfg["credential_types"] = issuer.cred_types
                     try:
                         _result = await api_client.register_issuer(cfg)
-                    except TobClientError:
-                        continue
-                issuer.status["ready"] = True
+                        issuer.status["ready"] = True
+                        del issuer.status["sync_error"]
+                        LOGGER.info("Issuer %s registered with API", issuer_id)
+                    except TobClientError as e:
+                        issuer.status["sync_error"] = str(e)
+                        LOGGER.error("Issuer %s API registration failed: %s",
+                            issuer_id, str(e))
             if not issuer.status["ready"]:
                 synced = False
         return synced
