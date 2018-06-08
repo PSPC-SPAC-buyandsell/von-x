@@ -1,4 +1,4 @@
-aiohttp~=3.1.2
+aiohttp~=3.3.0
 jinja2~=2.10
 PyYAML>=3.12
 # part of von-image
