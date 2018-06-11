@@ -55,24 +55,22 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         if not proof_spec:
             raise ValueError('Unknown proof request: {}'.format(proof_name))
 
-        inputs = {}
-        if 'filters' in proof_req:
-            for attr_name, param_name in proof_req['filters'].items():
-                val = request.query.get(param_name)
-                if val is not None and val != '':
-                    inputs[attr_name] = val
-
-        filters = {}
-        for attr_name in proof_spec['filters']:
-            val = inputs.get(attr_name)
-            if val is None:
-                return web.Response(text='Missing value for filter: {}'.format(attr_name))
-            filters[attr_name] = val
+        params = {}
+        if 'params' in proof_req:
+            for attr_name, param in proof_req['params'].items():
+                if isinstance(param, str):
+                    param_from = param
+                elif isinstance(param, dict):
+                    param_from = param.get('from')
+                if param_from:
+                    val = request.query.get(param_from)
+                    if val is not None and val != '':
+                        params[attr_name] = val
 
         try:
             service = service_mgr.get_service_request_target('prover')
             result = await service.request(
-                prover.ConstructProofRequest(proof_name, filters))
+                prover.ConstructProofRequest(proof_name, params))
             if isinstance(result, prover.ConstructProofResponse):
                 proof_response = result.value
                 proof_response['success'] = True
@@ -85,7 +83,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                 proof_response = {'success': False}
         except Exception:
             LOGGER.exception('Error while requesting proof')
-            return web.Response(text='A communcation error occurred')
+            return web.Response(text='A communication error occurred')
 
     tpl_name = form.get('template', 'index.html')
     tpl_vars = {

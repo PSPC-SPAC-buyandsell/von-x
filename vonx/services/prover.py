@@ -72,7 +72,7 @@ class ConstructProofRequest(ServiceRequest):
     """
     _fields = (
         ('name', str),
-        ('filters', dict),
+        ('params', dict),
     )
 
 
@@ -164,11 +164,11 @@ class ProverManager(ServiceBase):
         api_url = url or self._env.get('TOB_API_URL')
         return TobClient(self.http, api_url)
 
-    async def construct_proof(self, name: str, filters: Mapping) -> dict:
+    async def construct_proof(self, name: str, params: Mapping) -> dict:
         """
         Args:
             name: The unique identifier for the proof request definition
-            filters: A set of filter values to be applied to the request
+            params: A set of API-specific parameters to be applied to the request
 
         Returns:
             A dict containing `status` and `value` properties representing the response
@@ -182,14 +182,14 @@ class ProverManager(ServiceBase):
             proof_request = prepare_request_json(spec)
 
             log_json('Requesting proof:', {
-                'filters': filters,
+                'params': params,
                 'proof_request': proof_request
             }, LOGGER)
 
             try:
                 proof_response = await api_client.construct_proof(
                     {
-                        'filters': filters,
+                        'source_id': params and params.get('source_id') or None,
                         'proof_request': proof_request
                     })
                 log_json('Got proof response:', proof_response, LOGGER)
@@ -200,7 +200,9 @@ class ProverManager(ServiceBase):
                 LOGGER.exception('Error response while requesting proof:')
                 return {'success': False, 'error': 'Unexpected response from server'}
 
-        proof = proof_response['proof']
+        if not proof_response.get('success'):
+            return {'success': False, 'error': 'Proof could not be constructed'}
+        proof = proof_response['result']
 
         msg = IndyVerifyProofReq(proof_request, proof)
         reply = await self.submit(self._ledger_pid, msg)
@@ -222,7 +224,7 @@ class ProverManager(ServiceBase):
         """
         #pylint: disable=broad-except
         try:
-            result = await self.construct_proof(request.name, request.filters)
+            result = await self.construct_proof(request.name, request.params)
             if result['success']:
                 reply = ConstructProofResponse(result['value'])
             else:

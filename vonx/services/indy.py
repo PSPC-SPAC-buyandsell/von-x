@@ -233,7 +233,7 @@ class IndyVerifiedProof(ServiceResponse):
     The message class representing a successful proof verification
     """
     _fields = (
-        ('verified', bool),
+        ('verified', str),
         ('parsed_proof', dict),
     )
 

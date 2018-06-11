@@ -104,18 +104,18 @@ async def construct_proof(request: ClientRequest) -> ClientResponse:
     proof_name = request.query.get('name')
     if not proof_name:
         return web.Response(text="Missing 'name' parameter", status=400)
-    filters = {}
-    params = await request.json()
-    if isinstance(params, dict):
-        filters = params.get('filters', filters)
+    inputs = await request.json()
+    params = {}
+    if isinstance(inputs, dict):
+        params = inputs.get('params', params)
         if not isinstance(params, dict):
             return web.Response(
-                text="Parameter 'filters' must be an object",
+                text="Parameter 'params' must be an object",
                 status=400)
     try:
         result = await service_request(
             request, 'prover',
-            prover.ConstructProofRequest(proof_name, filters))
+            prover.ConstructProofRequest(proof_name, params))
         if isinstance(result, prover.ConstructProofResponse):
             ret = {'success': True, 'result': result.value}
         elif isinstance(result, prover.ProverError):
