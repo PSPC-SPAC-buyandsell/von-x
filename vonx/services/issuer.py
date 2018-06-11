@@ -284,7 +284,8 @@ class IssuerManager(ServiceBase):
                     try:
                         _result = await api_client.register_issuer(cfg)
                         issuer.status["ready"] = True
-                        del issuer.status["sync_error"]
+                        if "sync_error" in issuer.status:
+                            del issuer.status["sync_error"]
                         LOGGER.info("Issuer %s registered with API", issuer_id)
                     except TobClientError as e:
                         issuer.status["sync_error"] = str(e)
