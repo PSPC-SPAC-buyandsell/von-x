@@ -114,6 +114,9 @@ class ExchangeMessage:
     def _field_positions(self):
         return self._field_specs[3]
 
+    def __iter__(self):
+        return ((fname, self[idx]) for (idx, fname) in enumerate(self._field_names))
+
     def __getattr__(self, name):
         if name in self._field_names:
             return self._values[self._field_positions[name]]

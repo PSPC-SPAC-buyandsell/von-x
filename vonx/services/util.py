@@ -18,6 +18,18 @@
 import json
 import logging
 
+from .exchange import ExchangeMessage
+from .schema import Schema
+
+
+class MessageEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, ExchangeMessage):
+            return dict(obj)
+        elif isinstance(obj, Schema):
+            return obj.__dict__
+        return json.JSONEncoder.default(self, obj)
+
 
 class JsonRepr:
     """
@@ -28,7 +40,7 @@ class JsonRepr:
         self.indent = indent
 
     def __repr__(self):
-        return json.dumps(self.value, indent=self.indent)
+        return json.dumps(self.value, indent=self.indent, cls=MessageEncoder)
 
 
 def log_json(heading, data, logger=None):
