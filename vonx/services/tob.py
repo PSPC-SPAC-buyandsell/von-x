@@ -48,9 +48,6 @@ def assemble_issuer_spec(config: dict) -> dict:
         "url": config.get("url", ""),
     }
 
-    LOGGER.info('-==-=-=-\n\n')
-    LOGGER.info(config)
-
     if not issuer_spec["issuer"]["name"]:
         raise ValueError("Missing issuer name")
 
@@ -66,7 +63,8 @@ def assemble_issuer_spec(config: dict) -> dict:
                 "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
                 "schema": schema.name,
                 "version": schema.version,
-                "source_claim": type_spec["source_claim"]
+                "source_claim": type_spec["source_claim"],
+                "mapping": type_spec.get("mapping")
             }
         )
     issuer_spec["credential_types"] = ctypes

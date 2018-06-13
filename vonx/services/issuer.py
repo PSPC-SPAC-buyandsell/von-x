@@ -98,6 +98,8 @@ def load_cred_definitions(values: list, schema_mgr: SchemaManager) -> list:
                 "issuer_url": ctype.get("issuer_url"),
                 "schema": schema,
                 "source_claim": ctype["source_claim"],
+                # TODO: enforce some structure of mapping dict
+                "mapping": ctype.get("mapping")
             }
         )
     return cred_types
