@@ -57,16 +57,19 @@ def assemble_issuer_spec(config: dict) -> dict:
     ctypes = []
     for type_spec in cred_type_specs:
         schema = type_spec["schema"]
-        ctypes.append(
-            {
-                "name": type_spec.get("description") or schema.name,
-                "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
-                "schema": schema.name,
-                "version": schema.version,
-                "source_claim": type_spec["source_claim"],
-                "mapping": type_spec.get("mapping")
-            }
-        )
+        ctype = {
+            "name": type_spec.get("description") or schema.name,
+            "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
+            "schema": schema.name,
+            "version": schema.version,
+            "source_claim": type_spec["source_claim"],
+        }
+
+        mapping = type_spec.get("mapping")
+        if mapping:
+            ctype["mapping"] = mapping
+
+        ctypes.append(ctype)
     issuer_spec["credential_types"] = ctypes
     return issuer_spec
 
