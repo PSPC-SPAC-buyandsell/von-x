@@ -123,8 +123,8 @@ class TobClient:
         response = await self.post_json(
             "indy/register-issuer", spec
         )
-        result = response["result"]
-        if not response["success"]:
+        result = response.get("result")
+        if not response.get("success"):
             raise TobClientError(
                 400,
                 "Issuer service was not registered: {}".format(result),
@@ -140,12 +140,20 @@ class TobClient:
         Args:
             indy_offer: the result of preparing a credential offer
         """
-        result = await self.post_json(
+        response = await self.post_json(
             "indy/generate-credential-request", {
                 "credential_offer": indy_offer.offer,
                 "credential_definition": indy_offer.cred_def,
             }
         )
+        LOGGER.debug("Credential request response: %s", response)
+        result = response.get("result")
+        if not response.get("success"):
+            raise TobClientError(
+                400,
+                "Could not create credential request: {}".format(result),
+                response,
+            )
         return IndyCredentialRequest(
             None,
             indy_offer,
@@ -160,7 +168,7 @@ class TobClient:
         Args:
             indy_cred: the result of preparing a credential from a credential request
         """
-        result = await self.post_json(
+        response = await self.post_json(
             "indy/store-credential", {
                 "credential_type": indy_cred.schema_name,
                 "credential_data": indy_cred.cred_data,
@@ -169,6 +177,14 @@ class TobClient:
                 "credential_request_metadata": indy_cred.cred_req_metadata,
             }
         )
+        LOGGER.debug("Store credential response: %s", response)
+        result = response.get("result")
+        if not response.get("success"):
+            raise TobClientError(
+                400,
+                "Credential was not stored: {}".format(result),
+                response,
+            )
         return IndyStoredCredential(
             None,
             indy_cred,
