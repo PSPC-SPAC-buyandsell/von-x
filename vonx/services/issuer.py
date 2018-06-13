@@ -65,6 +65,8 @@ def load_cred_definitions(values: list, schema_mgr: SchemaManager) -> list:
     """
     cred_types = []
     for ctype in values or []:
+        if "source_claim" not in ctype:
+            raise ValueError("Credential type must define 'source_claim'")
         if "schema" not in ctype:
             raise ValueError("Credential type must define 'schema'")
         if isinstance(ctype["schema"], str):
@@ -95,6 +97,9 @@ def load_cred_definitions(values: list, schema_mgr: SchemaManager) -> list:
                 "description": ctype.get("description"),
                 "issuer_url": ctype.get("issuer_url"),
                 "schema": schema,
+                "source_claim": ctype["source_claim"],
+                # TODO: enforce some structure of mapping dict
+                "mapping": ctype.get("mapping")
             }
         )
     return cred_types
