@@ -47,6 +47,10 @@ def assemble_issuer_spec(config: dict) -> dict:
         "email": issuer_email,
         "url": config.get("url", ""),
     }
+
+    LOGGER.info('-==-=-=-\n\n')
+    LOGGER.info(config)
+
     if not issuer_spec["issuer"]["name"]:
         raise ValueError("Missing issuer name")
 
