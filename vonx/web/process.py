@@ -77,7 +77,7 @@ async def process_form(form, request: web.Request) -> web.Response:
     """
 
     #pylint: disable=broad-except
-    if form['type'] == 'submit-credential':
+    if form['type'] == 'issue-credential':
         schema_name = form['schema_name']
         schema_version = form.get('schema_version')
         if not schema_name:
