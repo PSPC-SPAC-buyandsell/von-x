@@ -775,6 +775,8 @@ class IndyLedger(ServiceBase):
         issuer = self._issuers[offer.issuer_id]
         schema = issuer.get_schema_config(offer.schema_def)
 
+        LOGGER.info(request.cred_data)
+
         (cred_json, cred_revoc_id) = await issuer.agent.create_cred(
             json.dumps(request.cred_offer.offer),
             request.cred_req_result,
