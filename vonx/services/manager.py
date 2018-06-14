@@ -16,7 +16,6 @@
 #
 
 import logging
-import multiprocessing as mp
 import os
 from typing import Mapping
 

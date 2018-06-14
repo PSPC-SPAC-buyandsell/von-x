@@ -20,7 +20,7 @@ import logging
 from aiohttp import web
 import aiohttp_jinja2
 
-from vonx.services import prover, manager
+from vonx.services import prover
 
 LOGGER = logging.getLogger(__name__)
 
