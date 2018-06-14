@@ -50,14 +50,6 @@ ISSUER_JSON_SCHEMA = {
             },
             "required": ["did", "name"],
         },
-        "jurisdiction": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "minLength": 1},
-                "abbreviation": {"type": "string"},
-            },
-            "required": ["name"],
-        },
         "credential_types": {
             "type": "array",
             "items": {
@@ -72,7 +64,7 @@ ISSUER_JSON_SCHEMA = {
             },
         },
     },
-    "required": ["issuer", "jurisdiction"],
+    "required": ["issuer"],
 }
 
 

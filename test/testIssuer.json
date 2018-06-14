@@ -5,11 +5,7 @@
 		"abbreviation": "TI",
 		"endpoint": "http://localhost:5000/!issuer"
 	},
-	"jurisdiction": {
-		"name": "Test Jurisdiction",
-		"abbreviation": "TJ"
-	},
-	"cred-types": [
+	"credential_types": [
 		{
 			"name": "Test Claim Type",
 			"endpoint": "http://localhost:5000/!claimtype0",
