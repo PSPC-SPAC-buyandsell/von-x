@@ -27,7 +27,8 @@ from .base import (
     ServiceRequest,
     ServiceResponse)
 from .indy import (
-    IndyRegisterIssuerReq, IndyIssuerStatus,
+    AGENT_TYPE_ISSUER,
+    IndyRegisterAgentReq, IndyAgentStatus,
     IndyCreateCredOfferReq, IndyCredOffer,
     IndyCreateCredentialReq, IndyCredential,
 )
@@ -264,11 +265,12 @@ class IssuerManager(ServiceBase):
         """
         for issuer_id, issuer in self._issuers.items():
             LOGGER.info("Registering issuer: %s", issuer_id)
-            msg = IndyRegisterIssuerReq(
+            msg = IndyRegisterAgentReq(
+                AGENT_TYPE_ISSUER,
                 issuer.get_ledger_config(self.pid)
             )
             reply = await self.submit(self._ledger_pid, msg)
-            if not isinstance(reply, IndyIssuerStatus):
+            if not isinstance(reply, IndyAgentStatus):
                 raise RuntimeError(
                     "Error registering issuer {}: {}".format(issuer_id, reply)
                 )
@@ -487,8 +489,8 @@ class IssuerManager(ServiceBase):
         return reply
 
     async def _service_response(self, response: ServiceResponse) -> bool:
-        if isinstance(response, IndyIssuerStatus):
-            self._issuers[response.issuer_id].update_ledger_status(
+        if isinstance(response, IndyAgentStatus):
+            self._issuers[response.agent_id].update_ledger_status(
                 response.status
             )
             self.run_task(self._sync())
