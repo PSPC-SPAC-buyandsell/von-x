@@ -20,7 +20,7 @@ from typing import Coroutine
 
 from aiohttp import web, ClientRequest
 
-from vonx.services.manager import ServiceManager
+from ..common.manager import ConfigServiceManager
 from . import views
 from .process import process_form
 from .render import render_form
@@ -66,9 +66,9 @@ class RouteDefinitions:
         self.paths = []
 
     @classmethod
-    def load(cls, manager: ServiceManager) -> 'RouteDefinitions':
+    def load(cls, manager: ConfigServiceManager) -> 'RouteDefinitions':
         """
-        Return a new instance initialized by a :class:`ServiceManager`
+        Return a new instance initialized by a :class:`ConfigServiceManager`
         """
         inst = RouteDefinitions()
         inst.load_config(manager)
@@ -115,9 +115,9 @@ class RouteDefinitions:
         """
         return path in self.paths
 
-    def load_config(self, manager: ServiceManager) -> bool:
+    def load_config(self, manager: ConfigServiceManager) -> bool:
         """
-        Load the standard route configuration defined by a :class:`ServiceManager` instance
+        Load the standard route configuration defined by a :class:`ConfigServiceManager` instance
         and its environment variables
         """
         config = manager.load_config_path('ROUTES_CONFIG_PATH', 'routes.yml')

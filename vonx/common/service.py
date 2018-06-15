@@ -73,6 +73,9 @@ class ServiceSyncReq(ServiceRequest):
     """
     pass
 
+class ServiceSyncError(Exception):
+    pass
+
 
 class ServiceBase(RequestExecutor):
     """
@@ -84,6 +87,7 @@ class ServiceBase(RequestExecutor):
         self._env = env
         self._status = {
             "id": self._pid,
+            "failed": False,
             "synced": False,
             "syncing": False,
             "started": False
@@ -122,16 +126,23 @@ class ServiceBase(RequestExecutor):
         """
         #pylint: disable=broad-except
         async with self._sync_lock:
+            if self._status["failed"]:
+                return
             prev = self._status["synced"]
+            failed = False
             self._update_status(syncing=True)
             if not prev:
                 LOGGER.info("Starting sync: %s", self.pid)
             try:
                 synced = await self._service_sync()
-            except Exception:
+            except ServiceSyncError:
                 LOGGER.exception("Error during %s sync: ", self.pid)
                 synced = False
-            self._update_status(synced=synced, syncing=False)
+            except Exception as e:
+                LOGGER.exception("Fatal error during %s sync: ", self.pid)
+                synced = False
+                failed = True
+            self._update_status(synced=synced, syncing=False, failed=failed)
             if synced and not prev:
                 LOGGER.info("Completed sync: %s", self.pid)
 

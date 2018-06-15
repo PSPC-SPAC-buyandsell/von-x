@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 pkg_name = 'vonx'
@@ -7,13 +7,7 @@ version = '1.0.0'
 
 setup(
     name=pkg_name,
-    packages=[
-        pkg_name,
-        '{}.config'.format(pkg_name),
-        '{}.services'.format(pkg_name),
-        '{}.templates'.format(pkg_name),
-        '{}.web'.format(pkg_name),
-    ],
+    packages=find_packages(),
     package_data={'': ['*.html', '*.yml']},
     include_package_data=True,
     version=version,

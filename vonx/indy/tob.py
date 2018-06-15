@@ -19,11 +19,11 @@ import logging
 
 import aiohttp
 
-from .indy import (
-    IndyCredOffer,
-    IndyCredential,
-    IndyCredentialRequest,
-    IndyStoredCredential)
+from .messages import (
+    CredentialOffer,
+    Credential,
+    CredentialRequest,
+    StoredCredential)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ class TobClient:
         return result
 
     async def generate_credential_request(
-            self, indy_offer: IndyCredOffer) -> IndyCredentialRequest:
+            self, indy_offer: CredentialOffer) -> CredentialRequest:
         """
         Ask the API to generate a credential request from our credential offer
 
@@ -160,14 +160,14 @@ class TobClient:
                 "Could not create credential request: {}".format(result),
                 response,
             )
-        return IndyCredentialRequest(
+        return CredentialRequest(
             None,
             indy_offer,
             result["credential_request"],
             result["credential_request_metadata"])
 
     async def store_credential(
-            self, indy_cred: IndyCredential) -> IndyStoredCredential:
+            self, indy_cred: Credential) -> StoredCredential:
         """
         Ask the API to store a credential
 
@@ -191,7 +191,7 @@ class TobClient:
                 "Credential was not stored: {}".format(result),
                 response,
             )
-        return IndyStoredCredential(
+        return StoredCredential(
             None,
             indy_cred,
             result)

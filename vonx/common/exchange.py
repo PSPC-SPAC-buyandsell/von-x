@@ -168,7 +168,8 @@ class ExchangeError(ExchangeMessage):
         return ret
 
     def __repr__(self):
-        return 'ExchangeError(value={})'.format(self.value)
+        cls = self.__class__.__name__
+        return '{}(value={})'.format(cls, self.value)
 
 
 MessageWrapper = NamedTuple('MessageWrapper', [
@@ -609,7 +610,7 @@ class RequestExecutor(MessageProcessor):
     Processing should not block the main thread (much) to avoid breaking asyncio.
     """
 
-    def __init__(self, pid, exchange: Exchange):
+    def __init__(self, pid: str, exchange: Exchange):
         super(RequestExecutor, self).__init__(pid, exchange)
         self._connector = None
         self._out_queue = None

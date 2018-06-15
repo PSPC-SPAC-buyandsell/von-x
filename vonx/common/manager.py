@@ -19,8 +19,13 @@ import logging
 import os
 from typing import Mapping
 
-from .base import ServiceBase, ServiceStatus, ServiceStatusReq, ServiceResponse
+from . import config
 from . import exchange as exch
+from .service import (
+    ServiceBase,
+    ServiceStatus,
+    ServiceStatusReq,
+    ServiceResponse)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -197,3 +202,33 @@ class ServiceManager(ServiceBase):
             else:
                 return None
         return ploc[tg_name]
+
+
+class ConfigServiceManager(ServiceManager):
+    """
+    A :class:`ServiceManager` subclass with configuration loading methods
+    """
+
+    @property
+    def config_root(self) -> str:
+        """
+        Accessor for the value of the CONFIG_ROOT setting, defaulting to the current directory
+        """
+        return self._env.get('CONFIG_ROOT') or os.curdir
+
+    def load_config_path(self, settings_key, default_path, env=None) -> dict:
+        """
+        Load a YAML configuration file with defined variables replaced in the result
+
+        Args:
+            settings_key: the name of an environment variable defining an alternative
+                configuration path
+            default_path: the default path to the configuration file
+
+        Returns:
+            the parsed YAML configuration with variables replaced
+        """
+        path = self._env.get(settings_key)
+        if not path:
+            path = os.path.join(self.config_root, default_path)
+        return config.load_config(path, env or self._env)
