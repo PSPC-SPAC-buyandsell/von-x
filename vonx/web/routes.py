@@ -36,7 +36,7 @@ def get_standard_routes(_app) -> list:
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
-        #web.post('/construct-proof', views.construct_proof),
+        #web.post('/request-proof', views.request_proof),
         #web.post('/issue-credential', views.issue_credential),
         #web.get('/hello', views.hello),
     ]
@@ -188,8 +188,8 @@ class RouteDefinitions:
             for issuer in self.issuers)
 
         routes.extend(
-            web.view(issuer['path'] + '/construct-proof', views.construct_proof,
-                     name=issuer['name']+'-construct-proof')
+            web.view(issuer['path'] + '/request-proof', views.request_proof,
+                     name=issuer['name']+'-request-proof')
             for issuer in self.issuers)
 
         return routes

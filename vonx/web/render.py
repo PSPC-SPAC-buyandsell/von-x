@@ -20,7 +20,7 @@ import logging
 from aiohttp import web
 import aiohttp_jinja2
 
-from vonx.services import prover, manager
+from vonx.services import prover
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,9 +48,9 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         proof_name = proof_req['name']
         service = service_mgr.get_service_request_target('prover')
         result = await service.request(
-            prover.ProofSpecRequest(proof_name))
+            prover.ProofSpecReq(proof_name))
         proof_spec = None
-        if isinstance(result, prover.ProofSpecResponse):
+        if isinstance(result, prover.ProofSpec):
             proof_spec = result.value
         if not proof_spec:
             raise ValueError('Unknown proof request: {}'.format(proof_name))
@@ -70,8 +70,8 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         try:
             service = service_mgr.get_service_request_target('prover')
             result = await service.request(
-                prover.ConstructProofRequest(proof_name, params))
-            if isinstance(result, prover.ConstructProofResponse):
+                prover.RequestProofReq(proof_name, params))
+            if isinstance(result, prover.RequestedProof):
                 proof_response = result.value
                 proof_response['success'] = True
             elif isinstance(result, prover.ProverError):

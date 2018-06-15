@@ -46,6 +46,9 @@ from .util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
+AGENT_TYPE_ISSUER = "issuer"
+AGENT_TYPE_HOLDER = "holder"
+
 
 class IndyLedgerError(ServiceError):
     """
@@ -70,8 +73,8 @@ class IndyCreateCredOfferReq(ServiceRequest):
         schema_def (Schema): the schema used to create the credential offer
     """
     _fields = (
-        ('issuer_id', str),
-        ('schema_def', Schema),
+        ("issuer_id", str),
+        ("schema_def", Schema),
     )
 
 
@@ -86,10 +89,10 @@ class IndyCredOffer(ServiceResponse):
         cred_def (dict): the credential definition used
     """
     _fields = (
-        ('issuer_id', str),
-        ('schema_def', Schema),
-        ('offer', dict),
-        ('cred_def', dict),
+        ("issuer_id", str),
+        ("schema_def", Schema),
+        ("offer", dict),
+        ("cred_def", dict),
     )
 
 class IndyCreateCredRequestReq(ServiceRequest):
@@ -101,8 +104,8 @@ class IndyCreateCredRequestReq(ServiceRequest):
         cred_offer (IndyCredOffer): the credential offer to use as a basis
     """
     _fields = (
-        ('holder_id', str),
-        ('cred_offer', IndyCredOffer),
+        ("holder_id", str),
+        ("cred_offer", IndyCredOffer),
     )
 
 class IndyCredentialRequest(ServiceResponse):
@@ -116,10 +119,10 @@ class IndyCredentialRequest(ServiceResponse):
         metadata (dict): the credential request metadata
     """
     _fields = (
-        ('holder_id', str),
-        ('cred_offer', IndyCredOffer),
-        ('result', str),
-        ('metadata', dict),
+        ("holder_id", str),
+        ("cred_offer", IndyCredOffer),
+        ("result", str),
+        ("metadata", dict),
     )
 
 class IndyCreateCredentialReq(ServiceRequest):
@@ -127,10 +130,10 @@ class IndyCreateCredentialReq(ServiceRequest):
     The message class representing an request to create a credential
     """
     _fields = (
-        ('cred_offer', IndyCredOffer),
-        ('cred_req_result', str),
-        ('cred_req_metadata', dict),
-        ('cred_data', dict),
+        ("cred_offer", IndyCredOffer),
+        ("cred_req_result", str),
+        ("cred_req_metadata", dict),
+        ("cred_data", dict),
     )
 
 
@@ -139,13 +142,13 @@ class IndyCredential(ServiceResponse):
     The message class representing a successful credential creation
     """
     _fields = (
-        ('issuer_id', str),
-        ('schema_name', str),
-        ('issuer_did', str),
-        ('cred_data', dict),
-        ('cred_def', dict),
-        ('cred_req_metadata', dict),
-        ('cred_revoc_id', str),
+        ("issuer_id", str),
+        ("schema_name", str),
+        ("issuer_did", str),
+        ("cred_data", dict),
+        ("cred_def", dict),
+        ("cred_req_metadata", dict),
+        ("cred_revoc_id", str),
     )
 
 
@@ -154,8 +157,8 @@ class IndyStoreCredentialReq(ServiceRequest):
     The message class representing an request to store a credential
     """
     _fields = (
-        ('holder_id', str),
-        ('cred', IndyCredential),
+        ("holder_id", str),
+        ("cred", IndyCredential),
     )
 
 
@@ -164,9 +167,9 @@ class IndyStoredCredential(ServiceResponse):
     The message class representing an successful response to storing a credential
     """
     _fields = (
-        ('holder_id', str),
-        ('cred', IndyCredential),
-        ('result', dict),
+        ("holder_id", str),
+        ("cred", IndyCredential),
+        ("result", dict),
     )
 
 
@@ -175,7 +178,7 @@ class IndyResolveDidReq(ServiceRequest):
     The message class representing a request to resolve a DID
     """
     _fields = (
-        ('seed', str),
+        ("seed", str),
     )
 
 
@@ -185,36 +188,37 @@ class IndyResolvedDid(ServiceResponse):
     """
 
     _fields = (
-        ('seed', str),
-        ('did', str),
+        ("seed", str),
+        ("did", str),
     )
 
 
-class IndyRegisterIssuerReq(ServiceRequest):
+class IndyRegisterAgentReq(ServiceRequest):
     """
-    The message class representing a request to register an issuer
+    The message class representing a request to register an agent
     """
     _fields = (
-        ('config', dict),
+        ("agent_type", str),
+        ("config", dict),
     )
 
 
-class IndyIssuerStatusReq(ServiceRequest):
+class IndyAgentStatusReq(ServiceRequest):
     """
-    The message class representing a request for an issuer status update
+    The message class representing a request for an agent status update
     """
     _fields = (
-        ('issuer_id', str),
+        ("agent_id", str),
     )
 
 
-class IndyIssuerStatus(ServiceResponse):
+class IndyAgentStatus(ServiceResponse):
     """
-    The message class representing an issuer status update
+    The message class representing an agent status update
     """
     _fields = (
-        ('issuer_id', str),
-        ('status', dict),
+        ("agent_id", str),
+        ("status", dict),
     )
 
 
@@ -223,8 +227,8 @@ class IndyVerifyProofReq(ServiceRequest):
     The message class representing a request to verify a proof
     """
     _fields = (
-        ('proof_req', dict),
-        ('proof', dict),
+        ("proof_req", dict),
+        ("proof", dict),
     )
 
 
@@ -233,8 +237,8 @@ class IndyVerifiedProof(ServiceResponse):
     The message class representing a successful proof verification
     """
     _fields = (
-        ('verified', str),
-        ('parsed_proof', dict),
+        ("verified", str),
+        ("parsed_proof", dict),
     )
 
 
@@ -267,13 +271,12 @@ class AgentWrapper:
     and allows the wallet to be kept open between requests
     """
 
-    def __init__(self, wallet_config: WalletConfig, instance_cls,
-                 issuer_type: str, ext_cfg=None):
+    def __init__(self, wallet_config: WalletConfig, instance_cls, ext_cfg=None):
         if not wallet_config.genesis_path:
             raise ValueError("Missing genesis_path for wallet configuration")
 
         self._pool = NodePool(
-            wallet_config.name + "-" + issuer_type, wallet_config.genesis_path
+            wallet_config.name, wallet_config.genesis_path
         )
 
         self._instance_cls = instance_cls
@@ -281,7 +284,7 @@ class AgentWrapper:
         self._wallet = Wallet(
             self._pool,
             wallet_config.seed,
-            wallet_config.name + "-" + issuer_type + "-Wallet",
+            wallet_config.name,
             wallet_config.type,
             wallet_config.params,
             wallet_config.creds,
@@ -349,17 +352,18 @@ class AgentWrapper:
             await self.close()
 
 
-class IndyIssuerConfig:
+class IndyAgentConfig:
     """
-    Manage configuration settings for an Issuer, including wallet settings
+    Manage configuration settings for an Agent, including wallet settings
     and schemas bound for the ledger
     """
-    def __init__(self, **params):
-        self.agent = None
+    def __init__(self, agent_type: str, **params):
+        self.agent_type = agent_type
         self.auto_register = params.get("auto_register", True)
         self.did = params.get("did")
         self.endpoint = params.get("endpoint")
         self.ident = params.get("id")
+        self.instance = None
         self.manager_pid = params.get("manager_pid")
         self.registered = False
         self.schemas = []
@@ -367,8 +371,11 @@ class IndyIssuerConfig:
         self.wrapper = None
         wallet_cfg = params.get("wallet") or {}
         if "name" not in wallet_cfg:
-            wallet_cfg["name"] = self.ident
+            wallet_cfg["name"] = "{}-{}-wallet".format(self.ident, agent_type)
         self.wallet_config = WalletConfig(**wallet_cfg)
+
+        if self.agent_type != AGENT_TYPE_ISSUER and self.agent_type != AGENT_TYPE_HOLDER:
+            raise ValueError("Unknown agent type: {}".format(self.agent_type))
 
         schemas = params.get("schemas")
         if schemas:
@@ -378,7 +385,7 @@ class IndyIssuerConfig:
     @property
     def extended_config(self):
         """
-        Accessor for the extended :class:`Issuer` configuration
+        Accessor for the extended Agent configuration
         """
         ret = {}
         if self.endpoint:
@@ -387,11 +394,13 @@ class IndyIssuerConfig:
 
     def add_schema(self, schema: Schema):
         """
-        Add a schema to the Issuer definition
+        Add a schema to the Agent configuration
 
         Args:
             schema: the :class:`Schema` to be added
         """
+        if self.agent_type != AGENT_TYPE_ISSUER:
+            raise ValueError("Only agent of type 'issuer' may publish schemas")
         self.schemas.append({
             "definition": schema.copy(),
             "ledger": None,
@@ -415,7 +424,7 @@ class IndyIssuerConfig:
     @property
     def status(self) -> dict:
         """
-        Get the current status of the issuer
+        Get the current status of the agent
         """
         return {
             "did": self.did,
@@ -433,7 +442,7 @@ class IndyLedger(ServiceBase):
         super(IndyLedger, self).__init__(pid, exchange, env)
         self._config = {}
         self._genesis_path = None
-        self._issuers = {}
+        self._agents = {}
         self._ledger_url = None
         self._verifier = None
         self._update_config(spec)
@@ -455,91 +464,91 @@ class IndyLedger(ServiceBase):
         await asyncio.sleep(1)  # avoid odd TimeoutError on genesis txn retrieval
         await self._check_genesis_path()
         synced = True
-        for issuer in self._issuers.values():
-            if not await self._sync_issuer(issuer):
+        for agent in self._agents.values():
+            if not await self._sync_agent(agent):
                 synced = False
         return synced
 
-    def _add_issuer(self, **params) -> str:
+    def _add_agent(self, agent_type: str, **params) -> str:
         """
-        Add an issuer configuration
+        Add an agent configuration
 
         Args:
-            params: parameters to be passed to the :class:`IndyIssuerConfig` constructor
+            params: parameters to be passed to the :class:`IndyAgentConfig` constructor
         """
         if "id" not in params:
-            raise ValueError("Missing 'id' for issuer")
-        cfg = IndyIssuerConfig(**params)
-        self._issuers[cfg.ident] = cfg
+            raise ValueError("Missing 'id' for agent")
+        cfg = IndyAgentConfig(agent_type, **params)
+        self._agents[cfg.ident] = cfg
         return cfg.ident
 
-    def _get_issuer_status(self, issuer_id: str):
+    def _get_agent_status(self, agent_id: str):
         """
-        Return the status of a registered issuer to the client
+        Return the status of a registered agent to the client
 
         Args:
-            issuer_id: the unique identifier of the issuer
+            agent_id: the unique identifier of the agent
         """
-        if issuer_id in self._issuers:
-            msg = IndyIssuerStatus(issuer_id, self._issuers[issuer_id].status)
+        if agent_id in self._agents:
+            msg = IndyAgentStatus(agent_id, self._agents[agent_id].status)
         else:
-            msg = IndyLedgerError('Unregistered issuer: {}'.format(issuer_id))
+            msg = IndyLedgerError('Unregistered agent: {}'.format(agent_id))
         return msg
 
-    async def _sync_issuer(self, issuer: IndyIssuerConfig) -> bool:
+    async def _sync_agent(self, agent: IndyAgentConfig) -> bool:
         """
-        Perform issuer synchronization, registering the DID and publishing schemas
+        Perform agent synchronization, registering the DID and publishing schemas
         and credential definitions as required
 
         Args:
-            issuer: the Indy issuer configuration
+            agent: the Indy agent configuration
         """
-        if not issuer.synced:
-            if not issuer.wrapper:
+        if not agent.synced:
+            if not agent.wrapper:
                 LOGGER.info(
-                    "Init Indy issuer %s with seed %s",
-                    issuer.ident,
-                    issuer.wallet_config.seed,
+                    "Init Indy agent %s with seed %s",
+                    agent.ident,
+                    agent.wallet_config.seed,
                 )
 
-                issuer.wallet_config.genesis_path = self._genesis_path
-                issuer.wrapper = AgentWrapper(
-                    issuer.wallet_config,
-                    VonIssuer,
-                    "Issuer",
-                    issuer.extended_config,
+                agent.wallet_config.genesis_path = self._genesis_path
+                agent.wrapper = AgentWrapper(
+                    agent.wallet_config,
+                    VonIssuer if agent.agent_type == AGENT_TYPE_ISSUER else VonHolderProver,
+                    agent.extended_config,
                 )
 
             # FIXME - catch sync exceptions here
-            if not issuer.agent:
-                issuer.agent = await issuer.wrapper.open()
-                issuer.did = issuer.agent.did
+            if not agent.instance:
+                agent.instance = await agent.wrapper.open()
+                agent.did = agent.instance.did
 
-            if not issuer.registered:
+            if not agent.registered:
                 # check DID is registered
                 auto_register = (
                     self._config.get("auto_register", True)
-                    and issuer.auto_register
+                    and agent.auto_register
                 )
-                await self._check_registration(issuer.agent, auto_register)
+                role = "TRUST_ANCHOR" if agent.agent_type == AGENT_TYPE_ISSUER else ""
+                await self._check_registration(agent.instance, auto_register, role)
 
                 # check endpoint is registered (if any)
-                # await self._check_endpoint(issuer.agent, issuer.endpoint)
-                issuer.registered = True
+                # await self._check_endpoint(agent.instance, agent.endpoint)
+                agent.registered = True
 
             # publish schemas
-            for schema in issuer.schemas:
-                await self._publish_schema(issuer.agent, schema)
+            for schema in agent.schemas:
+                await self._publish_schema(agent.instance, schema)
 
-            issuer.synced = True
-            if issuer.manager_pid:
+            agent.synced = True
+            if agent.manager_pid:
                 self.send_noreply(
-                    issuer.manager_pid,
-                    IndyIssuerStatus(issuer.ident, issuer.status),
+                    agent.manager_pid,
+                    IndyAgentStatus(agent.ident, agent.status),
                 )
 
-            LOGGER.info("Indy issuer synced: %s", issuer.ident)
-        return issuer.synced
+            LOGGER.info("Indy agent synced: %s", agent.ident)
+        return agent.synced
 
     async def _check_genesis_path(self) -> None:
         """
@@ -596,7 +605,8 @@ class IndyLedger(ServiceBase):
             output_file.write(data)
         return True
 
-    async def _check_registration(self, agent: _BaseAgent, auto_register: bool = True) -> None:
+    async def _check_registration(self, agent: _BaseAgent, auto_register: bool = True,
+                                  role: str = "") -> None:
         """
         Look up our nym on the ledger and register it if not present
 
@@ -624,7 +634,7 @@ class IndyLedger(ServiceBase):
             async with aiohttp.ClientSession(read_timeout=30) as client:
                 response = await client.post(
                     "{}/register".format(ledger_url),
-                    json={"did": did, "verkey": agent.verkey},
+                    json={"did": did, "verkey": agent.verkey, "role": role},
                 )
                 if response.status != 200:
                     raise RuntimeError(
@@ -745,7 +755,7 @@ class IndyLedger(ServiceBase):
         Args:
             request: the request for a credential offer
         """
-        issuer = self._issuers[request.issuer_id]
+        issuer = self._agents[request.issuer_id]
         schema = issuer.get_schema_config(request.schema_def)
 
         LOGGER.info(
@@ -753,7 +763,7 @@ class IndyLedger(ServiceBase):
             issuer.ident,
             schema["definition"].name,
         )
-        cred_offer_json = await issuer.agent.create_cred_offer(
+        cred_offer_json = await issuer.instance.create_cred_offer(
             schema["ledger"]["seqNo"]
         )
 
@@ -772,12 +782,10 @@ class IndyLedger(ServiceBase):
             request: the request to store a credential
         """
         offer = request.cred_offer
-        issuer = self._issuers[offer.issuer_id]
+        issuer = self._agents[offer.issuer_id]
         schema = issuer.get_schema_config(offer.schema_def)
 
-        LOGGER.info(request.cred_data)
-
-        (cred_json, cred_revoc_id) = await issuer.agent.create_cred(
+        (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
             json.dumps(request.cred_offer.offer),
             request.cred_req_result,
             request.cred_data,
@@ -786,7 +794,7 @@ class IndyLedger(ServiceBase):
         return IndyCredential(
             offer.issuer_id,
             schema["definition"].name,
-            issuer.agent.did,
+            issuer.did,
             json.loads(cred_json),
             schema["credential_definition"],
             request.cred_req_metadata,
@@ -804,7 +812,7 @@ class IndyLedger(ServiceBase):
                 seed="verifier-seed-000000000000000000",
                 genesis_path=self._genesis_path,
             )
-            self._verifier = AgentWrapper(wallet_cfg, VonVerifier, "Verifier")
+            self._verifier = AgentWrapper(wallet_cfg, VonVerifier)
             await self._verifier.open()
         return self._verifier.instance
 
@@ -840,16 +848,16 @@ class IndyLedger(ServiceBase):
         if isinstance(request, IndyLedgerStatusReq):
             reply = await self._handle_ledger_status()
 
-        elif isinstance(request, IndyRegisterIssuerReq):
+        elif isinstance(request, IndyRegisterAgentReq):
             try:
-                issuer_id = self._add_issuer(**request.config)
-                reply = self._get_issuer_status(issuer_id)
+                agent_id = self._add_agent(request.agent_type, **request.config)
+                reply = self._get_agent_status(agent_id)
                 self.run_task(self._sync())
             except ValueError as e:
                 reply = IndyLedgerError(str(e))
 
-        elif isinstance(request, IndyIssuerStatusReq):
-            reply = self._get_issuer_status(request.issuer_id)
+        elif isinstance(request, IndyAgentStatusReq):
+            reply = self._get_agent_status(request.agent_id)
 
         elif isinstance(request, IndyCreateCredOfferReq):
             reply = await self._handle_create_cred_offer(request)

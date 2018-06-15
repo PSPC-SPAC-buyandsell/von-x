@@ -96,7 +96,7 @@ async def hello(request: ClientRequest) -> ClientResponse:
     return web.json_response(result)
 
 
-async def construct_proof(request: ClientRequest) -> ClientResponse:
+async def request_proof(request: ClientRequest) -> ClientResponse:
     """
     Ask the :class:`ProverManager` service to perform a proof request and respond with
     the result
@@ -115,8 +115,8 @@ async def construct_proof(request: ClientRequest) -> ClientResponse:
     try:
         result = await service_request(
             request, 'prover',
-            prover.ConstructProofRequest(proof_name, params))
-        if isinstance(result, prover.ConstructProofResponse):
+            prover.RequestProofReq(proof_name, params))
+        if isinstance(result, prover.RequestedProof):
             ret = {'success': True, 'result': result.value}
         elif isinstance(result, prover.ProverError):
             ret = {'success': False, 'result': result.value}

@@ -72,7 +72,7 @@ def load_cred_request(form, schema, request: web.Request) -> dict:
 
 async def process_form(form, request: web.Request) -> web.Response:
     """
-    Handle `submit-credential` form processing by constructing a :class:`IssueCredRequest`
+    Handle `submit-credential` form processing by constructing an :class:`IssueCredRequest`
     and submitting it to the :class:`IssuerManager` service
     """
 

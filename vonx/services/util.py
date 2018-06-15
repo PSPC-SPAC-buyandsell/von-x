@@ -23,12 +23,12 @@ from .schema import Schema
 
 
 class MessageEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, ExchangeMessage):
-            return dict(obj)
-        elif isinstance(obj, Schema):
-            return obj.__dict__
-        return json.JSONEncoder.default(self, obj)
+    def default(self, o):
+        if isinstance(o, ExchangeMessage):
+            return dict(o)
+        elif isinstance(o, Schema):
+            return o.__dict__
+        return super(MessageEncoder, self).default(o)
 
 
 class JsonRepr:

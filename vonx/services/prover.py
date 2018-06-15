@@ -66,9 +66,9 @@ class ProverError(ServiceError):
     pass
 
 
-class ConstructProofRequest(ServiceRequest):
+class RequestProofReq(ServiceRequest):
     """
-    A request to construct a proof
+    A request to fetch a constructed proof from an external service
     """
     _fields = (
         ('name', str),
@@ -76,16 +76,16 @@ class ConstructProofRequest(ServiceRequest):
     )
 
 
-class ConstructProofResponse(ServiceResponse):
+class RequestedProof(ServiceResponse):
     """
-    The successful response returned from a proof request
+    The successful response returned from an external proof request
     """
     _fields = (
         'value',
     )
 
 
-class ProofSpecRequest(ServiceRequest):
+class ProofSpecReq(ServiceRequest):
     """
     A request to get the definition for a proof request
     """
@@ -94,7 +94,7 @@ class ProofSpecRequest(ServiceRequest):
     )
 
 
-class ProofSpecResponse(ServiceResponse):
+class ProofSpec(ServiceResponse):
     """
     The successful response returned from a request for a proof definition
     """
@@ -164,7 +164,7 @@ class ProverManager(ServiceBase):
         api_url = url or self._env.get('TOB_API_URL')
         return TobClient(self.http, api_url)
 
-    async def construct_proof(self, name: str, params: Mapping) -> dict:
+    async def request_proof(self, name: str, params: Mapping) -> dict:
         """
         Args:
             name: The unique identifier for the proof request definition
@@ -218,15 +218,15 @@ class ProverManager(ServiceBase):
             }
         }
 
-    async def _handle_construct_proof(self, request: ConstructProofRequest):
+    async def _handle_request_proof(self, request: RequestProofReq) -> ServiceResponse:
         """
-        Process a :class:`ConstructProofRequest` and send the response to the sending service
+        Process a :class:`RequestProofReq` and return the appropriate response
         """
         #pylint: disable=broad-except
         try:
-            result = await self.construct_proof(request.name, request.params)
+            result = await self.request_proof(request.name, request.params)
             if result['success']:
-                reply = ConstructProofResponse(result['value'])
+                reply = RequestedProof(result['value'])
             else:
                 reply = ProverError(result['error'])
         except Exception:
@@ -241,19 +241,19 @@ class ProverManager(ServiceBase):
         Args:
             request: the request received
         """
-        if isinstance(request, ConstructProofRequest):
+        if isinstance(request, RequestProofReq):
             spec = self._request_specs.get(request.name)
             if not spec:
                 reply = ProverError('Proof request not defined')
             else:
-                reply = await self._handle_construct_proof(request)
+                reply = await self._handle_request_proof(request)
 
-        elif isinstance(request, ProofSpecRequest):
+        elif isinstance(request, ProofSpecReq):
             spec = self._request_specs.get(request.name)
             if not spec:
                 reply = ProverError('Proof request not defined')
             else:
-                reply = ProofSpecResponse(spec)
+                reply = ProofSpec(spec)
 
         else:
             reply = None
