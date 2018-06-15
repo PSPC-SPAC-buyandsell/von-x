@@ -69,6 +69,9 @@ def assemble_issuer_spec(config: dict) -> dict:
         if mapping:
             ctype["mapping"] = mapping
 
+        LOGGER.info('\n\n\n\n-----------')
+        LOGGER.info(mapping)
+
         ctypes.append(ctype)
     issuer_spec["credential_types"] = ctypes
     return issuer_spec
