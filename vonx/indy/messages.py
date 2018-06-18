@@ -19,16 +19,17 @@ from typing import Sequence
 
 from ..common.service import (
     ServiceAck,
+    ServiceFail,
     ServiceRequest,
     ServiceResponse,
-    ServiceError)
+)
 
 
 class IndyServiceAck(ServiceAck):
     pass
 
 
-class IndyServiceError(ServiceError):
+class IndyServiceFail(ServiceFail):
     """
     For generic errors in processing Indy requests
     """
@@ -104,7 +105,7 @@ class AgentStatus(ServiceResponse):
     )
 
 
-class RegisterIssuerSchemaReq(ServiceRequest):
+class RegisterCredentialTypeReq(ServiceRequest):
     """
     A request to register a schema for publishing
     """
@@ -112,47 +113,9 @@ class RegisterIssuerSchemaReq(ServiceRequest):
         ("issuer_id", str),
         ("schema_name", str),
         ("schema_version", str),
+        ("origin_did", str),
         ("attr_names", Sequence),
         ("config", dict),
-    )
-
-class RegisterIssuerCredDefReq(ServiceRequest):
-    """
-    A request to register a credential definition for publishing
-    """
-    _fields = (
-        ("issuer_id", str),
-        ("origin_did", str),
-        ("schema_name", str),
-        ("schema_version", str),
-        ("config", dict),
-    )
-
-
-class RegisterIssuerTargetReq(ServiceRequest):
-    """
-    A request to register an issuer target
-    """
-    _fields = (
-        ("target_type", str),
-        ("config", dict),
-    )
-
-class IssuerTargetStatusReq(ServiceRequest):
-    """
-    A request for an target status update
-    """
-    _fields = (
-        ("target_id", str),
-    )
-
-class IssuerTargetStatus(ServiceResponse):
-    """
-    An issuer target status update
-    """
-    _fields = (
-        ("target_id", str),
-        ("status", dict),
     )
 
 
@@ -161,8 +124,8 @@ class RegisterConnectionReq(ServiceRequest):
     A request to register a connection
     """
     _fields = (
-        ("issuer_id", str),
-        ("target_id", str),
+        ("connection_type", str),
+        ("agent_id", str),
         ("config", dict),
     )
 

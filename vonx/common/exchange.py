@@ -143,7 +143,7 @@ class ExchangeMessage:
         return '{}({})'.format(cls, ', '.join(params))
 
 
-class ExchangeError(ExchangeMessage):
+class ExchangeFail(ExchangeMessage):
     """
     An error class to represent an exception in message processing
 
@@ -155,11 +155,11 @@ class ExchangeError(ExchangeMessage):
         if exc_info is True:
             # cannot pass real exception or traceback through the message pipe
             exc_info = traceback.format_exc()
-        super(ExchangeError, self).__init__(value, exc_info)
+        super(ExchangeFail, self).__init__(value, exc_info)
 
     def format(self) -> str:
         """
-        Format this :class:`ExchangeError` instance as a string including the
+        Format this :class:`ExchangeFail` instance as a string including the
         traceback, if any
         """
         ret = '{}'.format(self.value)
@@ -348,7 +348,7 @@ class Exchange:
                             pass
                     # FIXME clean up expired requests here?
                     # might want to return a message to the sender that the
-                    # message couldn't be delivered (an ExchangeError)
+                    # message couldn't be delivered (an ExchangeFail)
                     self._cmd_pipe[0].send(message)
                 elif command[0] == 'status':
                     total = sum(processed.values())
@@ -521,7 +521,7 @@ class MessageProcessor:
                     if self._process_message(received) is False:
                         break
                 except Exception:
-                    errmsg = ExchangeError('Exception during message processing', True)
+                    errmsg = ExchangeFail('Exception during message processing', True)
                     self._reply_with_error(received, errmsg)
         except Exception:
             LOGGER.exception('Exception while processing message:')
@@ -529,7 +529,7 @@ class MessageProcessor:
     def _reply_with_error(
             self,
             from_message: MessageWrapper,
-            errmsg: ExchangeError) -> bool:
+            errmsg: ExchangeFail) -> bool:
         """
         Send an error message back to the sender of a previous message
 
@@ -537,7 +537,7 @@ class MessageProcessor:
             from_message: the message which triggered the error
             errmsg: the error message to be sent
         """
-        if isinstance(from_message.message, ExchangeError):
+        if isinstance(from_message.message, ExchangeFail):
             LOGGER.error(from_message.message.format())
             return False
         return self.send_noreply(from_message.from_pid, errmsg, from_message.ident)
@@ -805,7 +805,7 @@ class RequestExecutor(MessageProcessor):
                 LOGGER.debug('unhandled message to %s/%s from %s: %s',
                              self._pid, received.ref, received.from_pid, received.message)
         except Exception:
-            errmsg = ExchangeError('Exception during message processing', True)
+            errmsg = ExchangeFail('Exception during message processing', True)
             self._reply_with_error(received, errmsg)
 
     def _process_message(self, received: MessageWrapper) -> bool:

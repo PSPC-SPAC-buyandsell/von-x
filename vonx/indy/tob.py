@@ -19,6 +19,9 @@ import logging
 
 import aiohttp
 
+from .config import IndyConfigError
+from .connection import ConnectionBase
+from .errors import IndyConfigError, IndyConnectionError
 from .messages import (
     CredentialOffer,
     Credential,
@@ -35,28 +38,30 @@ def assemble_issuer_spec(config: dict) -> dict:
     issuer_spec = {}
     issuer_email = config.get("email")
     if not issuer_email:
-        raise ValueError("Missing issuer email address")
+        raise IndyConfigError("Missing issuer email address")
     issuer_did = config.get("did")
     if not issuer_did:
-        raise ValueError("Missing issuer DID")
+        raise IndyConfigError("Missing issuer DID")
 
     issuer_spec["issuer"] = {
         "did": issuer_did,
-        "name": config.get("name", ""),
-        "abbreviation": config.get("abbreviation", ""),
+        "name": config.get("name") or "",
+        "abbreviation": config.get("abbreviation") or "",
         "email": issuer_email,
-        "url": config.get("url", ""),
+        "url": config.get("url") or "",
     }
 
     if not issuer_spec["issuer"]["name"]:
-        raise ValueError("Missing issuer name")
+        raise IndyConfigError("Missing issuer name")
 
     cred_type_specs = config.get("credential_types")
     if not cred_type_specs:
-        raise ValueError("Missing credential_types")
+        raise IndyConfigError("Missing credential_types")
     ctypes = []
     for type_spec in cred_type_specs:
         schema = type_spec["schema"]
+        if not type_spec.get("source_claim"):
+            raise IndyConfigError("Missing 'source_claim' for credential type")
         ctype = {
             "name": type_spec.get("description") or schema.name,
             "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
@@ -64,7 +69,6 @@ def assemble_issuer_spec(config: dict) -> dict:
             "version": schema.version,
             "source_claim": type_spec["source_claim"],
         }
-
         mapping = type_spec.get("mapping")
         if mapping:
             ctype["mapping"] = mapping
@@ -74,32 +78,20 @@ def assemble_issuer_spec(config: dict) -> dict:
     return issuer_spec
 
 
-class TobClientError(Exception):
-    """
-    A generic exception representing an issue with a TobClient operation
-    """
-
-    def __init__(self, status_code, message: str, response=None):
-        super(TobClientError, self).__init__(message)
-        self.status_code = status_code
-        self.message = message
-        self.response = response
-
-
 async def _handle_request_error(method: str, response=None):
     """
     Handle an exception or bad response from an HTTP request
     """
     if isinstance(response, Exception):
         code = getattr(response, 'code', None)
-        raise TobClientError(
+        raise IndyConnectionError(
             code,
             "Exception during {}: ({}) {}".format(
                 method, code, str(response)
             ),
         )
     if response and response.status != 200 and response.status != 201:
-        raise TobClientError(
+        raise IndyConnectionError(
             response.status,
             "Bad response from {}: ({}) {}".format(
                 method, response.status, await response.text()
@@ -108,35 +100,48 @@ async def _handle_request_error(method: str, response=None):
         )
 
 
-class TobClient:
+class TobConnection(ConnectionBase):
     """
     A class for managing communication with TheOrgBook API and performing the initial
     synchronization as an issuer
     """
 
-    def __init__(self, http_client, api_url: str):
-        self._http_client = http_client
-        self._api_url = api_url
+    def __init__(self, agent_params: dict, conn_params: dict):
+        self._agent_params = agent_params
+        self._api_url = conn_params.get('api_url')
+        if not self._api_url:
+            raise IndyConfigError("Missing 'api_url' for TheOrgBook connection")
+        self._http_client = None
 
-    async def register_issuer(self, issuer_cfg: dict):
+    @property
+    def http_client(self):
+        if not self._http_client:
+            return aiohttp.ClientSession()
+        return self._http_client
+
+    @http_client.setter
+    def http_client(self, client):
+        self._http_client = client
+
+    async def open(self) -> None:
+        # check DID is registered etc
+        pass
+
+    async def sync(self) -> None:
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
-
-        Args:
-            issuer_cfg: the issuer configuration to be converted into JSON format
         """
-        spec = assemble_issuer_spec(issuer_cfg)
+        spec = assemble_issuer_spec(self._agent_params)
         response = await self.post_json(
             "indy/register-issuer", spec
         )
         result = response.get("result")
         if not response.get("success"):
-            raise TobClientError(
+            raise IndyConnectionError(
                 400,
                 "Issuer service was not registered: {}".format(result),
                 response,
             )
-        return result
 
     async def generate_credential_request(
             self, indy_offer: CredentialOffer) -> CredentialRequest:
@@ -155,7 +160,7 @@ class TobClient:
         LOGGER.debug("Credential request response: %s", response)
         result = response.get("result")
         if not response.get("success"):
-            raise TobClientError(
+            raise IndyConnectionError(
                 400,
                 "Could not create credential request: {}".format(result),
                 response,
@@ -186,7 +191,7 @@ class TobClient:
         LOGGER.debug("Store credential response: %s", response)
         result = response.get("result")
         if not response.get("success"):
-            raise TobClientError(
+            raise IndyConnectionError(
                 400,
                 "Credential was not stored: {}".format(result),
                 response,
@@ -226,14 +231,12 @@ class TobClient:
         A standard request to a `list`-style API method
 
         Args:
-            http_client: The :class:`ClientSession` instance responsible for adding
-                authentication headers
             path: The relative path to the API method
         """
         url = self.get_api_url(path)
         LOGGER.debug("fetch_list: %s", url)
         try:
-            response = await self._http_client.get(url)
+            response = await self.http_client.get(url)
         except aiohttp.ClientError as e:
             response = e
         await _handle_request_error('fetch_list', response)
@@ -244,8 +247,6 @@ class TobClient:
         A standard POST request to an API method
 
         Args:
-            http_client: The :class:`ClientSession` instance responsible for adding
-                authentication headers
             path: The relative path to the API method
             data: The body of the request, to be converted to JSON
 
@@ -255,15 +256,8 @@ class TobClient:
         url = self.get_api_url(path)
         LOGGER.debug("post_json: %s", url)
         try:
-            response = await self._http_client.post(url, json=data)
+            response = await self.http_client.post(url, json=data)
         except aiohttp.ClientError as e:
             response = e
         await _handle_request_error('post_json', response)
         return await response.json()
-
-    async def __aenter__(self):
-        await self._http_client.__aenter__()
-        return self
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        await self._http_client.__aexit__(exc_type, exc_value, traceback)

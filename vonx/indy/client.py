@@ -19,11 +19,12 @@ from typing import Sequence
 
 from ..common.exchange import RequestTarget
 
-from .config import AgentType, IssuerTargetType
+from .config import AgentType, ConnectionType
+from .errors import IndyClientError
 
 from .messages import (
     IndyServiceAck,
-    IndyServiceError,
+    IndyServiceFail,
     LedgerStatusReq,
     LedgerStatus,
     RegisterWalletReq,
@@ -32,19 +33,12 @@ from .messages import (
     RegisterAgentReq,
     AgentStatusReq,
     AgentStatus,
-    RegisterIssuerSchemaReq,
-    RegisterIssuerCredDefReq,
-    RegisterIssuerTargetReq,
-    IssuerTargetStatusReq,
-    IssuerTargetStatus,
+    RegisterCredentialTypeReq,
     RegisterConnectionReq,
     ConnectionStatusReq,
     ConnectionStatus,
     ServiceRequest,
 )
-
-class IndyClientError(Exception):
-    pass
 
 class IndyClient:
     """
@@ -55,7 +49,7 @@ class IndyClient:
 
     async def _fetch(self, request: ServiceRequest, expect=None):
         result = await self._target.request(request)
-        if isinstance(result, IndyServiceError):
+        if isinstance(result, IndyServiceFail):
             raise IndyClientError(result.value)
         elif expect and not isinstance(result, expect):
             raise IndyClientError("Unexpected result: {}".format(result))
@@ -81,44 +75,22 @@ class IndyClient:
             AgentStatus)
         return result.agent_id
 
-    async def register_issuer_schema(
+    async def register_credential_type(
             self,
             issuer_id: str,
             schema_name: str,
             schema_version: str,
+            origin_did: str,
             attr_names: Sequence,
             config: dict = None) -> None:
         await self._fetch(
-            RegisterIssuerSchemaReq(
+            RegisterCredentialTypeReq(
                 issuer_id, schema_name, schema_version,
-                attr_names, config),
+                origin_did, attr_names, config),
             IndyServiceAck)
 
-    async def register_issuer_cred_def(
-            self,
-            issuer_id: str,
-            origin_did: str,
-            schema_name: str,
-            schema_version: str,
-            config: dict = None) -> None:
-        await self._fetch(
-            RegisterIssuerCredDefReq(
-                issuer_id, origin_did, schema_name, schema_version, config),
-            IndyServiceAck)
-
-    async def register_orgbook_target(self, config: dict) -> str:
+    async def register_orgbook_connection(self, agent_id: str, config: dict = None) -> str:
         result = await self._fetch(
-            RegisterIssuerTargetReq(IssuerTargetType.TheOrgBook.value, config),
-            IssuerTargetStatus)
-        return result.target_id
-
-    async def register_vonx_target(self, config: dict) -> str:
-        result = await self._fetch(
-            RegisterIssuerTargetReq(IssuerTargetType.vonx.value, config),
-            IssuerTargetStatus)
-        return result.target_id
-
-    async def register_connection(self, issuer_id: str, target_id: str, config: dict = None) -> str:
-        result = await self._fetch(
-            RegisterConnectionReq(issuer_id, target_id, config or {}), ConnectionStatus)
+            RegisterConnectionReq(ConnectionType.TheOrgBook.value, agent_id, config or {}),
+            ConnectionStatus)
         return result.connection_id

@@ -21,11 +21,12 @@ import logging
 import pathlib
 import random
 import string
-from typing import Mapping
+from typing import Mapping, Sequence
 import uuid
 
 import aiohttp
 from didauth.indy import seed_to_did
+from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
 from von_agent.error import AbsentSchema, AbsentCredDef
 from von_agent.nodepool import NodePool
 from von_agent.util import cred_def_id, revealed_attrs, schema_id, schema_key
@@ -34,18 +35,20 @@ from ..common.service import (
     Exchange,
     ServiceBase,
     ServiceRequest,
-    ServiceResponse)
+    ServiceResponse,
+)
 from ..common.util import log_json
 from .config import (
     AgentType,
     AgentCfg,
     ConnectionCfg,
-    IndyConfigError,
-    IssuerTargetCfg,
     SchemaCfg,
-    WalletCfg)
+    WalletCfg,
+)
+from .errors import IndyConfigError, IndyError
 from .messages import (
-    IndyServiceError,
+    IndyServiceAck,
+    IndyServiceFail,
     LedgerStatusReq,
     LedgerStatus,
     RegisterWalletReq,
@@ -54,14 +57,13 @@ from .messages import (
     RegisterAgentReq,
     AgentStatusReq,
     AgentStatus,
-    RegisterIssuerSchemaReq,
-    RegisterIssuerCredDefReq,
-    RegisterIssuerTargetReq,
-    IssuerTargetStatusReq,
-    IssuerTargetStatus,
+    RegisterCredentialTypeReq,
     RegisterConnectionReq,
     ConnectionStatusReq,
-    ConnectionStatus)
+    ConnectionStatus,
+    Credential,
+    CredentialOffer,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,7 +86,6 @@ class IndyService(ServiceBase):
         self._name = pid
         self._opened = False
         self._pool = None
-        self._targets = {}
         self._wallets = {}
         self._ledger_url = None
         self._verifier = None
@@ -114,9 +115,6 @@ class IndyService(ServiceBase):
         for agent in self._agents.values():
             if not await self._sync_agent(agent):
                 synced = False
-        for target in self._targets.values():
-            if not await self._sync_target(target):
-                synced = False
         for connection in self._connections.values():
             if not await self._sync_connection(connection):
                 synced = False
@@ -127,15 +125,17 @@ class IndyService(ServiceBase):
         Add an agent configuration
 
         Args:
+            agent_type: the agent type, issuer or holder
+            wallet_id: the identifier for a previously-registered wallet
             params: parameters to be passed to the :class:`AgentCfg` constructor
         """
         if wallet_id not in self._wallets:
-            raise KeyError("Wallet ID not registered: {}".format(wallet_id))
+            raise IndyConfigError("Wallet ID not registered: {}".format(wallet_id))
         cfg = AgentCfg(agent_type, wallet_id, **params)
         if not cfg.agent_id:
             cfg.agent_id = _make_id("agent-")
         if cfg.agent_id in self._agents:
-            raise KeyError("Duplicate agent ID: {}".format(cfg.agent_id))
+            raise IndyConfigError("Duplicate agent ID: {}".format(cfg.agent_id))
         self._agents[cfg.agent_id] = cfg
         return cfg.agent_id
 
@@ -149,27 +149,39 @@ class IndyService(ServiceBase):
         if agent_id in self._agents:
             msg = AgentStatus(agent_id, self._agents[agent_id].status)
         else:
-            msg = IndyServiceError("Unregistered agent: {}".format(agent_id))
+            msg = IndyServiceFail("Unregistered agent: {}".format(agent_id))
         return msg
 
-    def _add_connection(self, issuer_id: str, target_id: str, **params) -> str:
+    def _add_credential_type(
+            self,
+            issuer_id: str,
+            schema_name: str,
+            schema_version: str,
+            origin_did: str,
+            attr_names: Sequence,
+            config: Mapping = None) -> None:
+        agent = self._agents[issuer_id]
+        if not agent:
+            raise IndyConfigError("Agent ID not registered: {}".format(issuer_id))
+        schema = SchemaCfg(schema_name, schema_version, attr_names, origin_did)
+        agent.add_credential_type(schema, **(config or {}))
+
+    def _add_connection(self, connection_type: str, agent_id: str, **params) -> str:
         """
         Add a connection configuration
 
         Args:
-            issuer_id: the identifier of the registered issuer
-            target_id: the identifier of the registered issuer target
+            connection_type: the type of the connection, normally TheOrgBook
+            agent_id: the identifier of the registered agent
             params: parameters to be passed to the :class:`ConnectionCfg` constructor
         """
-        if issuer_id not in self._agents:
-            raise KeyError("Issuer ID not registered: {}".format(issuer_id))
-        if target_id not in self._targets:
-            raise KeyError("Target ID not registered: {}".format(target_id))
-        cfg = ConnectionCfg(issuer_id, target_id, **params)
+        if agent_id not in self._agents:
+            raise IndyConfigError("Agent ID not registered: {}".format(agent_id))
+        cfg = ConnectionCfg(connection_type, agent_id, **params)
         if not cfg.connection_id:
             cfg.connection_id = _make_id("connection-")
         if cfg.connection_id in self._connections:
-            raise KeyError("Duplicate connection ID: {}".format(cfg.connection_id))
+            raise IndyConfigError("Duplicate connection ID: {}".format(cfg.connection_id))
         self._connections[cfg.connection_id] = cfg
         return cfg.connection_id
 
@@ -183,36 +195,7 @@ class IndyService(ServiceBase):
         if connection_id in self._connections:
             msg = ConnectionStatus(connection_id, self._connections[connection_id].status)
         else:
-            msg = IndyServiceError("Unregistered connection: {}".format(connection_id))
-        return msg
-
-    def _add_target(self, target_type: str, **params) -> str:
-        """
-        Add an issuer target configuration
-
-        Args:
-            target_type: the type of the issuer target (TheOrgBook / von-x)
-            params: parameters to be passed to the :class:`IssuerTargetCfg` constructor
-        """
-        cfg = IssuerTargetCfg(target_type, **params)
-        if not cfg.target_id:
-            cfg.target_id = _make_id("target-")
-        if cfg.target_id in self._targets:
-            raise KeyError("Duplicate target ID: {}".format(cfg.target_id))
-        self._targets[cfg.target_id] = cfg
-        return cfg.target_id
-
-    def _get_target_status(self, target_id: str) -> ServiceResponse:
-        """
-        Return the status of a registered target
-
-        Args:
-            target_id: the unique identifier of the target
-        """
-        if target_id in self._targets:
-            msg = IssuerTargetStatus(target_id, self._targets[target_id].status)
-        else:
-            msg = IndyServiceError("Unregistered target: {}".format(target_id))
+            msg = IndyServiceFail("Unregistered connection: {}".format(connection_id))
         return msg
 
     def _add_wallet(self, **params) -> str:
@@ -226,7 +209,7 @@ class IndyService(ServiceBase):
         if not cfg.wallet_id:
             cfg.wallet_id = _make_id("wallet-")
         if cfg.wallet_id in self._wallets:
-            raise KeyError("Duplicate wallet ID: {}".format(cfg.wallet_id))
+            raise IndyConfigError("Duplicate wallet ID: {}".format(cfg.wallet_id))
         self._wallets[cfg.wallet_id] = cfg
         return cfg.wallet_id
 
@@ -240,7 +223,7 @@ class IndyService(ServiceBase):
         if wallet_id in self._wallets:
             msg = WalletStatus(wallet_id, self._wallets[wallet_id].status)
         else:
-            msg = IndyServiceError("Unregistered wallet: {}".format(wallet_id))
+            msg = IndyServiceFail("Unregistered wallet: {}".format(wallet_id))
         return msg
 
     async def _sync_agent(self, agent: AgentCfg) -> bool:
@@ -258,8 +241,7 @@ class IndyService(ServiceBase):
                     return False
                 await agent.create(wallet)
 
-            #if not agent.opened:
-            #    await agent.open()
+            await agent.open()
 
             if not agent.registered:
                 # check DID is registered
@@ -271,29 +253,28 @@ class IndyService(ServiceBase):
                 agent.registered = True
 
             # publish schemas
-            for schema in agent.schemas:
-                await self._publish_schema(agent, schema)
+            for cred_type in agent.cred_types:
+                await self._publish_schema(agent, cred_type)
 
             agent.synced = True
             LOGGER.info("Indy agent synced: %s", agent.agent_id)
         return agent.synced
 
-    async def _sync_target(self, target: IssuerTargetCfg) -> bool:
-        if not target.created:
-            await target.create()
-        return target.created
-
     async def _sync_connection(self, connection: ConnectionCfg) -> bool:
-        issuer = self._agents[connection.issuer_id]
-        target = self._targets[connection.target_id]
-
-        if not connection.created:
-            if issuer.synced and target.created:
-                http_client = self._issuer_http_client(issuer.agent_id)
-                await connection.create(target, http_client)
+        agent = self._agents[connection.agent_id]
 
         if not connection.synced:
-            await connection.sync(issuer, target)
+            if not connection.created:
+                if not agent.synced:
+                    return False
+                agent_cfg = agent.get_connection_params(connection)
+                await connection.create(agent_cfg)
+
+            if not connection.opened:
+                http_client = self._agent_http_client(agent.agent_id)
+                await connection.open(http_client)
+
+            await connection.sync(agent)
         return connection.synced
 
     async def _setup_pool(self) -> None:
@@ -428,21 +409,21 @@ class IndyService(ServiceBase):
             endp_info = await agent.instance.send_endpoint()
             LOGGER.debug("Endpoint stored: %s", endp_info)
 
-    async def _publish_schema(self, issuer: AgentCfg, schema: dict) -> None:
+    async def _publish_schema(self, issuer: AgentCfg, cred_type: dict) -> None:
         """
         Check the ledger for a specific schema and version, and publish it if not found.
         Also publish the related credential definition if not found
 
         Args:
             issuer: the initialized and opened issuer instance publishing the schema
-            schema: a dict which will be updated with the published schema and credential def
+            cred_type: a dict which will be updated with the published schema and credential def
         """
 
-        if not schema or "definition" not in schema:
+        if not cred_type or "definition" not in cred_type:
             raise ValueError("Missing schema definition")
-        definition = schema["definition"]
+        definition = cred_type["definition"]
 
-        if not schema.get("ledger"):
+        if not cred_type.get("ledger_schema"):
             LOGGER.info(
                 "Checking for schema: %s (%s)",
                 definition.name,
@@ -477,9 +458,9 @@ class IndyService(ServiceBase):
                 if not ledger_schema or not ledger_schema.get("seqNo"):
                     raise RuntimeError("Schema was not published to ledger")
                 log_json("Published schema:", ledger_schema, LOGGER)
-            schema["ledger"] = ledger_schema
+            cred_type["ledger_schema"] = ledger_schema
 
-        if not schema.get("credential_definition"):
+        if not cred_type.get("cred_def"):
             # Check if credential definition has been published
             LOGGER.info(
                 "Checking for credential def: %s (%s)",
@@ -489,7 +470,7 @@ class IndyService(ServiceBase):
 
             try:
                 cred_def_json = await issuer.instance.get_cred_def(
-                    cred_def_id(issuer.did, schema["ledger"]["seqNo"])
+                    cred_def_id(issuer.did, cred_type["ledger_schema"]["seqNo"])
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Credential def found on ledger:", cred_def, LOGGER)
@@ -505,7 +486,7 @@ class IndyService(ServiceBase):
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Published credential def:", cred_def, LOGGER)
-            schema["credential_definition"] = cred_def
+            cred_type["cred_def"] = cred_def
 
     async def _handle_create_cred_offer(self, request):
         """
@@ -515,7 +496,7 @@ class IndyService(ServiceBase):
             request: the request for a credential offer
         """
         issuer = self._agents[request.issuer_id]
-        schema = issuer.get_schema_config(request.schema_name, request.schema_version)
+        schema = issuer.find_credential_type(request.schema_name, request.schema_version)
 
         LOGGER.info(
             "Creating indy credential offer for issuer %s, schema %s",
@@ -523,10 +504,10 @@ class IndyService(ServiceBase):
             schema["definition"].name,
         )
         cred_offer_json = await issuer.instance.create_cred_offer(
-            schema["ledger"]["seqNo"]
+            schema["ledger_schema"]["seqNo"]
         )
 
-        return IndyCredOffer(
+        return CredentialOffer(
             request.issuer_id,
             request.schema_def,
             json.loads(cred_offer_json),
@@ -542,7 +523,7 @@ class IndyService(ServiceBase):
         """
         offer = request.cred_offer
         issuer = self._agents[offer.issuer_id]
-        schema = issuer.get_schema_config(offer.schema_def)
+        schema = issuer.find_credential_type(offer.schema_def)
 
         (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
             json.dumps(request.cred_offer.offer),
@@ -550,7 +531,7 @@ class IndyService(ServiceBase):
             request.cred_data,
         )
 
-        return IndyCredential(
+        return Credential(
             offer.issuer_id,
             schema["definition"].name,
             issuer.did,
@@ -608,11 +589,11 @@ class IndyService(ServiceBase):
         """
         if "request_class" not in kwargs:
             kwargs["request_class"] = SignedRequest
-        if issuer_id and "auth" not in kwargs:
-            kwargs["auth"] = self._did_auth(issuer_id)
+        if agent_id and "auth" not in kwargs:
+            kwargs["auth"] = self._did_auth(agent_id)
         return super(IndyService, self).http_client(**kwargs)
 
-    def _did_auth(self, issuer_id: str, header_list=None):
+    def _did_auth(self, agent_id: str, header_list=None):
         """
         Create a :class:`SignedRequestAuth` representing our authentication credentials,
         used to sign outgoing requests
@@ -621,12 +602,13 @@ class IndyService(ServiceBase):
             issuer_id: the unique identifier of the issuer
             header_list: optionally override the list of headers to sign
         """
-        if issuer_id not in self._issuers:
-            raise ValueError("Unknown issuer ID: {}".format(issuer_id))
-        issuer = self._issuers[issuer_id]
-        if issuer.did and issuer.wallet_seed:
-            key_id = "did:sov:{}".format(issuer.did)
-            secret = agent.wallet_seed
+        agent = self._agents.get(agent_id)
+        if not agent:
+            raise ValueError("Unknown agent ID: {}".format(agent_id))
+        wallet = self._wallets[agent.wallet_id]
+        if agent.did and wallet.seed:
+            key_id = "did:sov:{}".format(agent.did)
+            secret = wallet.seed
             if isinstance(secret, str):
                 secret = secret.encode("ascii")
             return SignedRequestAuth(key_id, "ed25519", secret, header_list)
@@ -648,42 +630,44 @@ class IndyService(ServiceBase):
                 agent_id = self._add_agent(request.agent_type, request.wallet_id, **request.config)
                 reply = self._get_agent_status(agent_id)
                 self.run_task(self._sync())
-            except IndyConfigError as e:
-                reply = IndyServiceError(str(e))
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
         elif isinstance(request, RegisterConnectionReq):
             try:
                 connection_id = self._add_connection(
-                    request.issuer_id, request.target_id, **request.config)
+                    request.connection_type, request.agent_id, **request.config)
                 reply = self._get_connection_status(connection_id)
                 self.run_task(self._sync())
-            except IndyConfigError as e:
-                reply = IndyServiceError(str(e))
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
-        elif isinstance(request, RegisterIssuerTargetReq):
+        elif isinstance(request, RegisterCredentialTypeReq):
             try:
-                target_id = self._add_target(request.target_type, **request.config)
-                reply = self._get_target_status(target_id)
-                self.run_task(self._sync())
-            except IndyConfigError as e:
-                reply = IndyServiceError(str(e))
+                self._add_credential_type(
+                    request.issuer_id,
+                    request.schema_name,
+                    request.schema_version,
+                    request.origin_did,
+                    request.attr_names,
+                    request.config)
+                reply = IndyServiceAck()
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
         elif isinstance(request, RegisterWalletReq):
             try:
                 wallet_id = self._add_wallet(**request.config)
                 reply = self._get_wallet_status(wallet_id)
                 self.run_task(self._sync())
-            except IndyConfigError as e:
-                reply = IndyServiceError(str(e))
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
         elif isinstance(request, AgentStatusReq):
             reply = self._get_agent_status(request.agent_id)
 
         elif isinstance(request, ConnectionStatusReq):
             reply = self._get_connection_status(request.connection_id)
-
-        elif isinstance(request, IssuerTargetStatusReq):
-            reply = self._get_target_status(request.target_id)
 
         elif isinstance(request, WalletStatusReq):
             reply = self._get_wallet_status(request.wallet_id)

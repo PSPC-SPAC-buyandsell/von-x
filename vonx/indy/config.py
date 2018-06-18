@@ -20,6 +20,7 @@ from typing import Mapping, Sequence
 import uuid
 
 from von_agent.agents import (
+    _BaseAgent,
     Issuer,
     HolderProver,
     Verifier,
@@ -27,21 +28,15 @@ from von_agent.agents import (
 from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 
-from .tob import TobClient
+from .connection import ConnectionBase, ConnectionType
+from .errors import IndyConfigError
+from .tob import TobConnection
 
 
 class AgentType(Enum):
     issuer = "issuer"
     holder = "holder"
     verifier = "verifier"
-
-class IssuerTargetType(Enum):
-    TheOrgBook = "TheOrgBook"
-    vonx = "von-x"
-
-
-class IndyConfigError(Exception):
-    pass
 
 
 class AgentCfg:
@@ -54,20 +49,17 @@ class AgentCfg:
             self.agent_type = AgentType(agent_type)
         except KeyError:
             raise IndyConfigError("Unsupported agent type: {}".format(agent_type))
-        self.endpoint = params.get("endpoint")
-        self.instance = None
+        self.cred_types = []
+        self._instance = None
         self.opened = False
         self.registered = False
         self.synced = False
         self.wallet_id = wallet_id
-
-        self.cred_defs = []
-        self.schemas = []
-
-        schemas = params.get("schemas")
-        if schemas:
-            for schema in schemas:
-                self.add_schema(schema)
+        self.abbreviation = params.get("abbreviation")
+        self.email = params.get("email")
+        self.endpoint = params.get("endpoint")
+        self.name = params.get("name")
+        self.url = params.get("url")
 
     @property
     def created(self) -> bool:
@@ -75,7 +67,7 @@ class AgentCfg:
 
     @property
     def did(self) -> str:
-        return self.instance and self.instance.did
+        return self._instance and self._instance.did
 
     @property
     def extended_config(self) -> dict:
@@ -86,6 +78,10 @@ class AgentCfg:
         if self.endpoint:
             ret["endpoint"] = self.endpoint
         return ret
+
+    @property
+    def instance(self) -> _BaseAgent:
+        return self._instance
 
     @property
     def role(self) -> str:
@@ -106,43 +102,46 @@ class AgentCfg:
 
     @property
     def verkey(self) -> str:
-        return self.instance and self.instance.verkey
+        return self._instance and self._instance.verkey
 
     async def create(self, wallet: 'WalletCfg') -> None:
-        if self.agent_type == AgentType.issuer:
-            cls = Issuer
-        elif self.agent_type == AgentType.holder:
-            cls = HolderProver
-        elif self.agent_type == AgentType.verifier:
-            cls = Verifier
-        else:
-            raise IndyConfigError("Unknown agent type")
-        self.instance = cls(wallet.instance, self.extended_config)
+        if not self._instance:
+            if self.agent_type == AgentType.issuer:
+                cls = Issuer
+            elif self.agent_type == AgentType.holder:
+                cls = HolderProver
+            elif self.agent_type == AgentType.verifier:
+                cls = Verifier
+            else:
+                raise IndyConfigError("Unknown agent type")
+            self._instance = cls(wallet.instance, self.extended_config)
         await self.open()
 
-    async def open(self):
-        self.opened = await self.instance.open()
-        if isinstance(self.instance, HolderProver):
-            # NOTE: should only create this once,
-            # and only in the root wallet (virtual_wallet == None)
-            await self.instance.create_link_secret(str(uuid.uuid4()))
+    async def open(self) -> None:
+        if not self.opened:
+            self.opened = await self._instance.open()
+            if isinstance(self._instance, HolderProver):
+                # NOTE: should only create this once,
+                # and only in the root wallet (virtual_wallet == None)
+                await self._instance.create_link_secret(str(uuid.uuid4()))
 
-    def add_schema(self, schema: 'SchemaCfg') -> None:
+    def add_credential_type(self, schema: 'SchemaCfg', **params) -> None:
         """
-        Add a schema to the Agent configuration
+        Add a credential type to the Agent configuration
 
         Args:
             schema: the :class:`SchemaCfg` to be added
         """
         if self.agent_type != AgentType.issuer:
             raise IndyConfigError("Only agent of type 'issuer' may publish schemas")
-        self.schemas.append({
-            "definition": schema.copy(),
-            "ledger": None,
+        self.cred_types.append({
+            "definition": schema,
+            "ledger_schema": None,
             "cred_def": None,
+            "params": params,
         })
 
-    def get_schema_config(self, name: str, version: str) -> dict:
+    def find_credential_type(self, name: str, version: str) -> dict:
         """
         Find the extended information for a specific schema, including the ledger schema
         definition and credential definition (if any)
@@ -152,83 +151,88 @@ class AgentCfg:
             version: the schema version to be located
         """
         match = SchemaCfg(name, version)
-        for schema in self.schemas:
-            defn = schema["definition"]
-            if defn.compare(match):
-                return schema
+        for cred_type in self.cred_types:
+            if cred_type["definition"].compare(match):
+                return cred_type
         return None
 
-    def get_sync_params(self, target: 'IssuerTargetCfg') -> dict:
+    def get_connection_params(self, connection: 'ConnectionCfg') -> dict:
         """
-        Get parameters required for syncing with the target
+        Get parameters required for initializing the connection
         """
-        return {}
+        cred_specs = []
+        for cred_type in self.cred_types:
+            params = cred_type["params"]
+            type_spec = {
+                "schema": cred_type["definition"],
+                "source_claim": params.get("source_claim"),
+            }
+            if "description" in params:
+                type_spec["description"] = params["description"]
+            if "issuer_url" in params:
+                type_spec["issuer_url"] = params["issuer_url"]
+            if "mapping" in params:
+                type_spec["mapping"] = params["mapping"]
+            cred_specs.append(type_spec)
+        return {
+            "abbreviation": self.abbreviation,
+            "credential_types": cred_specs,
+            "did": self.did,
+            "email": self.email,
+            "name": self.name,
+            "url": self.url,
+        }
 
 
 class ConnectionCfg:
     """
     Manage configuration settings for a connection between an issuer and a target
     """
-    def __init__(self, issuer_id: str, target_id: str, **params):
+    def __init__(self, connection_type: str, agent_id: str, **params):
         self.connection_id = params.get("id")
-        self.instance = None
-        self.issuer_id = issuer_id
-        self.target_id = target_id
-        self.processor_config = params.get("processor_config")
+        self.agent_id = agent_id
+        try:
+            self.connection_type = ConnectionType(connection_type)
+        except KeyError:
+            raise IndyConfigError("Unsupported connection type: {}".format(connection_type))
+        self._instance = None
+        self.connection_params = params
+        self.opened = False
         self.synced = False
+
+        if self.connection_type != ConnectionType.TheOrgBook:
+            raise IndyConfigError("Only TOB connections are currently supported")
 
     @property
     def created(self) -> bool:
-        return self.instance is not None
+        return self._instance is not None
+
+    @property
+    def instance(self) -> ConnectionBase:
+        return self._instance
 
     @property
     def status(self) -> dict:
         return {
             "created": self.created,
+            "opened": self.opened,
             "synced": self.synced,
         }
 
-    async def create(self, target: 'IssuerTargetCfg', http_client: 'aiohttp.ClientSession') -> None:
-        self.instance = await target.connect(http_client)
+    async def create(self, agent_params: dict) -> None:
+        if self.connection_type == ConnectionType.TheOrgBook:
+            self._instance = TobConnection(agent_params, self.connection_params)
 
-    async def sync(self, issuer: 'IssuerCfg', target: 'IssuerTargetCfg') -> None:
-        params = issuer.get_sync_params(target)
-        self.synced = await target.register_issuer(params)
+    async def open(self, http_client) -> None:
+        if not self.opened:
+            self._instance.http_client = http_client
+            await self._instance.open()
+            self.opened = True
 
-
-class IssuerTargetCfg:
-    """
-    Manage configuration settings for an Indy issuer target
-    """
-    def __init__(self, target_type: str, **params):
-        self.target_id = params.get("id")
-        try:
-            self.target_type = IssuerTargetType(target_type)
-        except KeyError:
-            raise IndyConfigError("Unsupported target type: {}".format(target_type))
-        self.instance = None
-        self.url = params.get("url")
-
-        if self.target_type == IssuerTargetType.TheOrgBook:
-            if not self.url:
-                raise IndyConfigError("Missing URL for TheOrgBook: {}".format(self.target_id))
-
-    @property
-    def created(self) -> bool:
-        return self.instance is not None
-
-    @property
-    def status(self) -> dict:
-        return {
-            "created": self.created,
-        }
-
-    async def create(self) -> None:
-        pass
-
-    async def connect(self, http_client) -> TobClient:
-        if self.target_type == IssuerTargetType.TheOrgBook:
-            self.instance = TobClient(http_client, self.url)
+    async def sync(self, agent: AgentCfg) -> None:
+        if not self.synced:
+            await self._instance.sync()
+            self.synced = True
 
 
 class SchemaCfg:
@@ -348,15 +352,19 @@ class WalletCfg:
         if "freshness_time" not in self.params:
             self.params["freshness_time"] = 0
         self.access_creds = params.get("access_creds") or {"key": ""}
-        self.instance = None
+        self._instance = None
 
     @property
     def created(self) -> bool:
-        return self.instance and self.instance.created
+        return self._instance and self._instance.created
+
+    @property
+    def instance(self) -> Wallet:
+        return self._instance
 
     @property
     def opened(self) -> bool:
-        return self.instance and self.instance.handle is not None
+        return self._instance and self._instance.handle is not None
 
     @property
     def status(self) -> dict:
@@ -366,7 +374,7 @@ class WalletCfg:
         }
 
     async def create(self, pool: NodePool) -> None:
-        self.instance = Wallet(
+        self._instance = Wallet(
             pool,
             self.seed,
             self.name,
@@ -376,4 +384,4 @@ class WalletCfg:
         await self.instance.create()
 
     async def open(self):
-        await self.instance.open()
+        await self._instance.open()

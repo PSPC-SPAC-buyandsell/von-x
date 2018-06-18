@@ -21,7 +21,7 @@ from typing import Mapping
 
 from .exchange import (
     Exchange,
-    ExchangeError,
+    ExchangeFail,
     ExchangeMessage,
     MessageWrapper,
     RequestExecutor)
@@ -47,7 +47,7 @@ class ServiceAck(ServiceResponse):
     """
     pass
 
-class ServiceError(ExchangeError):
+class ServiceFail(ExchangeFail):
     """
     A standard base class for errors returned from a service
     """
@@ -188,7 +188,7 @@ class ServiceBase(RequestExecutor):
                 reply = await self._service_request(request)
             except Exception:
                 LOGGER.exception("Exception while handling request:")
-                reply = ExchangeError("Exception while handling request")
+                reply = ExchangeFail("Exception while handling request")
             if reply is None:
                 raise ValueError(
                     "Unexpected message from {}: {}".format(from_pid, request)

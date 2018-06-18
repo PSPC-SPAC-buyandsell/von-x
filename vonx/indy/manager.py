@@ -28,31 +28,9 @@ class IndyManager(ConfigServiceManager):
     def _init_services(self):
         super(IndyManager, self)._init_services()
 
-        #indy = self.init_indy_service()
-        indy = self.test_init()
+        indy = self.init_indy_service()
         self.add_service("indy", indy)
         self._client = IndyClient(self.get_request_target("indy"))
-
-    async def _service_sync(self):
-        LOGGER.info("sync manager")
-        wallet_id = await self._client.register_wallet({
-            "name": "issuer-wallet",
-            "seed": "issuer-wallet-000000000000000000",
-        })
-        issuer_id = await self._client.register_issuer(wallet_id, {})
-        target_id = await self._client.register_orgbook_target({
-            "url": "http://192.168.65.3:8081/api/v2",
-        })
-        conn_id = await self._client.register_connection(issuer_id, target_id)
-
-    def test_init(self, pid: str = "indy") -> IndyService:
-        spec = {
-            "auto_register": 1,
-            "genesis_path": "/home/indy/genesis",
-            "ledger_url": "http://192.168.65.3:9000",
-        }
-        LOGGER.info("init indy")
-        return IndyService(pid, self._exchange, self._env, spec)
 
     def init_indy_service(self, pid: str = "indy") -> IndyService:
         """
@@ -78,13 +56,65 @@ class IndyManager(ConfigServiceManager):
         LOGGER.info("Initializing Indy service")
         return IndyService(pid, self._exchange, self._env, spec)
 
+
+class TestIndyManager(IndyManager):
+    async def _service_sync(self):
+        LOGGER.info("setting up test indy issuer")
+        wallet_id = await self._client.register_wallet({
+            "name": "issuer-wallet",
+            "seed": "issuer-wallet-000000000000000000",
+        })
+        issuer_id = await self._client.register_issuer(wallet_id, {
+            "email": "test@example.ca",
+            "name": "Test Issuer",
+        })
+        mapping = [
+            {
+                "model": "name",
+                "fields": {
+                    "text": {
+                        "input": "attr1",
+                        "from": "claim"
+                    },
+                    "type": {
+                        "input": "legal_name",
+                        "from": "value"
+                    }
+                }
+            }
+        ]
+        await self._client.register_credential_type(
+            issuer_id,
+            "test.schema",
+            "1.0.0",
+            None,
+            ["attr1", "attr2"],
+            {"source_claim": "attr1", "mapping": mapping})
+        conn_id = await self._client.register_orgbook_connection(
+            issuer_id, {
+                "api_url": "http://192.168.65.3:8081/api/v2",
+            })
+        await self._client.issue_credential(
+            conn_id, {
+            })
+
+    def init_indy_service(self, pid: str = "indy") -> IndyService:
+        spec = {
+            "auto_register": 1,
+            "genesis_path": "/home/indy/genesis",
+            "ledger_url": "http://192.168.65.3:9000",
+        }
+        LOGGER.info("init indy")
+        return IndyService(pid, self._exchange, self._env, spec)
+
+
 if __name__ == '__main__':
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     console = logging.StreamHandler()
-    console.setLevel(logging.DEBUG)
+    console.setLevel(logging.INFO)
     #console.setFormatter(logging.Formatter(fmt=SCREEN_FORMAT))
     logger.addHandler(console)
 
-    mgr = IndyManager()
+    mgr = TestIndyManager()
     mgr.start()
