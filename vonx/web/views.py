@@ -20,22 +20,22 @@ from concurrent.futures import Future
 import json
 import logging
 
-from aiohttp import web, ClientRequest, ClientResponse
+from aiohttp import web
 
-from vonx.services import issuer, prover
-from vonx.services.exchange import RequestTarget
-from vonx.services.manager import ServiceManager
+from ..common.exchange import RequestTarget
+from ..indy.client import IndyClient, IndyClientError
+from ..indy.manager import IndyManager
 
 LOGGER = logging.getLogger(__name__)
 
 
-def get_manager(request: web.Request) -> ServiceManager:
+def get_manager(request: web.Request) -> IndyManager:
     """
     Fetch the service manager for the current application
     """
     return request.app['manager']
 
-def get_request_target(request: ClientRequest, service_name: str) -> RequestTarget:
+def get_request_target(request: web.Request, service_name: str) -> RequestTarget:
     """
     Create a :class:`RequestTarget` to process requests to a specific service
 
@@ -45,7 +45,7 @@ def get_request_target(request: ClientRequest, service_name: str) -> RequestTarg
     """
     return get_manager(request).get_service_request_target(service_name)
 
-def service_request(request: ClientRequest, service_name: str, message) -> Future:
+def service_request(request: web.Request, service_name: str, message) -> Future:
     """
     Handle a single request to a running service and await the result in a thread
 
@@ -56,8 +56,14 @@ def service_request(request: ClientRequest, service_name: str, message) -> Futur
     """
     return get_request_target(request, service_name).request(message)
 
+def indy_client(request: web.Request) -> IndyClient:
+    """
+    Create an Indy client to perform requests against the ledger service
+    """
+    return get_manager(request).get_client()
 
-async def health(request: ClientRequest) -> ClientResponse:
+
+async def health(request: web.Request) -> web.Response:
     """
     Respond with HTTP code 200 if services are ready to accept new credentials, 451 otherwise
     """
@@ -67,7 +73,7 @@ async def health(request: ClientRequest) -> ClientResponse:
         status=200 if result else 451)
 
 
-async def status(request: ClientRequest) -> ClientResponse:
+async def status(request: web.Request) -> web.Response:
     """
     Respond with the current status of the application in JSON format
     """
@@ -75,12 +81,12 @@ async def status(request: ClientRequest) -> ClientResponse:
     return web.json_response(result)
 
 
-async def ledger_status(request: ClientRequest) -> ClientResponse:
+async def ledger_status(request: web.Request) -> web.Response:
     """
     Respond with the status JSON retrieved from the Indy ledger (von-network)
     """
     #pylint: disable=broad-except
-    result = await service_request(request, 'ledger', 'ledger-status')
+    result = await indy_client(request).get_ledger_status()
     try:
         jresult = json.loads(result)
         return web.json_response(jresult)
@@ -88,7 +94,7 @@ async def ledger_status(request: ClientRequest) -> ClientResponse:
         return web.Response(text=result)
 
 
-async def hello(request: ClientRequest) -> ClientResponse:
+async def hello(request: web.Request) -> web.Response:
     """
     Send a test request to the `HelloProcessor` service and return the response
     """
@@ -96,7 +102,7 @@ async def hello(request: ClientRequest) -> ClientResponse:
     return web.json_response(result)
 
 
-async def request_proof(request: ClientRequest) -> ClientResponse:
+async def request_proof(request: web.Request) -> web.Response:
     """
     Ask the :class:`ProverManager` service to perform a proof request and respond with
     the result
@@ -128,31 +134,28 @@ async def request_proof(request: ClientRequest) -> ClientResponse:
     return web.json_response(ret)
 
 
-async def issue_credential(request: ClientRequest) -> ClientResponse:
-    """
-    Ask the :class:`IssuerManager` service to issue a credential to the Holder
-    (TheOrgBook) and respond with the result
-    """
-    schema_name = request.query.get('schema')
-    schema_version = request.query.get('version') or None
-    if not schema_name:
-        return web.Response(text="Missing 'schema' parameter", status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text='Request body must contain the schema attributes as a JSON object',
-            status=400)
-    try:
-        result = await service_request(
-            request, 'issuer',
-            issuer.IssueCredRequest(schema_name, schema_version, params))
-        if isinstance(result, issuer.IssueCredResponse):
-            ret = {'success': True, 'result': result.value}
-        elif isinstance(result, issuer.IssuerError):
-            ret = {'success': False, 'result': result.value}
-        else:
-            raise ValueError('Unexpected result from issuer: {}'.format(result))
-    except Exception as e:
-        LOGGER.exception('Error while issuing credential')
-        ret = {'success': False, 'result': str(e)}
-    return web.json_response(ret)
+class ConnectionView:
+    def __init__(self, connection_id: str):
+        self._connection_id = connection_id
+
+    async def issue_credential(self, request: web.Request) -> web.Response:
+        """
+        Ask the :class:`IssuerManager` service to issue a credential to the Holder
+        (TheOrgBook) and respond with the result
+        """
+        schema_name = request.query.get("schema")
+        schema_version = request.query.get("version") or None
+        if not schema_name:
+            return web.Response(text="Missing 'schema' parameter", status=400)
+        params = await request.json()
+        if not isinstance(params, dict):
+            return web.Response(
+                text="Request body must contain the schema attributes as a JSON object",
+                status=400)
+        try:
+            result = await indy_client(request).issue_credential(
+                self._connection_id, schema_name, schema_version, None, params)
+            ret = {"success": True, "result": result}
+        except IndyClientError as e:
+            ret = {"success": False, "result": str(e)}
+        return web.json_response(ret)

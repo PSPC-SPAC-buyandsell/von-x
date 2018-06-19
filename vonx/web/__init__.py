@@ -22,11 +22,11 @@ from aiohttp import web
 import aiohttp_jinja2
 from jinja2 import ChoiceLoader, FileSystemLoader, PackageLoader
 
-from ..services.common import StandardServiceManager
+from ..common.manager import ConfigServiceManager
 from .routes import get_routes
 
 
-def _setup_jinja(manager: StandardServiceManager, app: web.Application):
+def _setup_jinja(manager: ConfigServiceManager, app: web.Application):
     """
     Initialize aiohttp-jinja2 for template rendering
     """
@@ -47,7 +47,7 @@ def _setup_jinja(manager: StandardServiceManager, app: web.Application):
     aiohttp_jinja2.setup(app, loader=loader, filters=filters)
 
 
-async def init_web(manager: StandardServiceManager):
+async def init_web(manager: ConfigServiceManager):
     """
     Initialize the web server application
     """

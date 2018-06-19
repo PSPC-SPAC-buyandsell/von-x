@@ -197,7 +197,6 @@ class TobConnection(ConnectionBase):
                 response,
             )
         return StoredCredential(
-            None,
             indy_cred,
             result)
 

@@ -206,8 +206,12 @@ class ServiceManager(ServiceBase):
 
 class ConfigServiceManager(ServiceManager):
     """
-    A :class:`ServiceManager` subclass with configuration loading methods
+    A :class:`ServiceManager` subclass with standard configuration loading methods
     """
+
+    def __init__(self, env: Mapping = None, pid: str = 'manager'):
+        super(ConfigServiceManager, self).__init__(env, pid)
+        self._services_cfg = None
 
     @property
     def config_root(self) -> str:
@@ -232,3 +236,16 @@ class ConfigServiceManager(ServiceManager):
         if not path:
             path = os.path.join(self.config_root, default_path)
         return config.load_config(path, env or self._env)
+
+    def services_config(self, section: str) -> dict:
+        """
+        Load a named section from the global services.yml configuration
+
+        Args:
+            section: the configuration key
+        """
+        if self._services_cfg is None:
+            self._services_cfg = self.load_config_path('SERVICES_CONFIG_PATH', 'services.yml')
+        if self._services_cfg:
+            return self._services_cfg.get(section) or {}
+        return {}

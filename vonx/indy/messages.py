@@ -35,14 +35,20 @@ class IndyServiceFail(ServiceFail):
     """
     pass
 
+class IndyServiceReq(ServiceRequest):
+    pass
 
-class LedgerStatusReq(ServiceRequest):
+class IndyServiceRep(ServiceResponse):
+    pass
+
+
+class LedgerStatusReq(IndyServiceReq):
     """
     A request to fetch the status of the remote ledger
     """
     pass
 
-class LedgerStatus(ServiceResponse):
+class LedgerStatus(IndyServiceRep):
     """
     The response to a ledger status request
     """
@@ -51,7 +57,7 @@ class LedgerStatus(ServiceResponse):
     )
 
 
-class RegisterWalletReq(ServiceRequest):
+class RegisterWalletReq(IndyServiceReq):
     """
     A request to register a wallet
     """
@@ -59,7 +65,7 @@ class RegisterWalletReq(ServiceRequest):
         ("config", dict),
     )
 
-class WalletStatusReq(ServiceRequest):
+class WalletStatusReq(IndyServiceReq):
     """
     A request for a wallet status update
     """
@@ -67,7 +73,7 @@ class WalletStatusReq(ServiceRequest):
         ("wallet_id", str),
     )
 
-class WalletStatus(ServiceResponse):
+class WalletStatus(IndyServiceRep):
     """
     A wallet status update
     """
@@ -77,7 +83,7 @@ class WalletStatus(ServiceResponse):
     )
 
 
-class RegisterAgentReq(ServiceRequest):
+class RegisterAgentReq(IndyServiceReq):
     """
     A request to register an agent
     """
@@ -87,7 +93,7 @@ class RegisterAgentReq(ServiceRequest):
         ("config", dict),
     )
 
-class AgentStatusReq(ServiceRequest):
+class AgentStatusReq(IndyServiceReq):
     """
     A request for an agent status update
     """
@@ -95,7 +101,7 @@ class AgentStatusReq(ServiceRequest):
         ("agent_id", str),
     )
 
-class AgentStatus(ServiceResponse):
+class AgentStatus(IndyServiceRep):
     """
     An agent status update
     """
@@ -105,7 +111,7 @@ class AgentStatus(ServiceResponse):
     )
 
 
-class RegisterCredentialTypeReq(ServiceRequest):
+class RegisterCredentialTypeReq(IndyServiceReq):
     """
     A request to register a schema for publishing
     """
@@ -119,7 +125,7 @@ class RegisterCredentialTypeReq(ServiceRequest):
     )
 
 
-class RegisterConnectionReq(ServiceRequest):
+class RegisterConnectionReq(IndyServiceReq):
     """
     A request to register a connection
     """
@@ -129,7 +135,7 @@ class RegisterConnectionReq(ServiceRequest):
         ("config", dict),
     )
 
-class ConnectionStatusReq(ServiceRequest):
+class ConnectionStatusReq(IndyServiceReq):
     """
     A request for a connection status update
     """
@@ -137,7 +143,7 @@ class ConnectionStatusReq(ServiceRequest):
         ("connection_id", str),
     )
 
-class ConnectionStatus(ServiceResponse):
+class ConnectionStatus(IndyServiceRep):
     """
     A connection status update
     """
@@ -147,7 +153,20 @@ class ConnectionStatus(ServiceResponse):
     )
 
 
-class CredentialOffer(ServiceResponse):
+class IssueCredentialReq(IndyServiceReq):
+    """
+    Issue a credential via a previously-registered connection
+    """
+    _fields = (
+        ("connection_id", str),
+        ("schema_name", str),
+        ("schema_version", str),
+        ("origin_did", str),
+        ("cred_data", dict),
+    )
+
+
+class CredentialOffer(IndyServiceRep):
     """
     A successful credential offer response
     Args:
@@ -158,7 +177,7 @@ class CredentialOffer(ServiceResponse):
         cred_def (dict): the credential definition used
     """
     _fields = (
-        ("issuer_id", str),
+        ("connection_id", str),
         ("schema_name", str),
         ("schema_version", str),
         ("offer", dict),
@@ -166,7 +185,7 @@ class CredentialOffer(ServiceResponse):
     )
 
 
-class CredentialRequest(ServiceResponse):
+class CredentialRequest(IndyServiceRep):
     """
     A successful credential request response
     Args:
@@ -176,19 +195,19 @@ class CredentialRequest(ServiceResponse):
         metadata (dict): the credential request metadata
     """
     _fields = (
-        ("holder_id", str),
+        ("connection_id", str),
         ("cred_offer", CredentialOffer),
-        ("result", str),
+        ("data", str),
         ("metadata", dict),
     )
 
 
-class Credential(ServiceResponse):
+class Credential(IndyServiceRep):
     """
     A successful credential creation
     """
     _fields = (
-        ("issuer_id", str),
+        ("connection_id", str),
         ("schema_name", str),
         ("issuer_did", str),
         ("cred_data", dict),
@@ -198,18 +217,17 @@ class Credential(ServiceResponse):
     )
 
 
-class StoredCredential(ServiceResponse):
+class StoredCredential(IndyServiceRep):
     """
     A successful response to storing a credential
     """
     _fields = (
-        ("holder_id", str),
         ("cred", Credential),
         ("result", dict),
     )
 
 
-class IndyVerifyProofReq(ServiceRequest):
+class IndyVerifyProofReq(IndyServiceReq):
     """
     The message class representing a request to verify a proof
     """
@@ -219,7 +237,7 @@ class IndyVerifyProofReq(ServiceRequest):
     )
 
 
-class IndyVerifiedProof(ServiceResponse):
+class IndyVerifiedProof(IndyServiceRep):
     """
     The message class representing a successful proof verification
     """

@@ -37,6 +37,8 @@ from .messages import (
     RegisterConnectionReq,
     ConnectionStatusReq,
     ConnectionStatus,
+    IssueCredentialReq,
+    StoredCredential,
     ServiceRequest,
 )
 
@@ -94,3 +96,19 @@ class IndyClient:
             RegisterConnectionReq(ConnectionType.TheOrgBook.value, agent_id, config or {}),
             ConnectionStatus)
         return result.connection_id
+
+    async def get_connection_status(self, connection_id: str) -> dict:
+        result = await self._fetch(ConnectionStatusReq(connection_id), ConnectionStatus)
+        return result.status
+
+    async def issue_credential(
+            self,
+            connection_id: str,
+            schema_name: str,
+            schema_version: str,
+            origin_did: str,
+            cred_data: dict):
+        stored = await self._fetch(
+            IssueCredentialReq(connection_id, schema_name, schema_version, origin_did, cred_data),
+            StoredCredential)
+        return stored.result

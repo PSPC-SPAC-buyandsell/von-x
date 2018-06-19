@@ -182,15 +182,16 @@ class RouteDefinitions:
             web.view(form['path'], form_handler(form), name=form['name'])
             for form in self.forms)
 
-        routes.extend(
-            web.view(issuer['path'] + '/issue-credential', views.issue_credential,
-                     name=issuer['name']+'-issue-credential')
-            for issuer in self.issuers)
+        for issuer in self.issuers:
+            conn = views.ConnectionView(issuer['id'])
+            routes.append(
+                web.view(issuer['path'] + '/issue-credential', conn.issue_credential,
+                         name=issuer['name']+'-issue-credential'))
 
-        routes.extend(
-            web.view(issuer['path'] + '/request-proof', views.request_proof,
-                     name=issuer['name']+'-request-proof')
-            for issuer in self.issuers)
+        #routes.extend(
+        #    web.view(issuer['path'] + '/request-proof', views.request_proof,
+        #             name=issuer['name']+'-request-proof')
+        #    for issuer in self.issuers)
 
         return routes
 

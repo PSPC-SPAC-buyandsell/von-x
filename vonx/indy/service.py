@@ -61,8 +61,10 @@ from .messages import (
     RegisterConnectionReq,
     ConnectionStatusReq,
     ConnectionStatus,
+    IssueCredentialReq,
     Credential,
     CredentialOffer,
+    CredentialRequest,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -292,12 +294,12 @@ class IndyService(ServiceBase):
         if not self._genesis_path:
             path = self._config.get("genesis_path")
             if not path:
-                raise ValueError("Missing genesis_path")
+                raise IndyConfigError("Missing genesis_path")
             genesis_path = pathlib.Path(path)
             if not genesis_path.exists():
                 ledger_url = self._ledger_url
                 if not ledger_url:
-                    raise ValueError(
+                    raise IndyConfigError(
                         "Cannot retrieve genesis transaction without ledger_url"
                     )
                 parent_path = pathlib.Path(genesis_path.parent)
@@ -305,7 +307,7 @@ class IndyService(ServiceBase):
                     parent_path.mkdir(parents=True)
                 await self._fetch_genesis_txn(ledger_url, genesis_path)
             elif genesis_path.is_dir():
-                raise ValueError("genesis_path must not point to a directory")
+                raise IndyConfigError("genesis_path must not point to a directory")
             self._genesis_path = path
 
     async def _fetch_genesis_txn(self, ledger_url: str, target_path: str) -> bool:
@@ -327,7 +329,7 @@ class IndyService(ServiceBase):
             raise ServiceSyncError("Error downloading genesis transaction file: {}".format(str(e)))
 
         if response.status != 200:
-            raise RuntimeError(
+            raise ServiceSyncError(
                 "Error downloading genesis file: status {}".format(
                     response.status
                 )
@@ -338,7 +340,7 @@ class IndyService(ServiceBase):
         LOGGER.debug("Genesis transaction response: %s", data)
         lines = data.splitlines()
         if not lines or not json.loads(lines[0]):
-            raise RuntimeError("Genesis transaction file is not valid JSON")
+            raise ServiceSyncError("Genesis transaction file is not valid JSON")
 
         # write result to provided path
         with target_path.open("x") as output_file:
@@ -362,13 +364,13 @@ class IndyService(ServiceBase):
         nym_info = json.loads(nym_json)
         if not nym_info:
             if not auto_register:
-                raise RuntimeError(
+                raise ServiceSyncError(
                     "DID is not registered on the ledger and auto-registration disabled"
                 )
 
             ledger_url = self._ledger_url
             if not ledger_url:
-                raise ValueError("Cannot register DID without ledger_url")
+                raise IndyConfigError("Cannot register DID without ledger_url")
             LOGGER.info("Registering DID %s", did)
 
             async with aiohttp.ClientSession(read_timeout=30) as client:
@@ -377,7 +379,7 @@ class IndyService(ServiceBase):
                     json={"did": did, "verkey": agent.verkey, "role": role},
                 )
                 if response.status != 200:
-                    raise RuntimeError(
+                    raise ServiceSyncError(
                         "DID registration failed: {}".format(
                             await response.text()
                         )
@@ -385,7 +387,7 @@ class IndyService(ServiceBase):
                 nym_info = await response.json()
                 LOGGER.debug("Registration response: %s", nym_info)
                 if not nym_info or not nym_info["did"]:
-                    raise RuntimeError(
+                    raise ServiceSyncError(
                         "DID registration failed: {}".format(nym_info)
                     )
 
@@ -420,7 +422,7 @@ class IndyService(ServiceBase):
         """
 
         if not cred_type or "definition" not in cred_type:
-            raise ValueError("Missing schema definition")
+            raise IndyConfigError("Missing schema definition")
         definition = cred_type["definition"]
 
         if not cred_type.get("ledger_schema"):
@@ -456,7 +458,7 @@ class IndyService(ServiceBase):
                 )
                 ledger_schema = json.loads(schema_json)
                 if not ledger_schema or not ledger_schema.get("seqNo"):
-                    raise RuntimeError("Schema was not published to ledger")
+                    raise ServiceSyncError("Schema was not published to ledger")
                 log_json("Published schema:", ledger_schema, LOGGER)
             cred_type["ledger_schema"] = ledger_schema
 
@@ -488,56 +490,77 @@ class IndyService(ServiceBase):
                 log_json("Published credential def:", cred_def, LOGGER)
             cred_type["cred_def"] = cred_def
 
-    async def _handle_create_cred_offer(self, request):
+    async def _issue_credential(
+            self,
+            connection_id: str,
+            schema_name: str,
+            schema_version: str,
+            origin_did: str,
+            cred_data: Mapping) -> ServiceResponse:
         """
-        Create a credential offer for TheOrgBook
+        Issue a credential to the connection target
+        """
+        conn = self._connections.get(connection_id)
+        if not conn:
+            raise IndyConfigError("Unknown connection id: {}".format(connection_id))
+        issuer = self._agents[conn.agent_id]
+        if issuer.agent_type != AgentType.issuer:
+            raise IndyConfigError("Cannot issue credential from non-issuer agent: {}".format(issuer.agent_id))
+        if not issuer.synced:
+            raise IndyConfigError("Issuer is not yet synchronized: {}".format(issuer.agent_id))
+        cred_type = issuer.find_credential_type(schema_name, schema_version, origin_did)
+        if not cred_type:
+            raise IndyConfigError("Could not locate credential type: {}/{} {}".format(
+                schema_name, schema_version, origin_did))
 
-        Args:
-            request: the request for a credential offer
-        """
-        issuer = self._agents[request.issuer_id]
-        schema = issuer.find_credential_type(request.schema_name, request.schema_version)
+        cred_offer = await self._create_cred_offer(connection_id, issuer, cred_type)
+        log_json("Created cred offer:", cred_offer, LOGGER)
+        cred_request = await conn.instance.generate_credential_request(cred_offer)
+        log_json("Got cred request:", cred_request, LOGGER)
+        cred = await self._create_cred(issuer, cred_request, cred_data)
+        log_json("Created cred:", cred, LOGGER)
+        stored = await conn.instance.store_credential(cred)
+        log_json("Stored credential:", stored, LOGGER)
+        return stored
+
+    async def _create_cred_offer(self, connection_id: str, issuer: AgentCfg, cred_type) -> CredentialOffer:
+        schema = cred_type["definition"]
 
         LOGGER.info(
-            "Creating indy credential offer for issuer %s, schema %s",
+            "Creating Indy credential offer for issuer %s, schema %s",
             issuer.agent_id,
-            schema["definition"].name,
+            schema.name,
         )
         cred_offer_json = await issuer.instance.create_cred_offer(
-            schema["ledger_schema"]["seqNo"]
+            cred_type["ledger_schema"]["seqNo"]
         )
-
         return CredentialOffer(
-            request.issuer_id,
-            request.schema_def,
+            connection_id,
+            schema.name,
+            schema.version,
             json.loads(cred_offer_json),
-            schema["credential_definition"],
+            cred_type["cred_def"],
         )
 
-    async def _handle_create_cred(self, request):
-        """
-        Create a credential for TheOrgBook
+    async def _create_cred(
+            self,
+            issuer: AgentCfg,
+            request: CredentialRequest,
+            cred_data: Mapping) -> Credential:
 
-        Args:
-            request: the request to store a credential
-        """
-        offer = request.cred_offer
-        issuer = self._agents[offer.issuer_id]
-        schema = issuer.find_credential_type(offer.schema_def)
-
+        cred_offer = request.cred_offer
         (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
-            json.dumps(request.cred_offer.offer),
-            request.cred_req_result,
-            request.cred_data,
+            json.dumps(cred_offer.offer),
+            request.data,
+            cred_data,
         )
-
         return Credential(
-            offer.issuer_id,
-            schema["definition"].name,
+            request.connection_id,
+            cred_offer.schema_name,
             issuer.did,
             json.loads(cred_json),
-            schema["credential_definition"],
-            request.cred_req_metadata,
+            cred_offer.cred_def,
+            request.metadata,
             cred_revoc_id,
         )
 
@@ -604,7 +627,7 @@ class IndyService(ServiceBase):
         """
         agent = self._agents.get(agent_id)
         if not agent:
-            raise ValueError("Unknown agent ID: {}".format(agent_id))
+            raise IndyConfigError("Unknown agent ID: {}".format(agent_id))
         wallet = self._wallets[agent.wallet_id]
         if agent.did and wallet.seed:
             key_id = "did:sov:{}".format(agent.did)
@@ -671,6 +694,17 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, WalletStatusReq):
             reply = self._get_wallet_status(request.wallet_id)
+
+        elif isinstance(request, IssueCredentialReq):
+            try:
+                reply = await self._issue_credential(
+                    request.connection_id,
+                    request.schema_name,
+                    request.schema_version,
+                    request.origin_did,
+                    request.cred_data)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
         #elif isinstance(request, IndyVerifyProofReq):
         #    reply = await self._handle_verify_proof(request)

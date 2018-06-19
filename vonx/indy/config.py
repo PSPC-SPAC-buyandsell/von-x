@@ -15,6 +15,7 @@
 # limitations under the License.
 #
 
+from distutils.version import LooseVersion
 from enum import Enum
 from typing import Mapping, Sequence
 import uuid
@@ -141,7 +142,7 @@ class AgentCfg:
             "params": params,
         })
 
-    def find_credential_type(self, name: str, version: str) -> dict:
+    def find_credential_type(self, name: str, version: str, origin_did: str = None) -> dict:
         """
         Find the extended information for a specific schema, including the ledger schema
         definition and credential definition (if any)
@@ -150,7 +151,7 @@ class AgentCfg:
             name: the schema name to be located
             version: the schema version to be located
         """
-        match = SchemaCfg(name, version)
+        match = SchemaCfg(name, version, None, origin_did)
         for cred_type in self.cred_types:
             if cred_type["definition"].compare(match):
                 return cred_type
@@ -239,7 +240,7 @@ class SchemaCfg:
     """
     A credential schema definition
     """
-    def __init__(self, name: str, version: str, attributes=None, origin_did: str = None):
+    def __init__(self, name: str, version: str = None, attributes=None, origin_did: str = None):
         self.name = name
         self.version = version
         self._attributes = []
@@ -320,15 +321,101 @@ class SchemaCfg:
         Note: schemas with an empty issuer DID will match schemas with a blank issuer DID,
         or the same DID
         """
-        if self.name == schema.name and self.version == schema.version:
-            if not self.origin_did or not schema.origin_did or self.origin_did == schema.origin_did:
-                if not self.attributes or not schema.attributes \
-                        or self.attributes == schema.attributes:
-                    return True
+        if self.name == schema.name:
+            if not self.version or not schema.version or self.version == schema.version:
+                if not self.origin_did or not schema.origin_did or self.origin_did == schema.origin_did:
+                    if not self.attributes or not schema.attributes \
+                            or self.attributes == schema.attributes:
+                        return True
         return False
 
     def __repr__(self) -> str:
         return 'SchemaCfg(name={}, version={})'.format(self.name, self.version)
+
+
+class SchemaManager:
+    """
+    A manager class for handling a set of loaded credential schema definitions
+    """
+
+    def __init__(self):
+        self._schemas = []
+
+    @property
+    def schemas(self) -> list:
+        """
+        An accessor for the list of all loaded schemas
+        """
+        return self._schemas.copy()
+
+    def add_schema(self, schema, override=False) -> None:
+        """
+        Add a schema to the manager
+
+        Args:
+            schema: a :class:`SchemaCfg` or dict instance
+            override: replace an existing schema if any
+        """
+        if not isinstance(schema, SchemaCfg):
+            if not isinstance(schema, Mapping):
+                raise IndyConfigError('Unsupported type for schema: {}'.format(schema))
+            name = schema.get('name')
+            if not name:
+                raise IndyConfigError('Missing schema name')
+            schema = SchemaCfg(name, schema.get('version'), schema.get('attributes'))
+        found = self.find(schema.name, schema.version)
+        if found:
+            if override:
+                self.remove_schema(found)
+            else:
+                raise IndyConfigError('Duplicate schema definition: {}'.format(schema))
+        self._schemas.append(schema)
+
+    def remove_schema(self, schema, version=None) -> None:
+        """
+        Remove an existing schema from the manager
+
+        Args:
+            schema: the schema name
+            version: the schema version
+        """
+        if isinstance(schema, str):
+            schema = self.find(schema, version)
+        self._schemas.remove(schema)
+
+    def load(self, values: Sequence, override=False) -> None:
+        """
+        Load a list of schemas and add each to the manager
+
+        Args:
+            values: the list of schema definitions
+            override: replace existing defined schemas of the same name and version
+        """
+        for spec in values:
+            self.add_schema(spec, override)
+
+    def find(self, name: str, version: str = None) -> SchemaCfg:
+        """
+        Locate a defined schema
+
+        Args:
+            name: the schema name
+            version: the schema version
+
+        Returns:
+            the located :class:`SchemaCfg` instance, if any
+        """
+        found = None
+        for schema in self._schemas:
+            if schema.name == name:
+                if version is not None:
+                    if schema.version == version:
+                        found = schema
+                        break
+                else:
+                    if found is None or LooseVersion(found.version) < LooseVersion(schema.version):
+                        found = schema
+        return found
 
 
 class WalletCfg:
