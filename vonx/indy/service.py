@@ -22,7 +22,6 @@ import pathlib
 import random
 import string
 from typing import Mapping, Sequence
-import uuid
 
 import aiohttp
 from didauth.indy import seed_to_did
@@ -36,6 +35,7 @@ from ..common.service import (
     ServiceBase,
     ServiceRequest,
     ServiceResponse,
+    ServiceSyncError,
 )
 from ..common.util import log_json
 from .config import (
@@ -154,14 +154,20 @@ class IndyService(ServiceBase):
             msg = IndyServiceFail("Unregistered agent: {}".format(agent_id))
         return msg
 
-    def _add_credential_type(
-            self,
-            issuer_id: str,
-            schema_name: str,
-            schema_version: str,
-            origin_did: str,
-            attr_names: Sequence,
-            config: Mapping = None) -> None:
+    def _add_credential_type(self, issuer_id: str, schema_name: str,
+                             schema_version: str, origin_did: str,
+                             attr_names: Sequence, config: Mapping = None) -> None:
+        """
+        Add a credential type to a given issuer
+
+        Args:
+            issuer_id: the identifier of the issuer service
+            schema_name: the name of the schema used by the credential type
+            schema_version: the version of the schema used by the credential type
+            origin_did: the DID of the service issuing the schema (optional)
+            attr_names: a list of schema attribute names
+            config: additional configuration for the credential type
+        """
         agent = self._agents[issuer_id]
         if not agent:
             raise IndyConfigError("Agent ID not registered: {}".format(issuer_id))
@@ -263,6 +269,9 @@ class IndyService(ServiceBase):
         return agent.synced
 
     async def _sync_connection(self, connection: ConnectionCfg) -> bool:
+        """
+        Perform synchronization on a connection object
+        """
         agent = self._agents[connection.agent_id]
 
         if not connection.synced:
@@ -276,12 +285,14 @@ class IndyService(ServiceBase):
                 http_client = self._agent_http_client(agent.agent_id)
                 await connection.open(http_client)
 
-            await connection.sync(agent)
+            await connection.sync()
         return connection.synced
 
     async def _setup_pool(self) -> None:
+        """
+        Initialize the Indy NodePool, fetching the genesis transaction if necessary
+        """
         if not self._opened:
-            await asyncio.sleep(1)  # help avoid odd TimeoutError on genesis txn retrieval
             await self._check_genesis_path()
             self._pool = NodePool(self._name, self._genesis_path)
             await self._pool.open()
@@ -323,6 +334,7 @@ class IndyService(ServiceBase):
         )
 
         try:
+            await asyncio.sleep(1)  # help avoid odd TimeoutError on genesis txn retrieval
             async with aiohttp.ClientSession(read_timeout=30) as client:
                 response = await client.get("{}/genesis".format(ledger_url))
         except aiohttp.ClientError as e:
@@ -490,22 +502,26 @@ class IndyService(ServiceBase):
                 log_json("Published credential def:", cred_def, LOGGER)
             cred_type["cred_def"] = cred_def
 
-    async def _issue_credential(
-            self,
-            connection_id: str,
-            schema_name: str,
-            schema_version: str,
-            origin_did: str,
-            cred_data: Mapping) -> ServiceResponse:
+    async def _issue_credential(self, connection_id: str, schema_name: str,
+                                schema_version: str, origin_did: str,
+                                cred_data: Mapping) -> ServiceResponse:
         """
         Issue a credential to the connection target
+
+        Args:
+            connection_id: the identifier of the registered connection
+            schema_name: the name of the credential schema
+            schema_version: the version of the credential schema
+            origin_did: the origin DID of the ledger schema (may be None)
+            cred_data: the raw credential attributes
         """
         conn = self._connections.get(connection_id)
         if not conn:
             raise IndyConfigError("Unknown connection id: {}".format(connection_id))
         issuer = self._agents[conn.agent_id]
         if issuer.agent_type != AgentType.issuer:
-            raise IndyConfigError("Cannot issue credential from non-issuer agent: {}".format(issuer.agent_id))
+            raise IndyConfigError(
+                "Cannot issue credential from non-issuer agent: {}".format(issuer.agent_id))
         if not issuer.synced:
             raise IndyConfigError("Issuer is not yet synchronized: {}".format(issuer.agent_id))
         cred_type = issuer.find_credential_type(schema_name, schema_version, origin_did)
@@ -523,7 +539,16 @@ class IndyService(ServiceBase):
         log_json("Stored credential:", stored, LOGGER)
         return stored
 
-    async def _create_cred_offer(self, connection_id: str, issuer: AgentCfg, cred_type) -> CredentialOffer:
+    async def _create_cred_offer(self, connection_id: str, issuer: AgentCfg,
+                                 cred_type) -> CredentialOffer:
+        """
+        Create a credential offer for a specific connection from a given issuer
+
+        Args:
+            connection_id: the identifier of the registered connection
+            issuer: the issuer configuration object
+            cred_type: the credential type definition
+        """
         schema = cred_type["definition"]
 
         LOGGER.info(
@@ -542,11 +567,16 @@ class IndyService(ServiceBase):
             cred_type["cred_def"],
         )
 
-    async def _create_cred(
-            self,
-            issuer: AgentCfg,
-            request: CredentialRequest,
-            cred_data: Mapping) -> Credential:
+    async def _create_cred(self, issuer: AgentCfg, request: CredentialRequest,
+                           cred_data: Mapping) -> Credential:
+        """
+        Create a credential from a credential request for a specific issuer
+
+        Args:
+            issuer: the issuer configuration object
+            request: a credential request returned from the holder service
+            cred_data: the raw credential attributes
+        """
 
         cred_offer = request.cred_offer
         (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
@@ -606,7 +636,7 @@ class IndyService(ServiceBase):
         Create a new :class:`ClientSession` which includes DID signing information in each request
 
         Args:
-            an optional identifier for a specific issuer service (to enable DID signing)
+            agent_id: an optional identifier for a specific issuer service (to enable DID signing)
         Returns:
             the initialized :class:`ClientSession` object
         """
@@ -622,7 +652,7 @@ class IndyService(ServiceBase):
         used to sign outgoing requests
 
         Args:
-            issuer_id: the unique identifier of the issuer
+            agent_id: the unique identifier of the issuer
             header_list: optionally override the list of headers to sign
         """
         agent = self._agents.get(agent_id)
@@ -642,7 +672,7 @@ class IndyService(ServiceBase):
         Process a message from the exchange and send the reply, if any
 
         Args:
-            message: the message to be processed
+            request: the message to be processed
         """
         if isinstance(request, LedgerStatusReq):
             text = await self._handle_ledger_status()

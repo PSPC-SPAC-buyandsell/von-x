@@ -34,4 +34,3 @@ class IndyConnectionError(IndyError):
         self.status_code = status_code
         self.message = message
         self.response = response
-

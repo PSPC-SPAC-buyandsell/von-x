@@ -19,7 +19,6 @@ import logging
 
 import aiohttp
 
-from .config import IndyConfigError
 from .connection import ConnectionBase
 from .errors import IndyConfigError, IndyConnectionError
 from .messages import (
@@ -107,6 +106,7 @@ class TobConnection(ConnectionBase):
     """
 
     def __init__(self, agent_params: dict, conn_params: dict):
+        super(TobConnection, self).__init__()
         self._agent_params = agent_params
         self._api_url = conn_params.get('api_url')
         if not self._api_url:

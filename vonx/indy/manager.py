@@ -17,6 +17,7 @@
 
 import asyncio
 import logging
+from typing import Mapping
 
 from ..common.config import load_config
 from ..common.manager import ConfigServiceManager
@@ -78,15 +79,27 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
 
 
 class IndyManager(ConfigServiceManager):
+    """
+    A manager for initializing the Indy service from standard configuration files
+    """
+
+    def __init__(self, env: Mapping = None, pid: str = 'manager'):
+        super(IndyManager, self).__init__(env, pid)
+        self._schema_mgr = None
 
     def _init_services(self):
+        """
+        Initialize the Indy service
+        """
         super(IndyManager, self)._init_services()
 
         indy = self.init_indy_service()
         self.add_service("indy", indy)
-        self._schema_mgr = None
 
     def get_client(self) -> IndyClient:
+        """
+        Obtain an IndyClient attached to the registered Indy service
+        """
         return IndyClient(self.get_service_request_target("indy"))
 
     def init_indy_service(self, pid: str = "indy") -> IndyService:
@@ -116,21 +129,22 @@ class IndyManager(ConfigServiceManager):
     async def _service_start(self) -> bool:
         ret = await super(IndyManager, self)._service_start()
         if ret:
-            self._load_schemas()
+            self._schema_mgr = self._load_schemas()
         return ret
 
     async def _service_sync(self):
         await super(IndyManager, self)._service_sync()
         await self._register_agents()
 
-    def _load_schemas(self):
-        self._schema_mgr = SchemaManager()
+    def _load_schemas(self) -> SchemaManager:
+        mgr = SchemaManager()
         std = load_config('vonx.config:schemas.yml')
         if std:
-            self._schema_mgr.load(std)
+            mgr.load(std)
         ext = self.load_config_path('SCHEMAS_CONFIG_PATH', 'schemas.yml')
         if ext:
-            self._schema_mgr.load(ext)
+            mgr.load(ext)
+        return mgr
 
     async def _register_agents(self) -> None:
         """
@@ -198,11 +212,15 @@ class IndyManager(ConfigServiceManager):
 
         if "id" not in connection_cfg:
             connection_cfg["id"] = issuer_id
-        conn_id = await client.register_orgbook_connection(
+        _conn_id = await client.register_orgbook_connection(
             issuer_id, connection_cfg)
 
 
 class TestIndyManager(IndyManager):
+    """
+    A test Indy service manager which creates sample wallets and issuers
+    """
+
     async def _service_sync(self):
         client = self.get_client()
 
@@ -274,11 +292,11 @@ class TestIndyManager(IndyManager):
 
 
 if __name__ == '__main__':
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    logger.addHandler(console)
+    LOGGER = logging.getLogger()
+    LOGGER.setLevel(logging.DEBUG)
+    CONSOLE = logging.StreamHandler()
+    CONSOLE.setLevel(logging.INFO)
+    LOGGER.addHandler(CONSOLE)
 
-    mgr = TestIndyManager()
-    mgr.start()
+    MGR = TestIndyManager()
+    MGR.start()

@@ -230,7 +230,7 @@ class ConnectionCfg:
             await self._instance.open()
             self.opened = True
 
-    async def sync(self, agent: AgentCfg) -> None:
+    async def sync(self) -> None:
         if not self.synced:
             await self._instance.sync()
             self.synced = True
@@ -321,13 +321,15 @@ class SchemaCfg:
         Note: schemas with an empty issuer DID will match schemas with a blank issuer DID,
         or the same DID
         """
-        if self.name == schema.name:
-            if not self.version or not schema.version or self.version == schema.version:
-                if not self.origin_did or not schema.origin_did or self.origin_did == schema.origin_did:
-                    if not self.attributes or not schema.attributes \
-                            or self.attributes == schema.attributes:
-                        return True
-        return False
+        if self.name != schema.name:
+            return False
+        if self.version and schema.version and self.version != schema.version:
+            return False
+        if self.origin_did and schema.origin_did and self.origin_did != schema.origin_did:
+            return False
+        if self.attributes and schema.attributes and self.attributes != schema.attributes:
+            return False
+        return True
 
     def __repr__(self) -> str:
         return 'SchemaCfg(name={}, version={})'.format(self.name, self.version)
