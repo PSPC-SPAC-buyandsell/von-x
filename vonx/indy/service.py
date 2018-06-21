@@ -43,6 +43,7 @@ from .config import (
     AgentCfg,
     ConnectionCfg,
     SchemaCfg,
+    SchemaManager,
     WalletCfg,
 )
 from .errors import IndyConfigError, IndyError
@@ -65,6 +66,11 @@ from .messages import (
     Credential,
     CredentialOffer,
     CredentialRequest,
+    StoredCredential,
+    GenerateCredentialRequestReq,
+    StoreCredentialReq,
+    ResolveSchemaReq,
+    ResolvedSchema,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -282,8 +288,7 @@ class IndyService(ServiceBase):
                 await connection.create(agent_cfg)
 
             if not connection.opened:
-                http_client = self._agent_http_client(agent.agent_id)
-                await connection.open(http_client)
+                await connection.open(self)
 
             await connection.sync()
         return connection.synced
@@ -529,7 +534,7 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Could not locate credential type: {}/{} {}".format(
                 schema_name, schema_version, origin_did))
 
-        cred_offer = await self._create_cred_offer(connection_id, issuer, cred_type)
+        cred_offer = await self._create_cred_offer(issuer, cred_type)
         log_json("Created cred offer:", cred_offer, LOGGER)
         cred_request = await conn.instance.generate_credential_request(cred_offer)
         log_json("Got cred request:", cred_request, LOGGER)
@@ -539,13 +544,12 @@ class IndyService(ServiceBase):
         log_json("Stored credential:", stored, LOGGER)
         return stored
 
-    async def _create_cred_offer(self, connection_id: str, issuer: AgentCfg,
+    async def _create_cred_offer(self, issuer: AgentCfg,
                                  cred_type) -> CredentialOffer:
         """
         Create a credential offer for a specific connection from a given issuer
 
         Args:
-            connection_id: the identifier of the registered connection
             issuer: the issuer configuration object
             cred_type: the credential type definition
         """
@@ -560,7 +564,6 @@ class IndyService(ServiceBase):
             cred_type["ledger_schema"]["seqNo"]
         )
         return CredentialOffer(
-            connection_id,
             schema.name,
             schema.version,
             json.loads(cred_offer_json),
@@ -585,7 +588,6 @@ class IndyService(ServiceBase):
             cred_data,
         )
         return Credential(
-            request.connection_id,
             cred_offer.schema_name,
             issuer.did,
             json.loads(cred_json),
@@ -593,6 +595,60 @@ class IndyService(ServiceBase):
             request.metadata,
             cred_revoc_id,
         )
+
+    async def _generate_credential_request(self, holder_id: str,
+                                           cred_offer: CredentialOffer) -> CredentialRequest:
+        """
+        Generate a credential request for a given holder agent from a credential offer
+        """
+        holder = self._agents.get(holder_id)
+        if not holder:
+            raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
+            json.dumps(cred_offer.offer),
+            json.dumps(cred_offer.cred_def),
+        )
+        return CredentialRequest(
+            cred_offer,
+            cred_req,
+            json.loads(req_metadata_json),
+        )
+
+    async def _store_credential(self, holder_id: str,
+                                credential: Credential) -> StoredCredential:
+        """
+        Store a credential in a given holder agent
+        """
+        holder = self._agents.get(holder_id)
+        if not holder:
+            raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        cred_id = await holder.instance.store_cred(
+            json.dumps(credential.cred_data),
+            json.dumps(credential.cred_req_metadata),
+        )
+        return StoredCredential(
+            cred_id,
+            credential,
+            None,
+        )
+
+    async def _resolve_schema(self, schema_name: str, schema_version: str,
+                              origin_did: str) -> ResolvedSchema:
+        """
+        Resolve a schema defined by one of our issuers
+        """
+        for agent_id, agent in self._agents.items():
+            found = agent.find_credential_type(schema_name, schema_version, origin_did)
+            if found:
+                defn = found["definition"]
+                return ResolvedSchema(
+                    agent_id,
+                    defn.name,
+                    defn.version,
+                    defn.origin_did,
+                    defn.attr_names,
+                )
+        raise IndyConfigError("Issuer schema not found: {}/{}".format(schema_name, schema_version))
 
     async def _get_verifier(self) -> AgentCfg:
         """
@@ -733,6 +789,27 @@ class IndyService(ServiceBase):
                     request.schema_version,
                     request.origin_did,
                     request.cred_data)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, GenerateCredentialRequestReq):
+            try:
+                reply = await self._generate_credential_request(
+                    request.holder_id, request.cred_offer)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, StoreCredentialReq):
+            try:
+                reply = await self._store_credential(
+                    request.holder_id, request.credential)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, ResolveSchemaReq):
+            try:
+                reply = await self._resolve_schema(
+                    request.schema_name, request.schema_version, request.origin_did)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 

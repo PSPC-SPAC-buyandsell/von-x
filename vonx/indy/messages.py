@@ -170,14 +170,12 @@ class CredentialOffer(IndyServiceRep):
     """
     A successful credential offer response
     Args:
-        issuer_id (str): the identifier of the issuer service
         schema_name (str): the schema used to create the credential offer
         schema_version (str): the schema version used to create the credential offer
         offer (dict): the resulting credential offer
         cred_def (dict): the credential definition used
     """
     _fields = (
-        ("connection_id", str),
         ("schema_name", str),
         ("schema_version", str),
         ("offer", dict),
@@ -189,13 +187,11 @@ class CredentialRequest(IndyServiceRep):
     """
     A successful credential request response
     Args:
-        holder_id (str): the identifier of the holder service
-        cred_offer (IndyCredOffer): the credential offer used as a basis
+        cred_offer (CredentialOffer): the credential offer used as a basis
         result (str): the resulting credential request
         metadata (dict): the credential request metadata
     """
     _fields = (
-        ("connection_id", str),
         ("cred_offer", CredentialOffer),
         ("data", str),
         ("metadata", dict),
@@ -207,7 +203,6 @@ class Credential(IndyServiceRep):
     A successful credential creation
     """
     _fields = (
-        ("connection_id", str),
         ("schema_name", str),
         ("issuer_did", str),
         ("cred_data", dict),
@@ -222,8 +217,53 @@ class StoredCredential(IndyServiceRep):
     A successful response to storing a credential
     """
     _fields = (
+        ("cred_id", str),
         ("cred", Credential),
         ("result", dict),
+    )
+
+
+class GenerateCredentialRequestReq(IndyServiceReq):
+    """
+    A request to generate a credential request
+    """
+    _fields = (
+        ("holder_id", str),
+        ("cred_offer", CredentialOffer),
+    )
+
+
+class StoreCredentialReq(IndyServiceReq):
+    """
+    A request to store a new credential
+    """
+    _fields = (
+        ("holder_id", str),
+        ("credential", Credential),
+    )
+
+
+class ResolveSchemaReq(IndyServiceReq):
+    """
+    A request to resolve a schema which may be defined by one of our issuers
+    """
+    _fields = (
+        ("schema_name", str),
+        ("schema_version", str),
+        ("origin_did", str),
+    )
+
+
+class ResolvedSchema(IndyServiceRep):
+    """
+    A request to resolve a schema which may be defined by one of our issuers
+    """
+    _fields = (
+        ("issuer_id", str),
+        ("schema_name", str),
+        ("schema_version", str),
+        ("origin_did", str),
+        ("attr_names", Sequence),
     )
 
 

@@ -18,6 +18,7 @@
 import asyncio
 import logging
 from typing import Mapping
+import time
 
 from ..common.config import load_config
 from ..common.manager import ConfigServiceManager
@@ -150,29 +151,48 @@ class IndyManager(ConfigServiceManager):
         """
         Load agent settings from our configuration files
         """
-        issuers = []
-        issuer_ids = []
-        limit_issuers = self._env.get("ISSUERS")
-        limit_issuers = (
-            limit_issuers.split()
-            if (limit_issuers and limit_issuers != "all")
+        limit_agents = self._env.get("AGENTS")
+        limit_agents = (
+            limit_agents.split()
+            if (limit_agents and limit_agents != "all")
             else None
         )
+
+        issuers = []
+        issuer_ids = []
         config_issuers = self.services_config("issuers")
         if not config_issuers:
-            raise IndyConfigError("No issuers defined by configuration")
+            LOGGER.warning("No issuers defined by configuration")
         for issuer_key, issuer_cfg in config_issuers.items():
             if not "id" in issuer_cfg:
                 issuer_cfg["id"] = issuer_key
-            if limit_issuers is None or issuer_cfg["id"] in limit_issuers:
+            if limit_agents is None or issuer_cfg["id"] in limit_agents:
                 issuers.append(issuer_cfg)
                 issuer_ids.append(issuer_cfg["id"])
         if issuers:
             client = self.get_client()
             for issuer_cfg in issuers:
                 await self._register_issuer(client, issuer_cfg)
-        else:
-            raise IndyConfigError("No defined issuers referenced by ISSUERS")
+        elif config_issuers:
+            LOGGER.warning("No defined issuers referenced by AGENTS")
+
+        holders = []
+        holder_ids = []
+        config_holders = self.services_config("holders")
+        if not config_holders:
+            LOGGER.info("No holders defined by configuration")
+        for holder_key, holder_cfg in config_holders.items():
+            if not "id" in holder_cfg:
+                holder_cfg["id"] = holder_key
+            if limit_agents is None or holder_cfg["id"] in limit_agents:
+                holders.append(issuer_cfg)
+                holder_ids.append(issuer_cfg["id"])
+        if holders:
+            client = self.get_client()
+            for holder_cfg in holders:
+                await self._register_holder(client, issuer_cfg)
+        elif config_holders:
+            LOGGER.info("No defined holders referenced by AGENTS")
 
     async def _register_issuer(self, client: IndyClient, issuer_cfg: dict) -> None:
         issuer_id = issuer_cfg["id"]
@@ -221,16 +241,19 @@ class TestIndyManager(IndyManager):
     A test Indy service manager which creates sample wallets and issuers
     """
 
+    schema_name = "test.schema"
+    schema_version = "1.0.0"
+
     async def _service_sync(self):
         client = self.get_client()
 
         LOGGER.info("setting up test indy issuer")
 
-        wallet_id = await client.register_wallet({
+        issuer_wallet_id = await client.register_wallet({
             "name": "issuer-wallet",
             "seed": "issuer-wallet-000000000000000001",
         })
-        issuer_id = await client.register_issuer(wallet_id, {
+        issuer_id = await client.register_issuer(issuer_wallet_id, {
             "email": "test@example.ca",
             "name": "Test Issuer",
         })
@@ -249,12 +272,10 @@ class TestIndyManager(IndyManager):
                 }
             }
         ]
-        schema_name = "test.schema"
-        schema_version = "1.0.0"
         await client.register_credential_type(
             issuer_id,
-            schema_name,
-            schema_version,
+            self.schema_name,
+            self.schema_version,
             None,
             ["attr1", "attr2"],
             {
@@ -262,9 +283,20 @@ class TestIndyManager(IndyManager):
                 "source_claim": "attr1",
                 "mapping": mapping,
             })
-        conn_id = await client.register_orgbook_connection(
+        #conn_id = await client.register_orgbook_connection(
+        #    issuer_id, {
+        #        "api_url": "http://192.168.65.3:8081/api/v2",
+        #    })
+        holder_wallet_id = await client.register_wallet({
+            "name": "holder-wallet",
+            "seed": "holder-wallet-000000000000000001",
+        })
+        holder_id = await client.register_holder(holder_wallet_id, {
+            "name": "Test Holder",
+        })
+        conn_id = await client.register_holder_connection(
             issuer_id, {
-                "api_url": "http://192.168.65.3:8081/api/v2",
+                "id": holder_id,
             })
         synced = False
         wait = 10
@@ -274,12 +306,21 @@ class TestIndyManager(IndyManager):
             synced = status["synced"]
             wait -= 1
         if synced:
-            result = await client.issue_credential(
-                conn_id, schema_name, schema_version, None,
-                {"attr1": "Test Name", "attr2": "Second Value"})
-            LOGGER.info("issued: %s", result)
+            creds = [self.test_issue_cred(client, conn_id)
+                     for _ in range(500)]
+            start = time.time()
+            await asyncio.gather(*creds)
+            dur = time.time() - start
+            avg = dur / len(creds)
+            LOGGER.info("--- issued %s creds in %s seconds, avg %s ---", len(creds), dur, avg)
         else:
             LOGGER.info("Connection took too long to sync")
+
+    async def test_issue_cred(self, client, conn_id):
+        (cred_id, _result) = await client.issue_credential(
+            conn_id, self.schema_name, self.schema_version, None,
+            {"attr1": "Test Name", "attr2": "Second Value"})
+        LOGGER.info("issued: %s", cred_id)
 
     def init_indy_service(self, pid: str = "indy") -> IndyService:
         spec = {

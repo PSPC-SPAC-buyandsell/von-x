@@ -105,8 +105,8 @@ class TobConnection(ConnectionBase):
     synchronization as an issuer
     """
 
-    def __init__(self, agent_params: dict, conn_params: dict):
-        super(TobConnection, self).__init__()
+    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
+        super(TobConnection, self).__init__(agent_id, agent_params, conn_params)
         self._agent_params = agent_params
         self._api_url = conn_params.get('api_url')
         if not self._api_url:
@@ -123,9 +123,9 @@ class TobConnection(ConnectionBase):
     def http_client(self, client):
         self._http_client = client
 
-    async def open(self) -> None:
-        # check DID is registered etc
-        pass
+    async def open(self, service: 'IndyService') -> None:
+        # TODO check DID is registered etc ..
+        self._http_client = service._agent_http_client(self.agent_id)
 
     async def sync(self) -> None:
         """
@@ -166,7 +166,6 @@ class TobConnection(ConnectionBase):
                 response,
             )
         return CredentialRequest(
-            None,
             indy_offer,
             result["credential_request"],
             result["credential_request_metadata"])
@@ -197,6 +196,7 @@ class TobConnection(ConnectionBase):
                 response,
             )
         return StoredCredential(
+            None,
             indy_cred,
             result)
 

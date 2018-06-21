@@ -25,6 +25,7 @@ from .errors import IndyClientError
 from .messages import (
     IndyServiceAck,
     IndyServiceFail,
+    ServiceRequest,
     LedgerStatusReq,
     LedgerStatus,
     RegisterWalletReq,
@@ -39,7 +40,13 @@ from .messages import (
     ConnectionStatus,
     IssueCredentialReq,
     StoredCredential,
-    ServiceRequest,
+    CredentialOffer,
+    CredentialRequest,
+    Credential,
+    GenerateCredentialRequestReq,
+    StoreCredentialReq,
+    ResolveSchemaReq,
+    ResolvedSchema,
 )
 
 class IndyClient:
@@ -65,17 +72,25 @@ class IndyClient:
         result = await self._fetch(RegisterWalletReq(config), WalletStatus)
         return result.wallet_id
 
+    async def get_wallet_status(self, wallet_id: str) -> dict:
+        result = await self._fetch(WalletStatusReq(wallet_id), WalletStatus)
+        return result.status
+
     async def register_issuer(self, wallet_id: str, config: dict) -> str:
         result = await self._fetch(
             RegisterAgentReq(AgentType.issuer.value, wallet_id, config),
             AgentStatus)
         return result.agent_id
 
-    async def register_holder(self, config: dict) -> str:
+    async def register_holder(self, wallet_id: str, config: dict) -> str:
         result = await self._fetch(
-            RegisterAgentReq(AgentType.holder.value, config),
+            RegisterAgentReq(AgentType.holder.value, wallet_id, config),
             AgentStatus)
         return result.agent_id
+
+    async def get_agent_status(self, agent_id: str) -> dict:
+        result = await self._fetch(AgentStatusReq(agent_id), AgentStatus)
+        return result.status
 
     async def register_credential_type(
             self,
@@ -97,6 +112,12 @@ class IndyClient:
             ConnectionStatus)
         return result.connection_id
 
+    async def register_holder_connection(self, agent_id: str, config: dict = None) -> str:
+        result = await self._fetch(
+            RegisterConnectionReq(ConnectionType.holder.value, agent_id, config or {}),
+            ConnectionStatus)
+        return result.connection_id
+
     async def get_connection_status(self, connection_id: str) -> dict:
         result = await self._fetch(ConnectionStatusReq(connection_id), ConnectionStatus)
         return result.status
@@ -107,8 +128,29 @@ class IndyClient:
             schema_name: str,
             schema_version: str,
             origin_did: str,
-            cred_data: dict):
+            cred_data: dict) -> (str, dict):
         stored = await self._fetch(
             IssueCredentialReq(connection_id, schema_name, schema_version, origin_did, cred_data),
             StoredCredential)
-        return stored.result
+        return (stored.cred_id, stored.result)
+
+    async def create_credential_request(self, holder_id: str,
+                                        cred_offer: CredentialOffer) -> CredentialRequest:
+        request = await self._fetch(
+            GenerateCredentialRequestReq(holder_id, cred_offer),
+            CredentialRequest)
+        return request
+
+    async def store_credential(self, holder_id: str,
+                               credential: Credential) -> StoredCredential:
+        stored = await self._fetch(
+            StoreCredentialReq(holder_id, credential),
+            StoredCredential)
+        return stored
+
+    async def resolve_schema(self, name: str, version: str = None,
+                             origin_did: str = None) -> ResolvedSchema:
+        found = await self._fetch(
+            ResolveSchemaReq(name, version, origin_did),
+            ResolvedSchema)
+        return found

@@ -17,23 +17,30 @@
 
 from enum import Enum
 
+from ..common.exchange import RequestTarget
+from .errors import IndyConfigError, IndyConnectionError
 from .messages import (
+    IndyServiceFail,
     CredentialOffer,
     Credential,
+    GenerateCredentialRequestReq,
     CredentialRequest,
-    StoredCredential)
+    StoreCredentialReq,
+    StoredCredential,
+)
 
 
 class ConnectionType(Enum):
     TheOrgBook = "TheOrgBook"
-    vonx = "von-x"
+    holder = "holder"
+    remote = "remote"
 
 
 class ConnectionBase:
-    def __init__(self, http_client, agent_params: dict, conn_params: dict):
-        pass
+    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
+        self.agent_id = agent_id
 
-    async def open(self) -> None:
+    async def open(self, service: 'IndyService') -> None:
         """
         Initialize the connection
         """
@@ -64,6 +71,62 @@ class ConnectionBase:
             indy_cred: the result of preparing a credential from a credential request
         """
         pass
+
+    async def construct_proof(self, proof_request: dict):
+        """
+        Ask the target to construct a proof from a proof request
+
+        Args:
+            proof_request: the prepared Indy proof request
+        """
+        pass
+
+
+class HolderConnection(ConnectionBase):
+    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
+        super(HolderConnection, self).__init__(agent_id, agent_params, conn_params)
+        self.holder_id = conn_params.get("id")
+        if not self.holder_id:
+            raise IndyConfigError("Missing 'id' for holder connection")
+        self.target = None
+
+    async def open(self, service: 'IndyService') -> None:
+        """
+        Initialize the connection
+        """
+        self.target = RequestTarget(service, service.pid)
+
+    async def generate_credential_request(
+            self, indy_offer: CredentialOffer) -> CredentialRequest:
+        """
+        Ask the target to generate a credential request from our credential offer
+
+        Args:
+            indy_offer: the result of preparing a credential offer
+        """
+        result = await self.target.request(
+            GenerateCredentialRequestReq(self.holder_id, indy_offer))
+        if isinstance(result, IndyServiceFail):
+            raise IndyConnectionError(500, result.value)
+        elif not isinstance(result, CredentialRequest):
+            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+        return result
+
+    async def store_credential(
+            self, indy_cred: Credential) -> StoredCredential:
+        """
+        Ask the target to store a credential
+
+        Args:
+            indy_cred: the result of preparing a credential from a credential request
+        """
+        result = await self.target.request(
+            StoreCredentialReq(self.holder_id, indy_cred))
+        if isinstance(result, IndyServiceFail):
+            raise IndyConnectionError(500, result.value)
+        elif not isinstance(result, StoredCredential):
+            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+        return result
 
     async def construct_proof(self, proof_request: dict):
         """

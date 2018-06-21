@@ -29,7 +29,7 @@ from von_agent.agents import (
 from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 
-from .connection import ConnectionBase, ConnectionType
+from .connection import ConnectionBase, ConnectionType, HolderConnection
 from .errors import IndyConfigError
 from .tob import TobConnection
 
@@ -157,7 +157,7 @@ class AgentCfg:
                 return cred_type
         return None
 
-    def get_connection_params(self, connection: 'ConnectionCfg') -> dict:
+    def get_connection_params(self, _connection: 'ConnectionCfg') -> dict:
         """
         Get parameters required for initializing the connection
         """
@@ -201,8 +201,9 @@ class ConnectionCfg:
         self.opened = False
         self.synced = False
 
-        if self.connection_type != ConnectionType.TheOrgBook:
-            raise IndyConfigError("Only TOB connections are currently supported")
+        if self.connection_type != ConnectionType.TheOrgBook and \
+                self.connection_type != ConnectionType.holder:
+            raise IndyConfigError("Only TOB and Holder connections are currently supported")
 
     @property
     def created(self) -> bool:
@@ -222,12 +223,14 @@ class ConnectionCfg:
 
     async def create(self, agent_params: dict) -> None:
         if self.connection_type == ConnectionType.TheOrgBook:
-            self._instance = TobConnection(agent_params, self.connection_params)
+            cls = TobConnection
+        elif self.connection_type == ConnectionType.holder:
+            cls = HolderConnection
+        self._instance = cls(self.agent_id, agent_params, self.connection_params)
 
-    async def open(self, http_client) -> None:
+    async def open(self, service: 'IndyService') -> None:
         if not self.opened:
-            self._instance.http_client = http_client
-            await self._instance.open()
+            await self._instance.open(service)
             self.opened = True
 
     async def sync(self) -> None:
