@@ -194,7 +194,7 @@ class IndyManager(ConfigServiceManager):
         elif config_holders:
             LOGGER.info("No defined holders referenced by AGENTS")
 
-    async def _register_issuer(self, client: IndyClient, issuer_cfg: dict) -> None:
+    async def _register_issuer(self, client: IndyClient, issuer_cfg: dict) -> str:
         issuer_id = issuer_cfg["id"]
         if "wallet" not in issuer_cfg:
             raise IndyConfigError("Wallet not defined for issuer: {}".format(issuer_id))
@@ -234,6 +234,21 @@ class IndyManager(ConfigServiceManager):
             connection_cfg["id"] = issuer_id
         _conn_id = await client.register_orgbook_connection(
             issuer_id, connection_cfg)
+        return issuer_id
+
+    async def _register_holder(self, client: IndyClient, holder_cfg: dict) -> str:
+        holder_id = holder_cfg["id"]
+        if "wallet" not in holder_cfg:
+            raise IndyConfigError("Wallet not defined for holder: {}".format(holder_id))
+        wallet_cfg = holder_cfg["wallet"]
+        del holder_cfg["wallet"]
+        if not wallet_cfg.get("name"):
+            wallet_cfg["name"] = issuer_id + "-Holder-Wallet"
+        if not wallet_cfg.get("seed"):
+            raise IndyConfigError("Missing wallet seed for holder: {}".format(holder_id))
+        wallet_id = await client.register_wallet(wallet_cfg)
+        holder_id = await client.register_holder(wallet_id, holder_cfg)
+        return holder_id
 
 
 class TestIndyManager(IndyManager):
