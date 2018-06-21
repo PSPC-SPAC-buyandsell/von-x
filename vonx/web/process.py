@@ -19,13 +19,13 @@ import logging
 
 from aiohttp import web
 
-#from vonx.services import issuer
 from . import helpers
+from ..indy.errors import IndyClientError
 
 LOGGER = logging.getLogger(__name__)
 
 
-def load_cred_request(form, schema, request: web.Request) -> dict:
+def load_cred_request(form, attr_names, request: web.Request) -> dict:
     """
     Create a new credential request from a `submit-credential` form definition, fetching
     input from the client request as necessary
@@ -34,7 +34,7 @@ def load_cred_request(form, schema, request: web.Request) -> dict:
     cred = {}
     mapping = form.get('mapping') or {}
     if mapping.get('fill_defaults', True):
-        for attr in schema.attr_names:
+        for attr in attr_names:
             cred[attr] = request.get(attr)
             LOGGER.info("credential %s %s", attr, cred[attr])
     map_attr = mapping.get('attributes') or []
@@ -72,8 +72,8 @@ def load_cred_request(form, schema, request: web.Request) -> dict:
 
 async def process_form(form, request: web.Request) -> web.Response:
     """
-    Handle `submit-credential` form processing by constructing an :class:`IssueCredRequest`
-    and submitting it to the :class:`IssuerManager` service
+    Handle `issue-credential` form processing by looking up the issuer for the schema
+    and issuing the credential
     """
 
     #pylint: disable=broad-except
@@ -83,36 +83,33 @@ async def process_form(form, request: web.Request) -> web.Response:
         if not schema_name:
             # FIXME should be an internal error
             return web.Response(reason="Form definition missing 'schema_name'", status=400)
+
+        LOGGER.info("request %s", request)
+        inputs = await request.json()
+        if isinstance(inputs, dict):
+            inputs = inputs.get('attributes') or {}
+        else:
+            inputs = await request.post()
+
+        client = request.app['manager'].get_client()
         try:
-            LOGGER.info("request %s", request)
-            inputs = await request.json()
-            if isinstance(inputs, dict):
-                inputs = inputs.get('attributes') or {}
-            else:
-                inputs = await request.post()
+            result = await client.resolve_schema(schema_name, schema_version)
+        except IndyClientError:
+            msg = 'Issuer for schema \'{}\' is not defined or not loaded'.format(schema_name)
+            return web.Response(reason=msg, status=400)
 
-            service = request.app['manager'].get_service_request_target('issuer')
-            result = await service.request(
-                issuer.ResolveSchemaRequest(schema_name, schema_version))
-            if not isinstance(result, issuer.ResolveSchemaResponse):
-                raise ValueError(
-                    'Issuer for schema \'{}\' is not defined or not loaded'.format(schema_name))
-            schema = result.schema
+        params = load_cred_request(form, result.attr_names, inputs)
+        #return web.json_response(params)
 
-            params = load_cred_request(form, schema, inputs)
-            #return web.json_response(params)
-
-            result = await service.request(
-                issuer.IssueCredRequest(schema.name, schema.version, params))
-            if isinstance(result, issuer.IssueCredResponse):
-                ret = {'success': True, 'result': result.value}
-            elif isinstance(result, issuer.IssuerError):
-                ret = {'success': False, 'result': result.value}
-            else:
-                raise ValueError('Unexpected result from issuer')
-        except Exception as e:
-            LOGGER.exception('Error while submitting credential')
+        try:
+            (_cred_id, result) = await client.issue_credential(
+                result.issuer_id, result.schema_name, result.schema_version,
+                result.origin_did, params)
+        except IndyClientError as e:
             ret = {'success': False, 'result': str(e)}
+        else:
+            ret = {'success': True, 'result': result}
+
         #if ret['success']:
         #    return response.html('<h3>Registration successful</h3>')
         #else:

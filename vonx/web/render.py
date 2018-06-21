@@ -106,6 +106,11 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         else:
             tpl_vars['inputs'].update(proof_attrs)
     tpl_vars.update(form)
+    if 'hidden' not in tpl_vars:
+        tpl_vars['hidden'] = []
+    if 'connection_id' not in tpl_vars['hidden']:
+        tpl_vars['hidden'].append('connection_id')
+    tpl_vars['inputs']['connection_id'] = form.get('connection_id')
     tpl_vars['path'] = request.rel_url
 
     return aiohttp_jinja2.render_template(tpl_name, request, tpl_vars)
