@@ -76,7 +76,7 @@ class ConnectionBase:
         pass
 
     async def construct_proof(self, request: ProofRequest,
-                              params: dict = None) -> ConstructedProof:
+                              cred_ids: set = None, params: dict = None) -> ConstructedProof:
         """
         Ask the target to construct a proof from a proof request
 
@@ -134,7 +134,7 @@ class HolderConnection(ConnectionBase):
         return result
 
     async def construct_proof(self, request: ProofRequest,
-                              params: dict = None) -> ConstructedProof:
+                              cred_ids: set = None, params: dict = None) -> ConstructedProof:
         """
         Ask the target to construct a proof from a proof request
 
@@ -143,7 +143,7 @@ class HolderConnection(ConnectionBase):
             params: extra parameters for the API
         """
         result = await self.target.request(
-            ConstructProofReq(self.holder_id, request))
+            ConstructProofReq(self.holder_id, request, cred_ids))
         if isinstance(result, IndyServiceFail):
             raise IndyConnectionError(500, result.value)
         elif not isinstance(result, ConstructedProof):

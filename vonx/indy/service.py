@@ -693,7 +693,8 @@ class IndyService(ServiceBase):
                     )
         raise IndyConfigError("Issuer schema not found: {}/{}".format(schema_name, schema_version))
 
-    async def _construct_proof(self, holder_id: str, proof_req: ProofRequest) -> ConstructedProof:
+    async def _construct_proof(self, holder_id: str, proof_req: ProofRequest,
+                               cred_ids: set = None) -> ConstructedProof:
         """
         Construct a proof from credentials in the holder's wallet, given a proof request
         """
@@ -703,12 +704,22 @@ class IndyService(ServiceBase):
 
         log_json("Fetching credentials for request", proof_req.request, LOGGER)
         LOGGER.info("Fetching credentials for request %s", proof_req.request)
+
         # TODO - use separate request to find credentials and allow manual filtering?
-        _referents, found_creds_json = await holder.instance.get_creds(
-            json.dumps(proof_req.request)
-        )
+        if cred_ids:
+            LOGGER.info("cred ids %s", cred_ids)
+            found_creds_json = await holder.instance.get_creds_by_id(
+                json.dumps(proof_req.request), cred_ids,
+            )
+        else:
+            _referents, found_creds_json = await holder.instance.get_creds(
+                json.dumps(proof_req.request), # + filters ..
+            )
         found_creds = json.loads(found_creds_json)
         LOGGER.info("Found creds %s", found_creds)
+
+        if not found_creds["attrs"]:
+            raise IndyError("No credentials found for proof")
 
         missing = set()
         too_many = set()
@@ -800,7 +811,7 @@ class IndyService(ServiceBase):
         return _prepare_proof_request(spec)
 
     async def _request_proof(self, connection_id: str, proof_req: ProofRequest,
-                             params: dict = None) -> VerifiedProof:
+                             cred_ids: set = None, params: dict = None) -> VerifiedProof:
         """
         Request a verified proof from a connection
         """
@@ -813,7 +824,7 @@ class IndyService(ServiceBase):
                 "Cannot verify proof from non-verifier agent: {}".format(verifier.agent_id))
         if not verifier.synced:
             raise IndyConfigError("Verifier is not yet synchronized: {}".format(verifier.agent_id))
-        proof = await conn.instance.construct_proof(proof_req, params)
+        proof = await conn.instance.construct_proof(proof_req, cred_ids, params)
         return await self._verify_proof(verifier.agent_id, proof_req, proof)
 
     async def _verify_proof(self, verifier_id: str, proof_req: ProofRequest,
@@ -964,7 +975,8 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, ConstructProofReq):
             try:
-                reply = await self._construct_proof(request.holder_id, request.proof_req)
+                reply = await self._construct_proof(
+                    request.holder_id, request.proof_req, request.cred_ids)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -985,7 +997,8 @@ class IndyService(ServiceBase):
         elif isinstance(request, RequestProofReq):
             try:
                 reply = await self._request_proof(
-                    request.connection_id, request.proof_req, request.params)
+                    request.connection_id, request.proof_req,
+                    request.cred_ids, request.params)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 

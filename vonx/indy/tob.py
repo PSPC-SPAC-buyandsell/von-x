@@ -204,7 +204,7 @@ class TobConnection(ConnectionBase):
             result)
 
     async def construct_proof(self, request: ProofRequest,
-                              params: dict = None) -> ConstructedProof:
+                              cred_ids: set = None, params: dict = None) -> ConstructedProof:
         """
         Ask the API to construct a proof from a proof request
 
@@ -213,8 +213,9 @@ class TobConnection(ConnectionBase):
         """
         return await self.post_json(
             "indy/construct-proof", {
-                'source_id': params and params.get('source_id') or None,
-                'proof_request': request.request,
+                "source_id": params and params.get("source_id") or None,
+                "proof_request": request.request,
+                "cred_ids": list(cred_ids) if cred_ids else None,
             }
         )
 

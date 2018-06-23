@@ -126,16 +126,17 @@ class TestIndyManager(IndyManager):
         LOGGER.info("--- issued %s creds in %s seconds, avg %s ---", len(creds), dur, avg)
 
 
-    async def test_issue_cred(self, client, conn_id):
+    async def test_issue_cred(self, client, conn_id) -> str:
         (cred_id, _result) = await client.issue_credential(
             conn_id, self.schema_name, self.schema_version, None,
             {"attr1": "Test Name", "attr2": "Second Value"})
         LOGGER.info("issued: %s", cred_id)
+        return cred_id
 
 
-    async def test_proof(self, client, conn_id, spec_id):
+    async def test_proof(self, client, conn_id, spec_id, cred_ids=None):
         proof_req = await client.generate_proof_request(spec_id)
-        result = await client.request_proof(conn_id, proof_req)
+        result = await client.request_proof(conn_id, proof_req, cred_ids)
         LOGGER.info("test proof: %s", result)
 
 
@@ -152,8 +153,8 @@ if __name__ == '__main__':
     async def setup(client):
         ids = await MGR.add_test_services(client)
         if await client.sync():
-            await MGR.test_issue_cred(client, ids["holder_conn_id"])
-            await MGR.test_proof(client, ids["verifier_conn_id"], ids["proof_spec_id"])
+            cred_id = await MGR.test_issue_cred(client, ids["holder_conn_id"])
+            await MGR.test_proof(client, ids["verifier_conn_id"], ids["proof_spec_id"], {cred_id})
     asyncio.ensure_future(setup(client))
 
     async def auto_abort():

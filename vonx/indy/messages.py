@@ -284,6 +284,7 @@ class ConstructProofReq(IndyServiceReq):
     _fields = (
         ("holder_id", str),
         ("proof_req", ProofRequest),
+        ("cred_ids", set),
     )
 
 
@@ -331,6 +332,7 @@ class RequestProofReq(IndyServiceReq):
     _fields = (
         ("connection_id", str),
         ("proof_req", ProofRequest),
+        ("cred_ids", set),
         ("params", dict),
     )
 

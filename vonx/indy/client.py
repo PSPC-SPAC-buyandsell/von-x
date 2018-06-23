@@ -171,9 +171,10 @@ class IndyClient:
             ResolvedSchema)
         return found
 
-    async def construct_proof(self, holder_id: str, proof_req: ProofRequest) -> ConstructedProof:
+    async def construct_proof(self, holder_id: str, proof_req: ProofRequest,
+                              cred_ids: set = None) -> ConstructedProof:
         proof = await self._fetch(
-            ConstructProofReq(holder_id, proof_req),
+            ConstructProofReq(holder_id, proof_req, cred_ids),
             ConstructedProof)
         return proof
 
@@ -190,9 +191,9 @@ class IndyClient:
         return request
 
     async def request_proof(self, connection_id: str, proof_req: ProofRequest,
-                            params: dict = None) -> ConstructedProof:
+                            cred_ids: set = None, params: dict = None) -> ConstructedProof:
         request = await self._fetch(
-            RequestProofReq(connection_id, proof_req, params),
+            RequestProofReq(connection_id, proof_req, cred_ids, params),
             VerifiedProof)
         return request
 
