@@ -17,6 +17,7 @@
 
 from distutils.version import LooseVersion
 from enum import Enum
+import logging
 from typing import Mapping, Sequence
 import uuid
 
@@ -28,10 +29,13 @@ from von_agent.agents import (
 )
 from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
+from von_agent.util import schema_id
 
 from .connection import ConnectionBase, ConnectionType, HolderConnection
 from .errors import IndyConfigError
 from .tob import TobConnection
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AgentType(Enum):
@@ -239,6 +243,45 @@ class ConnectionCfg:
             self.synced = True
 
 
+class ProofSpecCfg:
+    """
+    A proof request specification
+    """
+    def __init__(self, **params):
+        self.spec_id = params.get("id")
+        self.version = params.get("version")
+        if not self.version:
+            raise IndyConfigError("Missing version for proof spec: {}".format(self.spec_id))
+        self.schemas = params.get("schemas")
+        if not self.schemas:
+            raise IndyConfigError("Missing schemas for proof spec: {}".format(self.spec_id))
+        self.synced = not self.get_incomplete_schemas()
+
+    @property
+    def status(self) -> dict:
+        return {
+            "synced": self.synced,
+        }
+
+    def get_incomplete_schemas(self):
+        missing = set()
+        for schema in self.schemas:
+            if not schema.get("definition"):
+                s_key = schema["key"]
+                missing.add((s_key["name"], s_key["version"], s_key.get("did")))
+        return missing
+
+    def populate_schema(self, found_schema: 'SchemaCfg'):
+        for schema in self.schemas:
+            if not schema.get("definition"):
+                s_key = schema["key"]
+                cfg = SchemaCfg(s_key["name"], s_key["version"], None, s_key.get("did"))
+                if cfg.compare(found_schema):
+                    schema["definition"] = found_schema.copy()
+                    if not schema.get("attributes"):
+                        schema["attributes"] = found_schema.attr_names
+
+
 class SchemaCfg:
     """
     A credential schema definition
@@ -250,6 +293,10 @@ class SchemaCfg:
         if attributes:
             self.attributes = attributes
         self.origin_did = origin_did
+
+    @property
+    def schema_id(self) -> str:
+        return schema_id(self.origin_did, self.name, self.version)
 
     @property
     def attributes(self) -> list:
@@ -310,7 +357,7 @@ class SchemaCfg:
         """
         Create a copy of this :class:`SchemaCfg` instance
         """
-        return SchemaCfg(self.name, self.version, self._attributes)
+        return SchemaCfg(self.name, self.version, self._attributes, self.origin_did)
 
     def validate(self, value) -> None:
         """
@@ -335,7 +382,8 @@ class SchemaCfg:
         return True
 
     def __repr__(self) -> str:
-        return 'SchemaCfg(name={}, version={})'.format(self.name, self.version)
+        return 'SchemaCfg(name={}, version={}, origin_did={})'.format(
+            self.name, self.version, self.origin_did)
 
 
 class SchemaManager:

@@ -27,6 +27,9 @@ from .messages import (
     CredentialRequest,
     StoreCredentialReq,
     StoredCredential,
+    ProofRequest,
+    ConstructProofReq,
+    ConstructedProof,
 )
 
 
@@ -37,7 +40,7 @@ class ConnectionType(Enum):
 
 
 class ConnectionBase:
-    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
+    def __init__(self, agent_id: str, _agent_params: dict, _conn_params: dict):
         self.agent_id = agent_id
 
     async def open(self, service: 'IndyService') -> None:
@@ -72,12 +75,14 @@ class ConnectionBase:
         """
         pass
 
-    async def construct_proof(self, proof_request: dict):
+    async def construct_proof(self, request: ProofRequest,
+                              params: dict = None) -> ConstructedProof:
         """
         Ask the target to construct a proof from a proof request
 
         Args:
-            proof_request: the prepared Indy proof request
+            request: the prepared Indy proof request
+            params: extra parameters for the API
         """
         pass
 
@@ -85,9 +90,9 @@ class ConnectionBase:
 class HolderConnection(ConnectionBase):
     def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
         super(HolderConnection, self).__init__(agent_id, agent_params, conn_params)
-        self.holder_id = conn_params.get("id")
+        self.holder_id = conn_params.get("holder_id")
         if not self.holder_id:
-            raise IndyConfigError("Missing 'id' for holder connection")
+            raise IndyConfigError("Missing 'holder_id' for holder connection")
         self.target = None
 
     async def open(self, service: 'IndyService') -> None:
@@ -128,11 +133,19 @@ class HolderConnection(ConnectionBase):
             raise IndyConnectionError(500, "Unexpected result: {}".format(result))
         return result
 
-    async def construct_proof(self, proof_request: dict):
+    async def construct_proof(self, request: ProofRequest,
+                              params: dict = None) -> ConstructedProof:
         """
         Ask the target to construct a proof from a proof request
 
         Args:
-            proof_request: the prepared Indy proof request
+            request: the prepared Indy proof request
+            params: extra parameters for the API
         """
-        pass
+        result = await self.target.request(
+            ConstructProofReq(self.holder_id, request))
+        if isinstance(result, IndyServiceFail):
+            raise IndyConnectionError(500, result.value)
+        elif not isinstance(result, ConstructedProof):
+            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+        return result

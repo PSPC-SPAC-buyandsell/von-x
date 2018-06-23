@@ -61,7 +61,7 @@ class ServiceStatusReq(ServiceRequest):
 
 class ServiceStatus(ServiceResponse):
     _fields = (
-        ('status', dict),
+        ("status", dict),
     )
     """
     Request the status of a service
@@ -71,7 +71,9 @@ class ServiceSyncReq(ServiceRequest):
     """
     Request a service to perform a sync
     """
-    pass
+    _fields = (
+        ("wait", bool),
+    )
 
 class ServiceSyncError(Exception):
     pass
@@ -90,15 +92,16 @@ class ServiceBase(RequestExecutor):
             "failed": False,
             "synced": False,
             "syncing": False,
-            "started": False
+            "started": False,
         }
+        self._sync_again = False
         self._sync_lock = None
 
     def start(self, wait: bool = True) -> None:
         """
         Start the IssuerManager processing thread and related services
         """
-        super(ServiceBase, self).start()
+        super(ServiceBase, self).start(True)
         self._sync_lock = asyncio.Lock(loop=self._runner.loop)
         self.run_task(self._start())
 
@@ -120,6 +123,27 @@ class ServiceBase(RequestExecutor):
         """
         return True
 
+    def stop(self) -> None:
+        """
+        Stop the processing thread and related services
+        """
+        self.run_task(self._stop())
+        super(ServiceBase, self).stop()
+
+    async def _stop(self) -> None:
+        """
+        Service shutdown
+        """
+        await self._service_stop()
+        self._update_status(started=False)
+        LOGGER.info("Stopped service: %s", self.pid)
+
+    async def _service_stop(self) -> None:
+        """
+        Perform service-specific shutdown actions
+        """
+        pass
+
     async def _sync(self) -> None:
         """
         Service sync process
@@ -129,22 +153,33 @@ class ServiceBase(RequestExecutor):
             if self._status["failed"]:
                 return
             prev = self._status["synced"]
-            failed = False
-            self._update_status(syncing=True)
             if not prev:
                 LOGGER.info("Starting sync: %s", self.pid)
-            try:
-                synced = await self._service_sync()
-            except ServiceSyncError:
-                LOGGER.exception("Error during %s sync: ", self.pid)
-                synced = False
-            except Exception as e:
-                LOGGER.exception("Fatal error during %s sync: ", self.pid)
-                synced = False
-                failed = True
-            self._update_status(synced=synced, syncing=False, failed=failed)
+            again = True
+            failed = False
+            synced = False
+            while again:
+                self._sync_again = again = False
+                self._update_status(syncing=True)
+                try:
+                    synced = await self._service_sync()
+                    if self._sync_again:
+                        synced = False
+                        again = True
+                except ServiceSyncError:
+                    LOGGER.exception("Error during %s sync: ", self.pid)
+                    synced = False
+                except Exception as e:
+                    LOGGER.exception("Fatal error during %s sync: ", self.pid)
+                    synced = False
+                    failed = True
+                self._update_status(synced=synced, syncing=False, failed=failed)
             if synced and not prev:
                 LOGGER.info("Completed sync: %s", self.pid)
+
+    def _sync_required(self) -> None:
+        self._sync_again = True
+        self._update_status(synced=False)
 
     async def _service_sync(self) -> bool:
         """
@@ -177,8 +212,19 @@ class ServiceBase(RequestExecutor):
             return True
 
         elif isinstance(request, ServiceSyncReq):
-            self.run_task(self._sync())
-            reply = ServiceAck()
+            if request.wait:
+                while True:
+                    if self._status["failed"]:
+                        reply = ServiceFail("Service could not be synced: {}".format(self.pid))
+                        break
+                    await self._sync()
+                    if self._status["synced"]:
+                        reply = ServiceAck()
+                        break
+                    await asyncio.sleep(1)
+            else:
+                self.run_task(self._sync())
+                reply = ServiceAck()
 
         elif isinstance(request, ServiceStatusReq):
             reply = await self._get_status()
@@ -188,7 +234,7 @@ class ServiceBase(RequestExecutor):
                 reply = await self._service_request(request)
             except Exception:
                 LOGGER.exception("Exception while handling request:")
-                reply = ExchangeFail("Exception while handling request")
+                reply = ServiceFail("Exception while handling request")
             if reply is None:
                 raise ValueError(
                     "Unexpected message from {}: {}".format(from_pid, request)

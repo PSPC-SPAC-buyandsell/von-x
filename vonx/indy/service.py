@@ -17,6 +17,7 @@
 
 import asyncio
 import json
+import hashlib
 import logging
 import pathlib
 import random
@@ -42,8 +43,8 @@ from .config import (
     AgentType,
     AgentCfg,
     ConnectionCfg,
+    ProofSpecCfg,
     SchemaCfg,
-    SchemaManager,
     WalletCfg,
 )
 from .errors import IndyConfigError, IndyError
@@ -71,6 +72,14 @@ from .messages import (
     StoreCredentialReq,
     ResolveSchemaReq,
     ResolvedSchema,
+    ProofRequest,
+    ConstructProofReq,
+    ConstructedProof,
+    RegisterProofSpecReq,
+    ProofSpecStatus,
+    GenerateProofRequestReq,
+    RequestProofReq,
+    VerifiedProof,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -78,6 +87,33 @@ LOGGER = logging.getLogger(__name__)
 
 def _make_id(pfx: str = '', length=12) -> str:
     return pfx + ''.join(random.choice(string.ascii_letters) for _ in range(length))
+
+
+def _prepare_proof_request(spec: ProofSpecCfg) -> ProofRequest:
+    """
+    Prepare the JSON payload for a proof request
+
+    Args:
+        spec: the proof request specification
+    """
+    req_attrs = {}
+    for schema in spec.schemas:
+        s_id = schema["definition"].schema_id
+        s_uniq = hashlib.sha1(s_id.encode('ascii')).hexdigest()
+        for attr in schema["attributes"]:
+            req_attrs["{}_{}_uuid".format(s_uniq, attr)] = {
+                "name": attr,
+                "restrictions": [{
+                    "schema_id": s_id,
+                }]
+            }
+    return ProofRequest({
+        "name": spec.spec_id,
+        "nonce": str(random.randint(10000000000, 100000000000)),  # FIXME - how best to generate?
+        "version": spec.version,
+        "requested_attributes": req_attrs,
+        "requested_predicates": {},
+    })
 
 
 class IndyService(ServiceBase):
@@ -91,11 +127,12 @@ class IndyService(ServiceBase):
         self._genesis_path = None
         self._agents = {}
         self._connections = {}
+        self._ledger_url = None
         self._name = pid
         self._opened = False
         self._pool = None
+        self._proof_specs = {}
         self._wallets = {}
-        self._ledger_url = None
         self._verifier = None
         self._update_config(spec)
 
@@ -125,6 +162,9 @@ class IndyService(ServiceBase):
                 synced = False
         for connection in self._connections.values():
             if not await self._sync_connection(connection):
+                synced = False
+        for spec in self._proof_specs.values():
+            if not await self._sync_proof_spec(spec):
                 synced = False
         return synced
 
@@ -638,45 +678,154 @@ class IndyService(ServiceBase):
         Resolve a schema defined by one of our issuers
         """
         for agent_id, agent in self._agents.items():
-            found = agent.find_credential_type(schema_name, schema_version, origin_did)
-            if found:
-                defn = found["definition"]
-                return ResolvedSchema(
-                    agent_id,
-                    defn.name,
-                    defn.version,
-                    defn.origin_did,
-                    defn.attr_names,
-                )
+            if agent.synced:
+                found = agent.find_credential_type(schema_name, schema_version, origin_did)
+                if found:
+                    defn = found["definition"]
+                    did = defn.origin_did or agent.did
+                    return ResolvedSchema(
+                        agent_id,
+                        schema_id(did, defn.name, defn.version),
+                        defn.name,
+                        defn.version,
+                        did,
+                        defn.attr_names,
+                    )
         raise IndyConfigError("Issuer schema not found: {}/{}".format(schema_name, schema_version))
 
-    async def _get_verifier(self) -> AgentCfg:
+    async def _construct_proof(self, holder_id: str, proof_req: ProofRequest) -> ConstructedProof:
         """
-        Fetch or create an :class:`AgentWrapper` representing a standard Verifier agent,
-        used to verify proofs
+        Construct a proof from credentials in the holder's wallet, given a proof request
         """
-        if not self._verifier:
-            wallet_cfg = self._wallets['_verifier'] = WalletCfg(
-                name="GenericVerifier",
-                seed="verifier-seed-000000000000000000",
-            )
-            await wallet_cfg.create(self._pool)
-            self._verifier = AgentCfg(AgentType.verifier, '_verifier')
-            await self._verifier.create(wallet_cfg)
-        return self._verifier
+        holder = self._agents.get(holder_id)
+        if not holder:
+            raise IndyConfigError("Unknown holder id: {}".format(holder_id))
 
-    async def _handle_verify_proof(self, request):
+        log_json("Fetching credentials for request", proof_req.request, LOGGER)
+        LOGGER.info("Fetching credentials for request %s", proof_req.request)
+        # TODO - use separate request to find credentials and allow manual filtering?
+        _referents, found_creds_json = await holder.instance.get_creds(
+            json.dumps(proof_req.request)
+        )
+        found_creds = json.loads(found_creds_json)
+        LOGGER.info("Found creds %s", found_creds)
+
+        missing = set()
+        too_many = set()
+        for (claim_name, claim) in found_creds["attrs"].items():
+            if not claim:
+                missing.add(claim_name)
+            if len(claim) > 1:
+                too_many.add(claim_name)
+        if missing:
+            raise IndyError("No credentials found for proof")
+        if too_many:
+            raise IndyError("Too many credentials found for proof")
+
+        # Construct the required payload to create proof
+        request_params = {
+            "self_attested_attributes": {},
+            "requested_attributes": {
+                claim_name: {"revealed": True, "cred_id": claim[0]["cred_info"]["referent"]}
+                for (claim_name, claim) in found_creds["attrs"].items()
+            },
+            "requested_predicates": {},
+        }
+
+        # FIXME catch exception?
+        log_json("Creating proof", request_params, LOGGER)
+        proof_json = await holder.instance.create_proof(
+            proof_req.request,
+            found_creds,
+            request_params,
+        )
+        proof = json.loads(proof_json)
+        return ConstructedProof(proof)
+
+    def _add_proof_spec(self, **params) -> str:
         """
-        Verify a proof returned by TheOrgBook
+        Add a proof request specification
 
         Args:
-            request: the request to verify a proof
+            params: parameters to be passed to the :class:`ProofSpecCfg` constructor
         """
-        verifier = await self._get_verifier()
-        result = await verifier.verify_proof(request.proof_req, request.proof)
-        parsed_proof = revealed_attrs(request.proof)
+        cfg = ProofSpecCfg(**params)
+        if not cfg.spec_id:
+            cfg.spec_id = _make_id("proof-")
+        if cfg.spec_id in self._proof_specs:
+            raise IndyConfigError("Duplicate proof spec ID: {}".format(cfg.spec_id))
+        self._proof_specs[cfg.spec_id] = cfg
+        return cfg.spec_id
 
-        return IndyVerifiedProof(result, parsed_proof)
+    async def _sync_proof_spec(self, spec: ProofSpecCfg) -> bool:
+        missing = spec.get_incomplete_schemas()
+        check = False
+        for s_key in missing:
+            try:
+                found = await self._resolve_schema(*s_key)
+                cfg = SchemaCfg(
+                    found.schema_name, found.schema_version,
+                    found.attr_names, found.origin_did)
+                spec.populate_schema(cfg)
+                check = True
+            except IndyConfigError:
+                pass
+        if check:
+            missing = spec.get_incomplete_schemas()
+        spec.synced = not missing
+        return spec.synced
+
+    def _get_proof_spec_status(self, spec_id: str) -> ServiceResponse:
+        """
+        Return the status of a registered proof spec
+
+        Args:
+            spec_id: the unique identifier of the proof specification
+        """
+        if spec_id in self._proof_specs:
+            msg = ProofSpecStatus(spec_id, self._proof_specs[spec_id].status)
+        else:
+            msg = IndyServiceFail("Unregistered proof spec: {}".format(spec_id))
+        return msg
+
+    async def _generate_proof_request(self, spec_id: str) -> ProofRequest:
+        """
+        Create a proof request from a previously registered proof specification
+        """
+        spec = self._proof_specs.get(spec_id)
+        if not spec:
+            raise IndyConfigError("Proof specification not defined: {}".format(spec_id))
+        if not spec.synced:
+            raise IndyConfigError("Proof specification not synced: {}".format(spec_id))
+        return _prepare_proof_request(spec)
+
+    async def _request_proof(self, connection_id: str, proof_req: ProofRequest,
+                             params: dict = None) -> VerifiedProof:
+        """
+        Request a verified proof from a connection
+        """
+        conn = self._connections.get(connection_id)
+        if not conn:
+            raise IndyConfigError("Unknown connection id: {}".format(connection_id))
+        verifier = self._agents[conn.agent_id]
+        if verifier.agent_type != AgentType.verifier:
+            raise IndyConfigError(
+                "Cannot verify proof from non-verifier agent: {}".format(verifier.agent_id))
+        if not verifier.synced:
+            raise IndyConfigError("Verifier is not yet synchronized: {}".format(verifier.agent_id))
+        proof = await conn.instance.construct_proof(proof_req, params)
+        return await self._verify_proof(verifier.agent_id, proof_req, proof)
+
+    async def _verify_proof(self, verifier_id: str, proof_req: ProofRequest,
+                            proof: ConstructedProof) -> VerifiedProof:
+        verifier = self._agents.get(verifier_id)
+        if not verifier:
+            raise IndyConfigError("Unknown verifier id: {}".format(verifier_id))
+        if not verifier.synced:
+            raise IndyConfigError("Verifier is not yet synchronized: {}".format(verifier.agent_id))
+        result = await verifier.instance.verify_proof(proof_req.request, proof.proof)
+        parsed_proof = revealed_attrs(proof.proof)
+        return VerifiedProof(result, parsed_proof, proof)
 
     async def _handle_ledger_status(self):
         """
@@ -738,7 +887,7 @@ class IndyService(ServiceBase):
             try:
                 agent_id = self._add_agent(request.agent_type, request.wallet_id, **request.config)
                 reply = self._get_agent_status(agent_id)
-                self.run_task(self._sync())
+                self._sync_required()
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -747,7 +896,7 @@ class IndyService(ServiceBase):
                 connection_id = self._add_connection(
                     request.connection_type, request.agent_id, **request.config)
                 reply = self._get_connection_status(connection_id)
-                self.run_task(self._sync())
+                self._sync_required()
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -768,7 +917,7 @@ class IndyService(ServiceBase):
             try:
                 wallet_id = self._add_wallet(**request.config)
                 reply = self._get_wallet_status(wallet_id)
-                self.run_task(self._sync())
+                self._sync_required()
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -813,7 +962,34 @@ class IndyService(ServiceBase):
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
-        #elif isinstance(request, IndyVerifyProofReq):
+        elif isinstance(request, ConstructProofReq):
+            try:
+                reply = await self._construct_proof(request.holder_id, request.proof_req)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, RegisterProofSpecReq):
+            try:
+                spec_id = self._add_proof_spec(**request.config)
+                reply = self._get_proof_spec_status(spec_id)
+                self._sync_required()
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, GenerateProofRequestReq):
+            try:
+                reply = await self._generate_proof_request(request.spec_id)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, RequestProofReq):
+            try:
+                reply = await self._request_proof(
+                    request.connection_id, request.proof_req, request.params)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        #elif isinstance(request, VerifyProofReq):
         #    reply = await self._handle_verify_proof(request)
 
         else:

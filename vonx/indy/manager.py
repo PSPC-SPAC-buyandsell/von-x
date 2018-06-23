@@ -15,14 +15,13 @@
 # limitations under the License.
 #
 
-import asyncio
 import logging
 from typing import Mapping
 import time
 
 from ..common.config import load_config
 from ..common.manager import ConfigServiceManager
-from .client import IndyClient
+from .client import IndyClient, IndyClientError
 from .config import IndyConfigError, SchemaManager
 from .service import IndyService
 
@@ -135,7 +134,7 @@ class IndyManager(ConfigServiceManager):
 
     async def _service_sync(self):
         await super(IndyManager, self)._service_sync()
-        await self._register_agents()
+        await self._load_config()
 
     def _load_schemas(self) -> SchemaManager:
         mgr = SchemaManager()
@@ -146,6 +145,10 @@ class IndyManager(ConfigServiceManager):
         if ext:
             mgr.load(ext)
         return mgr
+
+    async def _load_config(self) -> None:
+        await self._register_agents()
+        await self._register_proof_requests()
 
     async def _register_agents(self) -> None:
         """
@@ -243,116 +246,12 @@ class IndyManager(ConfigServiceManager):
         wallet_cfg = holder_cfg["wallet"]
         del holder_cfg["wallet"]
         if not wallet_cfg.get("name"):
-            wallet_cfg["name"] = issuer_id + "-Holder-Wallet"
+            wallet_cfg["name"] = holder_id + "-Holder-Wallet"
         if not wallet_cfg.get("seed"):
             raise IndyConfigError("Missing wallet seed for holder: {}".format(holder_id))
         wallet_id = await client.register_wallet(wallet_cfg)
         holder_id = await client.register_holder(wallet_id, holder_cfg)
         return holder_id
 
-
-class TestIndyManager(IndyManager):
-    """
-    A test Indy service manager which creates sample wallets and issuers
-    """
-
-    schema_name = "test.schema"
-    schema_version = "1.0.0"
-
-    async def _service_sync(self):
-        client = self.get_client()
-
-        LOGGER.info("setting up test indy issuer")
-
-        issuer_wallet_id = await client.register_wallet({
-            "name": "issuer-wallet",
-            "seed": "issuer-wallet-000000000000000001",
-        })
-        issuer_id = await client.register_issuer(issuer_wallet_id, {
-            "email": "test@example.ca",
-            "name": "Test Issuer",
-        })
-        mapping = [
-            {
-                "model": "name",
-                "fields": {
-                    "text": {
-                        "input": "attr1",
-                        "from": "claim"
-                    },
-                    "type": {
-                        "input": "legal_name",
-                        "from": "value"
-                    }
-                }
-            }
-        ]
-        await client.register_credential_type(
-            issuer_id,
-            self.schema_name,
-            self.schema_version,
-            None,
-            ["attr1", "attr2"],
-            {
-                "description": "Test Credential",
-                "source_claim": "attr1",
-                "mapping": mapping,
-            })
-        #conn_id = await client.register_orgbook_connection(
-        #    issuer_id, {
-        #        "api_url": "http://192.168.65.3:8081/api/v2",
-        #    })
-        holder_wallet_id = await client.register_wallet({
-            "name": "holder-wallet",
-            "seed": "holder-wallet-000000000000000001",
-        })
-        holder_id = await client.register_holder(holder_wallet_id, {
-            "name": "Test Holder",
-        })
-        conn_id = await client.register_holder_connection(
-            issuer_id, {
-                "id": holder_id,
-            })
-        synced = False
-        wait = 10
-        while not synced and wait > 0:
-            await asyncio.sleep(1)
-            status = await client.get_connection_status(conn_id)
-            synced = status["synced"]
-            wait -= 1
-        if synced:
-            creds = [self.test_issue_cred(client, conn_id)
-                     for _ in range(500)]
-            start = time.time()
-            await asyncio.gather(*creds)
-            dur = time.time() - start
-            avg = dur / len(creds)
-            LOGGER.info("--- issued %s creds in %s seconds, avg %s ---", len(creds), dur, avg)
-        else:
-            LOGGER.info("Connection took too long to sync")
-
-    async def test_issue_cred(self, client, conn_id):
-        (cred_id, _result) = await client.issue_credential(
-            conn_id, self.schema_name, self.schema_version, None,
-            {"attr1": "Test Name", "attr2": "Second Value"})
-        LOGGER.info("issued: %s", cred_id)
-
-    def init_indy_service(self, pid: str = "indy") -> IndyService:
-        spec = {
-            "auto_register": 1,
-            "genesis_path": "/home/indy/genesis",
-            "ledger_url": "http://192.168.65.3:9000",
-        }
-        LOGGER.info("init indy")
-        return IndyService(pid, self._exchange, self._env, spec)
-
-
-if __name__ == '__main__':
-    LOGGER = logging.getLogger()
-    LOGGER.setLevel(logging.DEBUG)
-    CONSOLE = logging.StreamHandler()
-    CONSOLE.setLevel(logging.INFO)
-    LOGGER.addHandler(CONSOLE)
-
-    MGR = TestIndyManager()
-    MGR.start()
+    async def _register_proof_requests(self):
+        pass

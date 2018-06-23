@@ -18,6 +18,13 @@
 from typing import Sequence
 
 from ..common.exchange import RequestTarget
+from ..common.service import (
+    ServiceAck,
+    ServiceRequest,
+    ServiceSyncReq,
+    ServiceStatusReq,
+    ServiceStatus,
+)
 
 from .config import AgentType, ConnectionType
 from .errors import IndyClientError
@@ -25,7 +32,6 @@ from .errors import IndyClientError
 from .messages import (
     IndyServiceAck,
     IndyServiceFail,
-    ServiceRequest,
     LedgerStatusReq,
     LedgerStatus,
     RegisterWalletReq,
@@ -47,6 +53,14 @@ from .messages import (
     StoreCredentialReq,
     ResolveSchemaReq,
     ResolvedSchema,
+    ProofRequest,
+    ConstructProofReq,
+    ConstructedProof,
+    GenerateProofRequestReq,
+    RegisterProofSpecReq,
+    ProofSpecStatus,
+    VerifiedProof,
+    RequestProofReq,
 )
 
 class IndyClient:
@@ -88,18 +102,20 @@ class IndyClient:
             AgentStatus)
         return result.agent_id
 
+    async def register_verifier(self, wallet_id: str, config: dict) -> str:
+        result = await self._fetch(
+            RegisterAgentReq(AgentType.verifier.value, wallet_id, config),
+            AgentStatus)
+        return result.agent_id
+
     async def get_agent_status(self, agent_id: str) -> dict:
         result = await self._fetch(AgentStatusReq(agent_id), AgentStatus)
         return result.status
 
-    async def register_credential_type(
-            self,
-            issuer_id: str,
-            schema_name: str,
-            schema_version: str,
-            origin_did: str,
-            attr_names: Sequence,
-            config: dict = None) -> None:
+    async def register_credential_type(self, issuer_id: str,
+                                       schema_name: str, schema_version: str,
+                                       origin_did: str, attr_names: Sequence,
+                                       config: dict = None) -> None:
         await self._fetch(
             RegisterCredentialTypeReq(
                 issuer_id, schema_name, schema_version,
@@ -154,3 +170,41 @@ class IndyClient:
             ResolveSchemaReq(name, version, origin_did),
             ResolvedSchema)
         return found
+
+    async def construct_proof(self, holder_id: str, proof_req: ProofRequest) -> ConstructedProof:
+        proof = await self._fetch(
+            ConstructProofReq(holder_id, proof_req),
+            ConstructedProof)
+        return proof
+
+    async def register_proof_spec(self, spec: dict) -> str:
+        result = await self._fetch(
+            RegisterProofSpecReq(spec),
+            ProofSpecStatus)
+        return result.spec_id
+
+    async def generate_proof_request(self, spec_id: str) -> ProofRequest:
+        request = await self._fetch(
+            GenerateProofRequestReq(spec_id),
+            ProofRequest)
+        return request
+
+    async def request_proof(self, connection_id: str, proof_req: ProofRequest,
+                            params: dict = None) -> ConstructedProof:
+        request = await self._fetch(
+            RequestProofReq(connection_id, proof_req, params),
+            VerifiedProof)
+        return request
+
+    async def sync(self, wait: bool = True) -> bool:
+        result = await self._fetch(
+            ServiceSyncReq(wait))
+        if isinstance(result, ServiceAck):
+            return True
+        return False
+
+    async def get_status(self) -> dict:
+        result = await self._fetch(
+            ServiceStatusReq(),
+            ServiceStatus)
+        return result.status

@@ -25,7 +25,10 @@ from .messages import (
     CredentialOffer,
     Credential,
     CredentialRequest,
-    StoredCredential)
+    StoredCredential,
+    ProofRequest,
+    ConstructedProof,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -200,7 +203,8 @@ class TobConnection(ConnectionBase):
             indy_cred,
             result)
 
-    async def construct_proof(self, proof_request: dict):
+    async def construct_proof(self, request: ProofRequest,
+                              params: dict = None) -> ConstructedProof:
         """
         Ask the API to construct a proof from a proof request
 
@@ -208,7 +212,10 @@ class TobConnection(ConnectionBase):
             proof_request: the prepared Indy proof request
         """
         return await self.post_json(
-            "indy/construct-proof", proof_request
+            "indy/construct-proof", {
+                'source_id': params and params.get('source_id') or None,
+                'proof_request': request.request,
+            }
         )
 
     def get_api_url(self, path: str = None) -> str:

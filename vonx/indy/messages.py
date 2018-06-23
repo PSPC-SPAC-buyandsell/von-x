@@ -260,6 +260,7 @@ class ResolvedSchema(IndyServiceRep):
     """
     _fields = (
         ("issuer_id", str),
+        ("schema_id", str),
         ("schema_name", str),
         ("schema_version", str),
         ("origin_did", str),
@@ -267,21 +268,89 @@ class ResolvedSchema(IndyServiceRep):
     )
 
 
-class IndyVerifyProofReq(IndyServiceReq):
+class ProofRequest(IndyServiceRep):
     """
-    The message class representing a request to verify a proof
+    A message representing an Indy proof request
     """
     _fields = (
-        ("proof_req", dict),
+        ("request", dict),
+    )
+
+
+class ConstructProofReq(IndyServiceReq):
+    """
+    A request to construct a proof from a proof request
+    """
+    _fields = (
+        ("holder_id", str),
+        ("proof_req", ProofRequest),
+    )
+
+
+class ConstructedProof(IndyServiceRep):
+    """
+    A successfully constructed proof
+    """
+    _fields = (
         ("proof", dict),
     )
 
 
-class IndyVerifiedProof(IndyServiceRep):
+class RegisterProofSpecReq(IndyServiceReq):
+    """
+    A request to register a proof request specification
+    """
+    _fields = (
+        ("config", dict),
+    )
+
+
+class ProofSpecStatus(IndyServiceRep):
+    """
+    The proof specification status update
+    """
+    _fields = (
+        ("spec_id", str),
+        ("status", dict),
+    )
+
+
+class GenerateProofRequestReq(IndyServiceReq):
+    """
+    A request to generate a proof request
+    """
+    _fields = (
+        ("spec_id", str),
+    )
+
+
+class RequestProofReq(IndyServiceReq):
+    """
+    A request to get a proof from a connection
+    """
+    _fields = (
+        ("connection_id", str),
+        ("proof_req", ProofRequest),
+        ("params", dict),
+    )
+
+
+class VerifyProofReq(IndyServiceReq):
+    """
+    The message class representing a request to verify a proof
+    """
+    _fields = (
+        ("proof_req", ProofRequest),
+        ("proof", ConstructedProof),
+    )
+
+
+class VerifiedProof(IndyServiceRep):
     """
     The message class representing a successful proof verification
     """
     _fields = (
         ("verified", str),
         ("parsed_proof", dict),
+        ("proof", ConstructedProof),
     )
