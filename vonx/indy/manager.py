@@ -147,10 +147,11 @@ class IndyManager(ConfigServiceManager):
         return mgr
 
     async def _load_config(self) -> None:
-        await self._register_agents()
-        await self._register_proof_requests()
+        client = self.get_client()
+        await self._register_agents(client)
+        await self._register_proof_requests(client)
 
-    async def _register_agents(self) -> None:
+    async def _register_agents(self, client: IndyClient) -> None:
         """
         Load agent settings from our configuration files
         """
@@ -173,7 +174,6 @@ class IndyManager(ConfigServiceManager):
                 issuers.append(issuer_cfg)
                 issuer_ids.append(issuer_cfg["id"])
         if issuers:
-            client = self.get_client()
             for issuer_cfg in issuers:
                 await self._register_issuer(client, issuer_cfg)
         elif config_issuers:
@@ -191,7 +191,6 @@ class IndyManager(ConfigServiceManager):
                 holders.append(issuer_cfg)
                 holder_ids.append(issuer_cfg["id"])
         if holders:
-            client = self.get_client()
             for holder_cfg in holders:
                 await self._register_holder(client, issuer_cfg)
         elif config_holders:
@@ -253,5 +252,10 @@ class IndyManager(ConfigServiceManager):
         holder_id = await client.register_holder(wallet_id, holder_cfg)
         return holder_id
 
-    async def _register_proof_requests(self):
-        pass
+    async def _register_proof_requests(self, client: IndyClient):
+        config_prs = self.services_config("proof_requests")
+        if config_prs:
+            for pr_id, pr_spec in config_prs.items():
+                if not pr_spec.get("id"):
+                    pr_spec["id"] = pr_id
+                _spec_id = await client.register_proof_spec(pr_spec)
