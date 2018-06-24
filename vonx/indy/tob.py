@@ -130,6 +130,14 @@ class TobConnection(ConnectionBase):
         # TODO check DID is registered etc ..
         self._http_client = service._agent_http_client(self.agent_id)
 
+    async def close(self) -> None:
+        """
+        Shut down the connection
+        """
+        if self._http_client:
+            self._http_client.close()
+            self._http_client = None
+
     async def sync(self) -> None:
         """
         Submit the issuer JSON definition to TheOrgBook to register our service

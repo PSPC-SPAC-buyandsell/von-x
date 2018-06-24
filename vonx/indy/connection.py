@@ -86,6 +86,12 @@ class ConnectionBase:
         """
         pass
 
+    async def close(self) -> None:
+        """
+        Shut down the connection
+        """
+        pass
+
 
 class HolderConnection(ConnectionBase):
     def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
@@ -100,6 +106,12 @@ class HolderConnection(ConnectionBase):
         Initialize the connection
         """
         self.target = RequestTarget(service, service.pid)
+
+    async def close(self) -> None:
+        """
+        Shut down the connection
+        """
+        self.target = None
 
     async def generate_credential_request(
             self, indy_offer: CredentialOffer) -> CredentialRequest:

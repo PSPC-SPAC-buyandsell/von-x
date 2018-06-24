@@ -94,15 +94,16 @@ class ServiceManager(ServiceBase):
         """
         Stop the message processor and any other services
         """
-        self._stop_services(wait)
+        super(ServiceManager, self).stop(wait)
         self._exchange.stop()
 
-    def _stop_services(self, wait: bool = True) -> None:
+    async def _service_stop(self) -> None:
         """
         Stop all registered services
         """
+        LOGGER.debug("Stopping managed services")
         for _id, service in self._services.items():
-            service.stop(wait)
+            service.stop()
 
     async def _get_status(self) -> ServiceResponse:
         """

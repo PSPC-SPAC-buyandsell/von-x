@@ -17,6 +17,7 @@
 
 import asyncio
 import logging
+from threading import Event
 from typing import Mapping
 
 from .exchange import (
@@ -60,12 +61,18 @@ class ServiceStatusReq(ServiceRequest):
     pass
 
 class ServiceStatus(ServiceResponse):
-    _fields = (
-        ("status", dict),
-    )
     """
     Request the status of a service
     """
+    _fields = (
+        ("status", dict),
+    )
+
+class ServiceStopReq(ServiceRequest):
+    """
+    Request a service to stop running
+    """
+    pass
 
 class ServiceSyncReq(ServiceRequest):
     """
@@ -123,19 +130,16 @@ class ServiceBase(RequestExecutor):
         """
         return True
 
-    def stop(self) -> None:
-        """
-        Stop the processing thread and related services
-        """
-        self.run_task(self._stop())
-        super(ServiceBase, self).stop()
+    def stop_message(self) -> ExchangeMessage:
+        return ServiceStopReq()
 
     async def _stop(self) -> None:
         """
         Service shutdown
         """
-        await self._service_stop()
-        self._update_status(started=False)
+        async with self._sync_lock:
+            await self._service_stop()
+            self._update_status(started=False)
         LOGGER.info("Stopped service: %s", self.pid)
 
     async def _service_stop(self) -> None:
@@ -150,7 +154,7 @@ class ServiceBase(RequestExecutor):
         """
         #pylint: disable=broad-except
         async with self._sync_lock:
-            if self._status["failed"]:
+            if not self._status["started"] or self._status["failed"]:
                 return
             prev = self._status["synced"]
             if not prev:
@@ -209,6 +213,13 @@ class ServiceBase(RequestExecutor):
         )
 
         if await super(ServiceBase, self)._handle_message(received):
+            return True
+
+        elif isinstance(request, ServiceStopReq):
+            # run service shutdown in async thread
+            await self._stop()
+            # finish polling
+            self.send_noreply(self._pid, super(ServiceBase, self).stop_message())
             return True
 
         elif isinstance(request, ServiceSyncReq):

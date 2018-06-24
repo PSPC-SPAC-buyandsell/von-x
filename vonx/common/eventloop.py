@@ -113,12 +113,21 @@ class Runner:
         Args:
             wait: block until the event loop has been stopped
         """
-        def _finish():
+        def _finish(event):
             self._active = False
             self._loop.stop()
-        self._loop.call_soon_threadsafe(_finish)
-        if wait:
-            self.join()
+            #pending = asyncio.Task.all_tasks()
+            #self._loop.run_until_complete(asyncio.gather(*pending))
+            if event:
+                event.set()
+        if get_ident() == self._thread.ident:
+            _finish(None)
+        else:
+            event = Event() if wait else None
+            self._loop.call_soon_threadsafe(_finish, event)
+            if event:
+                event.wait()
+                self.join()
 
     def join(self):
         """

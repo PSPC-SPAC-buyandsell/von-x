@@ -130,6 +130,11 @@ class AgentCfg:
                 # and only in the root wallet (virtual_wallet == None)
                 await self._instance.create_link_secret(str(uuid.uuid4()))
 
+    async def close(self) -> None:
+        if self.opened:
+            await self._instance.close()
+            self.opened = False
+
     def add_credential_type(self, schema: 'SchemaCfg', **params) -> None:
         """
         Add a credential type to the Agent configuration
@@ -241,6 +246,11 @@ class ConnectionCfg:
         if not self.synced:
             await self._instance.sync()
             self.synced = True
+
+    async def close(self) -> None:
+        if self.opened:
+            await self._instance.close()
+            self.opened = False
 
 
 class ProofSpecCfg:
@@ -525,3 +535,7 @@ class WalletCfg:
 
     async def open(self):
         await self._instance.open()
+
+    async def close(self) -> None:
+        if self.opened:
+            await self._instance.close()

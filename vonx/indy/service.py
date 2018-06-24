@@ -168,6 +168,17 @@ class IndyService(ServiceBase):
                 synced = False
         return synced
 
+    async def _service_stop(self) -> None:
+        """
+        Shut down active connections
+        """
+        for connection in self._connections.values():
+            await connection.close()
+        for agent in self._agents.values():
+            await agent.close()
+        for wallet in self._wallets.values():
+            await wallet.close()
+
     def _add_agent(self, agent_type: str, wallet_id: str, **params) -> str:
         """
         Add an agent configuration
@@ -703,7 +714,6 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
 
         log_json("Fetching credentials for request", proof_req.request, LOGGER)
-        LOGGER.info("Fetching credentials for request %s", proof_req.request)
 
         # TODO - use separate request to find credentials and allow manual filtering?
         if cred_ids:
@@ -716,7 +726,7 @@ class IndyService(ServiceBase):
                 json.dumps(proof_req.request), # + filters ..
             )
         found_creds = json.loads(found_creds_json)
-        LOGGER.info("Found creds %s", found_creds)
+        log_json("Found credentials", found_creds, LOGGER)
 
         if not found_creds["attrs"]:
             raise IndyError("No credentials found for proof")

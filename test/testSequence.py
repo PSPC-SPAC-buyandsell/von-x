@@ -39,8 +39,8 @@ class TestIndyManager(IndyManager):
             "seed": "issuer-wallet-000000000000000001",
         })
         all["issuer_id"] = await client.register_issuer(all["issuer_wallet_id"], {
-            "email": "test@example.ca",
             "name": "Test Issuer",
+            "email": "test@example.ca",
         })
         mapping = [
             {
@@ -137,7 +137,7 @@ class TestIndyManager(IndyManager):
     async def test_proof(self, client, conn_id, spec_id, cred_ids=None):
         proof_req = await client.generate_proof_request(spec_id)
         result = await client.request_proof(conn_id, proof_req, cred_ids)
-        LOGGER.info("test proof: %s", result)
+        LOGGER.info("test proof verified: %s, result: %s", result.verified, result.parsed_proof)
 
 
 if __name__ == '__main__':
@@ -149,25 +149,17 @@ if __name__ == '__main__':
     MGR = TestIndyManager()
     MGR.start()
 
-    client = MGR.get_client()
+    CLIENT = MGR.get_client()
+    DONE = False
     async def setup(client):
         ids = await MGR.add_test_services(client)
         if await client.sync():
             cred_id = await MGR.test_issue_cred(client, ids["holder_conn_id"])
             await MGR.test_proof(client, ids["verifier_conn_id"], ids["proof_spec_id"], {cred_id})
-    asyncio.ensure_future(setup(client))
+        MGR.stop()
 
-    async def auto_abort():
-        await asyncio.sleep(5)
-        while True:
-            status = await client.get_status()
-            if status.get("failed"):
-                MGR.stop()
-                return
-            elif status.get("synced"):
-                return
-            await asyncio.sleep(2)
-    asyncio.get_event_loop().run_until_complete(auto_abort())
+    asyncio.get_event_loop().run_until_complete(setup(CLIENT))
+
     LOGGER.info("done")
     #import threading
     #LOGGER.info(threading.enumerate())

@@ -172,6 +172,10 @@ class ExchangeFail(ExchangeMessage):
         return '{}(value={})'.format(cls, self.value)
 
 
+class StopMessage(ExchangeMessage):
+    pass
+
+
 MessageWrapper = NamedTuple('MessageWrapper', [
     ('from_pid', str),
     ('ident', str),
@@ -228,14 +232,17 @@ class Exchange:
         proc.start()
         evt.wait()
         self._proc = proc
-        LOGGER.info('started exchange')
+        LOGGER.info('Started exchange')
 
-    def stop(self) -> None:
+    def stop(self, drain: bool = True) -> None:
         """
         Send a stop signal to the polling thread
         """
+        LOGGER.info('Stopping exchange')
         with self._req_cond:
-            self._cmd('stop')
+            self._cmd('stop', drain)
+            # wake all threads waiting for an incoming message
+            self._req_cond.notify_all()
 
     def join(self) -> None:
         """
@@ -263,6 +270,18 @@ class Exchange:
         with self._cmd_lock:
             self._cmd_pipe[1].send(command)
             return self._cmd_pipe[1].recv()
+
+    def register(self, to_pid: str) -> bool:
+        """
+        Register a listener on the exchange
+        """
+        return self._cmd('register', to_pid)
+
+    def is_registered(self, to_pid: str) -> bool:
+        """
+        Check if a listener is currently running
+        """
+        return self._cmd('check', to_pid)
 
     def send(self, to_pid: str, wrapper: MessageWrapper) -> bool:
         """
@@ -317,50 +336,85 @@ class Exchange:
             raise
         return message
 
+    def _drain(self) -> None:
+        while self._cmd('drain'):
+            time.sleep(1)
+
     def _run(self, event: Event) -> None:
         """
         The message processing loop
         """
+        drain = Thread(target=self._drain)
+        drain.start()
         #pylint: disable=broad-except
         pending = 0
         processed = {}
         queue = {}
+        stopTime = None
         event.set()
         try:
             while True:
                 command = self._cmd_pipe[0].recv()
-                if command[0] == 'send':
+                if command[0] == 'register':
                     to_pid = command[1]
-                    if to_pid not in queue:
+                    if to_pid and to_pid not in queue:
                         queue[to_pid] = deque()
-                    queue[to_pid].append(command[2])
-                    pending += 1
-                    self._cmd_pipe[0].send(True)
+                        self._cmd_pipe[0].send(True)
+                        LOGGER.debug("registered %s", to_pid)
+                    else:
+                        self._cmd_pipe[0].send(False)
+                elif command[0] == 'check':
+                    to_pid = command[1]
+                    self._cmd_pipe[0].send(to_pid and to_pid in queue)
+                elif command[0] == 'send':
+                    if stopTime and 0:
+                        LOGGER.debug("rejected message %s %s", command[1], command[2])
+                        self._cmd_pipe[0].send(False)
+                    else:
+                        to_pid = command[1]
+                        if to_pid in queue:
+                            queue[to_pid].append(command[2])
+                            pending += 1
+                        else:
+                            self._cmd_pipe[0].send(True)
+                        self._cmd_pipe[0].send(True)
                 elif command[0] == 'recv':
                     to_pid = command[1]
-                    message = None
+                    wrapper = None
                     if to_pid in queue:
                         try:
-                            message = queue[to_pid].popleft()
+                            wrapper = queue[to_pid].popleft()
                             processed[to_pid] = processed.get(to_pid, 0) + 1
                             pending -= 1
                         except IndexError:
                             pass
-                    # FIXME clean up expired requests here?
-                    # might want to return a message to the sender that the
-                    # message couldn't be delivered (an ExchangeFail)
-                    self._cmd_pipe[0].send(message)
+                        if wrapper and isinstance(wrapper.message, StopMessage):
+                            pending -= len(queue[to_pid])
+                            del queue[to_pid]
+                            LOGGER.debug("unregistered %s", to_pid)
+                    self._cmd_pipe[0].send(wrapper)
                 elif command[0] == 'status':
                     total = sum(processed.values())
                     self._cmd_pipe[0].send({
                         'pending': pending,
                         'processed': processed,
                         'total': total})
-                elif command[0] == 'stop':
-                    # FIXME optionally block new requests and wait until remaining
-                    # messages are processed
+                elif command[0] == 'drain':
+                    # clean up expired messages ...
+                    if stopTime:
+                        if not pending or time.time() - stopTime >= 5:
+                            if pending:
+                                LOGGER.debug("terminating with %s messages pending", pending)
+                            self._cmd_pipe[0].send(False)
+                            break
                     self._cmd_pipe[0].send(True)
-                    break
+                elif command[0] == 'stop':
+                    for to_pid in queue:
+                        LOGGER.debug("ordering %s to stop", to_pid)
+                        queue[to_pid].append(MessageWrapper(None, None, StopMessage()))
+                        pending += 1
+                    stopTime = time.time()
+                    self._cmd_pipe[0].send(True)
                 else:
                     raise ValueError('Unrecognized command: {}'.format(command[0]))
         except Exception:
@@ -486,8 +540,14 @@ class MessageProcessor:
         """
         Run a thread to poll for received messages
         """
-        self._poll_thread = Thread(target=self._poll_messages)
+        self._poll_thread = Thread(target=self._run)
         self._poll_thread.start()
+
+    def _start_run(self) -> bool:
+        """
+        Perform any additional initializion in polling thread
+        """
+        return self._exchange.register(self._pid)
 
     def join(self) -> None:
         """
@@ -496,14 +556,31 @@ class MessageProcessor:
         if self._poll_thread:
             self._poll_thread.join()
 
-    def stop(self, _wait: bool = True) -> bool:
+    def stop_message(self) -> ExchangeMessage:
+        return StopMessage()
+
+    def stop(self, wait: bool = True) -> None:
         """
         Send a stop signal to the polling thread in order to abort polling
-
-        Returns:
-            True if the message was successfully processed
         """
-        return self.send_noreply(self._pid, 'stop')
+        if self.send_noreply(self._pid, self.stop_message()):
+            while wait and self._exchange.is_registered(self._pid):
+                time.sleep(0.01)
+
+    def _stop_run(self) -> None:
+        """
+        Perform any additional shutdown actions in polling thread
+        """
+        pass
+
+    def _run(self) -> None:
+        """
+        The main thread run loop
+        """
+        if not self._start_run():
+            return
+        self._poll_messages()
+        self._stop_run()
 
     def _poll_messages(self) -> None:
         """
@@ -511,20 +588,28 @@ class MessageProcessor:
         """
         #pylint: disable=broad-except
         try:
-            while True:
-                # blocks until a message is available
-                received = self._exchange.recv(self._pid)
-                LOGGER.debug('%s processing message: %s', self._pid, received.message)
-                if received.message == 'stop':
-                    break
-                try:
-                    if self._process_message(received) is False:
-                        break
-                except Exception:
-                    errmsg = ExchangeFail('Exception during message processing', True)
-                    self._reply_with_error(received, errmsg)
+            while self._poll_message():
+                pass
         except Exception:
-            LOGGER.exception('Exception while processing message:')
+            LOGGER.exception('Exception while processing messages:')
+
+    def _poll_message(self) -> bool:
+        """
+        Wait for a message from the exchange
+        """
+        #pylint: disable=broad-except
+        # blocks until a message is available
+        received = self._exchange.recv(self._pid)
+        LOGGER.debug('%s processing message: %s', self._pid, received.message)
+        if isinstance(received.message, StopMessage):
+            return False
+        try:
+            if self._process_message(received) is False:
+                return False
+        except Exception:
+            errmsg = ExchangeFail('Exception during message processing', True)
+            self._reply_with_error(received, errmsg)
+        return True
 
     def _reply_with_error(
             self,
@@ -626,10 +711,15 @@ class RequestExecutor(MessageProcessor):
         self._runner = eventloop.Runner()
         self._runner.start(wait)
         self._req_lock = asyncio.Lock(loop=self._runner.loop)
-        # Send outgoing messages to the exchange (without blocking our event loop)
-        self.run_thread(self._send_messages)
         # Poll for results in a thread from our thread pool
-        self.run_thread(self._poll_messages)
+        self.run_thread(self._run, ident='polling thread {}'.format(self.pid))
+
+    def _start_run(self) -> bool:
+        if not super(RequestExecutor, self)._start_run():
+            return False
+        # Send outgoing messages to the exchange (without blocking our event loop)
+        self.run_thread(self._send_messages, ident='sending thread {}'.format(self.pid))
+        return True
 
     # In the webserver environment, the process we're concerned with has already started
     # so just use start() instead
@@ -652,19 +742,18 @@ class RequestExecutor(MessageProcessor):
         """
         return self._runner
 
-    def stop(self, wait: bool = True) -> None:
+    def _stop_run(self) -> None:
         """
-        Stop our polling thread and any other tasks in progress
-
-        Args:
-            wait: whether to wait for the threads to terminate
+        Stop our sending thread and any other tasks in progress
         """
-        super(RequestExecutor, self).stop(wait)
+        # stop sending messages
         self._out_queue.put_nowait(None)
         self._out_queue.join()
-        self._runner.stop(wait)
+        # close http connector
         if self._connector:
             self._connector.close()
+        # shut down event loop
+        self._runner.stop()
 
     def run_task(self, proc: Awaitable) -> asyncio.Future:
         """
@@ -675,7 +764,7 @@ class RequestExecutor(MessageProcessor):
         """
         return self._runner.run_task(proc)
 
-    def run_thread(self, proc: Callable, *args) -> asyncio.Future:
+    def run_thread(self, proc: Callable, *args, ident: str = None) -> asyncio.Future:
         """
         Add a task to be processed, as either a coroutine or function
 
@@ -683,6 +772,14 @@ class RequestExecutor(MessageProcessor):
             proc: the function to be run in the :class:`ThreadPoolExecutor`
             args: arguments to pass to the proc, if a function
         """
+        if ident and False:
+            _proc = proc
+            def proc(*args):
+                tid = get_ident()
+                LOGGER.info(">> start thread %s %s", ident, tid)
+                ret = _proc(*args)
+                LOGGER.info("<< end thread %s %s", ident, tid)
+                return ret
         return self._runner.run_in_executor(None, proc, *args)
 
     def _init_process(self) -> None:
@@ -920,7 +1017,7 @@ class ThreadedHelloProcessor(HelloProcessor):
 
     def start(self, _wait: bool = True) -> None:
         self._pool = ThreadPoolExecutor(self._max_workers) #thread_name_prefix=self._pid
-        self._pool.submit(self._poll_messages)
+        self._pool.submit(self._run)
 
     def start_process(self) -> mp.Process:
         """
