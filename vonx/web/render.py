@@ -20,7 +20,7 @@ import logging
 from aiohttp import web
 import aiohttp_jinja2
 
-#from vonx.services import prover
+from ..indy.errors import IndyClientError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,77 +40,62 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         request: The request received by aiohttp
     """
     #pylint: disable=broad-except
-    proof_req = form.get('proof_request')
+    proof_meta = form.get("proof_request")
     proof_response = None
-    service_mgr = request.app['manager']
+    service_mgr = request.app["manager"]
 
-    if proof_req:
-        proof_name = proof_req['name']
-        service = service_mgr.get_service_request_target('prover')
-        result = await service.request(
-            prover.ProofSpecReq(proof_name))
-        proof_spec = None
-        if isinstance(result, prover.ProofSpec):
-            proof_spec = result.value
-        if not proof_spec:
-            raise ValueError('Unknown proof request: {}'.format(proof_name))
-
-        params = {}
-        if 'params' in proof_req:
-            for attr_name, param in proof_req['params'].items():
-                if isinstance(param, str):
-                    param_from = param
-                elif isinstance(param, dict):
-                    param_from = param.get('from')
-                if param_from:
-                    val = request.query.get(param_from)
-                    if val is not None and val != '':
-                        params[attr_name] = val
-
+    if proof_meta:
         try:
-            service = service_mgr.get_service_request_target('prover')
-            result = await service.request(
-                prover.RequestProofReq(proof_name, params))
-            if isinstance(result, prover.RequestedProof):
-                proof_response = result.value
-                proof_response['success'] = True
-            elif isinstance(result, prover.ProverError):
-                #return response.html('The requested credentials could not be located')
-                proof_response = {'success': False}
-            else:
-                #raise ValueError('Unexpected result from prover')
-                LOGGER.error('Unexpected result from prover')
-                proof_response = {'success': False}
-        except Exception:
-            LOGGER.exception('Error while requesting proof')
-            return web.Response(text='A communication error occurred')
+            client = service_mgr.get_client()
+            proof_req = await client.generate_proof_request(proof_meta["id"])
 
-    tpl_name = form.get('template', 'index.html')
+            params = {}
+            if "params" in proof_req:
+                for attr_name, param in proof_req["params"].items():
+                    if isinstance(param, str):
+                        param_from = param
+                    elif isinstance(param, dict):
+                        param_from = param.get("from")
+                    if param_from:
+                        val = request.query.get(param_from)
+                        if val is not None and val != '':
+                            params[attr_name] = val
+
+            result = await client.request_proof(
+                proof_meta["connection_id"], proof_req, None, params)
+            proof_response = {
+                "success": True,
+                "parsed_proof": result.parsed_proof,
+            }
+        except IndyClientError as e:
+            proof_response = {"success": False, "result": str(e)}
+
+    tpl_name = form.get("template", "index.html")
     tpl_vars = {
-        'inputs': {},
-        'request': {},
-        'proof_response': proof_response,
-        'THE_ORG_BOOK_APP_URL': service_mgr.env.get('TOB_APP_URL')
+        "inputs": {},
+        "request": {},
+        "proof_response": proof_response,
+        "THE_ORG_BOOK_APP_URL": service_mgr.env.get("TOB_APP_URL")
     }
-    tpl_vars['inputs'].update(request.query)
-    tpl_vars['request'].update(request.query)
-    if proof_response and proof_response['success']:
+    tpl_vars["inputs"].update(request.query)
+    tpl_vars["request"].update(request.query)
+    if proof_response and proof_response["success"]:
         # currently flattening attributes from different schemas
         proof_attrs = {}
-        for attrs in proof_response['parsed_proof'].values():
+        for attrs in proof_response["parsed_proof"].values():
             proof_attrs.update(attrs)
 
-        if 'inputs' in proof_req:
-            for input_name, claim_name in proof_req['inputs'].items():
-                tpl_vars['inputs'][input_name] = proof_attrs.get(claim_name)
+        if "inputs" in proof_req:
+            for input_name, claim_name in proof_req["inputs"].items():
+                tpl_vars["inputs"][input_name] = proof_attrs.get(claim_name)
         else:
-            tpl_vars['inputs'].update(proof_attrs)
+            tpl_vars["inputs"].update(proof_attrs)
     tpl_vars.update(form)
-    if 'hidden' not in tpl_vars:
-        tpl_vars['hidden'] = []
-    if 'connection_id' not in tpl_vars['hidden']:
-        tpl_vars['hidden'].append('connection_id')
-    tpl_vars['inputs']['connection_id'] = form.get('connection_id')
-    tpl_vars['path'] = request.rel_url
+    if "hidden" not in tpl_vars:
+        tpl_vars["hidden"] = []
+    if "connection_id" not in tpl_vars["hidden"]:
+        tpl_vars["hidden"].append("connection_id")
+    tpl_vars["inputs"]["connection_id"] = form.get("connection_id")
+    tpl_vars["path"] = request.rel_url
 
     return aiohttp_jinja2.render_template(tpl_name, request, tpl_vars)

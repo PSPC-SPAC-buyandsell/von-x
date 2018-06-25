@@ -102,11 +102,57 @@ async def hello(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
-async def request_proof(request: web.Request) -> web.Response:
+def get_handle_id(request: web.Request, handle: str, override_val: str = None) -> str:
     """
-    Ask the :class:`ProverManager` service to perform a proof request and respond with
-    the result
+    Check the request for a handle ID (connection or holder ID depending on the request)
+    which may be overridden depending on the path
     """
+    query_val = request.query.get(handle)
+    match_val = override_val or request.match_info.get(handle)
+    if query_val:
+        if match_val and match_val != query_val:
+            raise ValueError("{} must be unspecified or equal to '{}'".format(handle, match_val))
+    else:
+        if not match_val:
+            raise ValueError("{} must be specified".format(handle))
+        query_val = match_val
+    return query_val
+
+
+async def issue_credential(request: web.Request, connection_id: str = None) -> web.Response:
+    """
+    Ask the Indy service to issue a credential to the Connection
+    """
+    try:
+        connection_id = get_handle_id(request, 'connection_id', connection_id)
+    except ValueError as e:
+        return web.Response(text=str(e), status=400)
+    schema_name = request.query.get("schema")
+    schema_version = request.query.get("version") or None
+    if not schema_name:
+        return web.Response(text="Missing 'schema' parameter", status=400)
+    params = await request.json()
+    if not isinstance(params, dict):
+        return web.Response(
+            text="Request body must contain the schema attributes as a JSON object",
+            status=400)
+    try:
+        (cred_id, result) = await indy_client(request).issue_credential(
+            connection_id, schema_name, schema_version, None, params)
+        ret = {"success": True, "result": result, "credential_id": cred_id}
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e), "credential_id": None}
+    return web.json_response(ret)
+
+
+async def request_proof(request: web.Request, connection_id: str = None) -> web.Response:
+    """
+    Ask the Indy service to fetch a proof from the Connection
+    """
+    try:
+        connection_id = get_handle_id(request, 'connection_id', connection_id)
+    except ValueError as e:
+        return web.Response(text=str(e), status=400)
     proof_name = request.query.get('name')
     if not proof_name:
         return web.Response(text="Missing 'name' parameter", status=400)
@@ -119,43 +165,11 @@ async def request_proof(request: web.Request) -> web.Response:
                 text="Parameter 'params' must be an object",
                 status=400)
     try:
-        result = await service_request(
-            request, 'prover',
-            prover.RequestProofReq(proof_name, params))
-        if isinstance(result, prover.RequestedProof):
-            ret = {'success': True, 'result': result.value}
-        elif isinstance(result, prover.ProverError):
-            ret = {'success': False, 'result': result.value}
-        else:
-            raise ValueError('Unexpected result from prover: {}'.format(result))
-    except Exception as e:
-        LOGGER.exception('Error while requesting proof')
-        ret = {'success': False, 'result': str(e)}
+        client = indy_client(request)
+        proof_req = await client.generate_proof_request(proof_name)
+        result = await client.request_proof(
+            connection_id, proof_req, None, params)
+        ret = {"success": True, "result": result}
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
     return web.json_response(ret)
-
-
-class ConnectionView:
-    def __init__(self, connection_id: str):
-        self._connection_id = connection_id
-
-    async def issue_credential(self, request: web.Request) -> web.Response:
-        """
-        Ask the :class:`IssuerManager` service to issue a credential to the Holder
-        (TheOrgBook) and respond with the result
-        """
-        schema_name = request.query.get("schema")
-        schema_version = request.query.get("version") or None
-        if not schema_name:
-            return web.Response(text="Missing 'schema' parameter", status=400)
-        params = await request.json()
-        if not isinstance(params, dict):
-            return web.Response(
-                text="Request body must contain the schema attributes as a JSON object",
-                status=400)
-        try:
-            result = await indy_client(request).issue_credential(
-                self._connection_id, schema_name, schema_version, None, params)
-            ret = {"success": True, "result": result}
-        except IndyClientError as e:
-            ret = {"success": False, "result": str(e)}
-        return web.json_response(ret)

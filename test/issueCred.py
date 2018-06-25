@@ -26,10 +26,11 @@ import time
 
 import aiohttp
 
-DEFAULT_AGENT_URL = os.environ.get('AGENT_URL', 'http://localhost:5000/bcreg')
+DEFAULT_AGENT_URL = os.environ.get('AGENT_URL', 'http://localhost:5000')
 
 parser = argparse.ArgumentParser(
     description='Issue one or more credentials via von-x')
+parser.add_argument('conn_id', help='the connection ID')
 parser.add_argument('paths', nargs='+',
     help='the path to a credential JSON file')
 parser.add_argument('-c', '--count', type=int, default=1,
@@ -42,11 +43,12 @@ parser.add_argument('-u', '--url', default=DEFAULT_AGENT_URL,
 args = parser.parse_args()
 
 AGENT_URL = args.url
+CONN_ID = args.conn_id
 CRED_PATHS = args.paths
 PARALLEL = args.parallel
 REPEAT = args.count
 
-async def issue_cred(http_client, cred_path, ident):
+async def issue_cred(http_client, conn_id, cred_path, ident):
     with open(cred_path) as cred_file:
         cred = json.load(cred_file)
     if not cred:
@@ -65,7 +67,7 @@ async def issue_cred(http_client, cred_path, ident):
     try:
         response = await http_client.post(
             '{}/issue-credential'.format(AGENT_URL),
-            params={'schema': schema, 'version': version},
+            params={'schema': schema, 'version': version, 'connection_id': conn_id},
             json=attrs
         )
         if response.status != 200:
@@ -81,14 +83,14 @@ async def issue_cred(http_client, cred_path, ident):
     elapsed = time.time() - start
     print('Response to {} from von-x ({:.2f}s):\n\n{}\n'.format(ident, elapsed, result_json))
 
-async def submit_all(cred_paths, parallel=False, repeat=1):
+async def submit_all(conn_id, cred_paths, parallel=False, repeat=1):
     start = time.time()
     async with aiohttp.ClientSession() as http_client:
         all = []
         idx = 1
         for cred_path in cred_paths:
             for ridx in range(args.count):
-                req = issue_cred(http_client, cred_path, idx)
+                req = issue_cred(http_client, conn_id, cred_path, idx)
                 if parallel:
                     all.append(req)
                 else:
@@ -99,4 +101,4 @@ async def submit_all(cred_paths, parallel=False, repeat=1):
     elapsed = time.time() - start
     print('Total time: {:.2f}s'.format(elapsed))
 
-asyncio.get_event_loop().run_until_complete(submit_all(CRED_PATHS, PARALLEL, REPEAT))
+asyncio.get_event_loop().run_until_complete(submit_all(CONN_ID, CRED_PATHS, PARALLEL, REPEAT))

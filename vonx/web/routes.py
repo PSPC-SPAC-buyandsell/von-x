@@ -36,8 +36,10 @@ def get_standard_routes(_app) -> list:
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
-        #web.post('/request-proof', views.request_proof),
-        #web.post('/issue-credential', views.issue_credential),
+        web.post('/issue-credential', views.issue_credential),
+        web.post('/{connection_id}/issue-credential', views.issue_credential),
+        web.post('/request-proof', views.request_proof),
+        web.post('/{connection_id}/request-proof', views.request_proof),
         #web.get('/hello', views.hello),
     ]
 
@@ -62,7 +64,6 @@ class RouteDefinitions:
     """
     def __init__(self):
         self.forms = []
-        self.issuers = []
         self.paths = []
 
     @classmethod
@@ -99,15 +100,6 @@ class RouteDefinitions:
         self.add_paths(form['path'])
         self.forms.append(form)
 
-    def add_issuer(self, issuer: dict) -> None:
-        """
-        Add an issuer route definition
-
-        Args:
-            issuer: a dictionary of issuer configuration parameters
-        """
-        self.add_paths(issuer['path'])
-        self.issuers.append(issuer)
 
     def path_defined(self, path: str) -> bool:
         """
@@ -132,14 +124,6 @@ class RouteDefinitions:
         forms = config.get('forms') or {}
         self.load_form_definitions(forms, limit_forms)
 
-        limit_issuers = manager.env.get('ISSUERS')
-        limit_issuers = limit_forms.split() \
-            if (limit_issuers and limit_issuers != 'all') \
-            else None
-
-        issuers = config.get('issuers') or {}
-        self.load_issuer_definitions(issuers, limit_issuers)
-
         return True
 
     def load_form_definitions(self, config: dict, limit_forms=None) -> None:
@@ -157,20 +141,6 @@ class RouteDefinitions:
             check_form_definition(form)
             self.add_form(form)
 
-    def load_issuer_definitions(self, config: dict, limit_issuers=None) -> None:
-        """
-        Load a dictionary of issuer definitions from the application route configuration
-        """
-        for issuer_id, issuer in config.items():
-            if limit_issuers is not None and issuer_id not in limit_issuers:
-                continue
-            issuer_id = issuer['id'] = issuer.get('id', issuer_id)
-            if not 'name' in issuer:
-                issuer['name'] = issuer_id
-            if not issuer.get('path'):
-                issuer['path'] = '/' + issuer['name']
-            self.add_issuer(issuer)
-
     @property
     def routes(self) -> list:
         """
@@ -181,17 +151,6 @@ class RouteDefinitions:
         routes.extend(
             web.view(form['path'], form_handler(form), name=form['name'])
             for form in self.forms)
-
-        for issuer in self.issuers:
-            conn = views.ConnectionView(issuer['id'])
-            routes.append(
-                web.view(issuer['path'] + '/issue-credential', conn.issue_credential,
-                         name=issuer['name']+'-issue-credential'))
-
-        #routes.extend(
-        #    web.view(issuer['path'] + '/request-proof', views.request_proof,
-        #             name=issuer['name']+'-request-proof')
-        #    for issuer in self.issuers)
 
         return routes
 
