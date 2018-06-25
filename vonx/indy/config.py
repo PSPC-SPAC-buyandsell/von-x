@@ -170,37 +170,39 @@ class AgentCfg:
         """
         Get parameters required for initializing the connection
         """
-        cred_specs = []
-        for cred_type in self.cred_types:
-            params = cred_type["params"]
-            type_spec = {
-                "schema": cred_type["definition"],
-                "source_claim": params.get("source_claim"),
+        if self.agent_type == AgentType.issuer:
+            cred_specs = []
+            for cred_type in self.cred_types:
+                params = cred_type["params"]
+                type_spec = {
+                    "schema": cred_type["definition"],
+                    "source_claim": params.get("source_claim"),
+                }
+                if "description" in params:
+                    type_spec["description"] = params["description"]
+                if "issuer_url" in params:
+                    type_spec["issuer_url"] = params["issuer_url"]
+                if "mapping" in params:
+                    type_spec["mapping"] = params["mapping"]
+                cred_specs.append(type_spec)
+            return {
+                "abbreviation": self.abbreviation,
+                "credential_types": cred_specs,
+                "did": self.did,
+                "email": self.email,
+                "name": self.name,
+                "url": self.url,
             }
-            if "description" in params:
-                type_spec["description"] = params["description"]
-            if "issuer_url" in params:
-                type_spec["issuer_url"] = params["issuer_url"]
-            if "mapping" in params:
-                type_spec["mapping"] = params["mapping"]
-            cred_specs.append(type_spec)
-        return {
-            "abbreviation": self.abbreviation,
-            "credential_types": cred_specs,
-            "did": self.did,
-            "email": self.email,
-            "name": self.name,
-            "url": self.url,
-        }
 
 
 class ConnectionCfg:
     """
     Manage configuration settings for a connection between an issuer and a target
     """
-    def __init__(self, connection_type: str, agent_id: str, **params):
+    def __init__(self, connection_type: str, agent_id: str, agent_type: str, **params):
         self.connection_id = params.get("id")
         self.agent_id = agent_id
+        self.agent_type = agent_type
         try:
             self.connection_type = ConnectionType(connection_type)
         except KeyError:
@@ -235,7 +237,7 @@ class ConnectionCfg:
             cls = TobConnection
         elif self.connection_type == ConnectionType.holder:
             cls = HolderConnection
-        self._instance = cls(self.agent_id, agent_params, self.connection_params)
+        self._instance = cls(self.agent_id, self.agent_type, agent_params, self.connection_params)
 
     async def open(self, service: 'IndyService') -> None:
         if not self.opened:

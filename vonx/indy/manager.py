@@ -17,11 +17,10 @@
 
 import logging
 from typing import Mapping
-import time
 
 from ..common.config import load_config
 from ..common.manager import ConfigServiceManager
-from .client import IndyClient, IndyClientError
+from .client import IndyClient
 from .config import IndyConfigError, SchemaManager
 from .service import IndyService
 
@@ -168,7 +167,7 @@ class IndyManager(ConfigServiceManager):
         if not config_issuers:
             LOGGER.warning("No issuers defined by configuration")
         for issuer_key, issuer_cfg in config_issuers.items():
-            if not "id" in issuer_cfg:
+            if not issuer_cfg.get("id"):
                 issuer_cfg["id"] = issuer_key
             if limit_agents is None or issuer_cfg["id"] in limit_agents:
                 issuers.append(issuer_cfg)
@@ -185,16 +184,33 @@ class IndyManager(ConfigServiceManager):
         if not config_holders:
             LOGGER.info("No holders defined by configuration")
         for holder_key, holder_cfg in config_holders.items():
-            if not "id" in holder_cfg:
+            if not holder_cfg.get("id"):
                 holder_cfg["id"] = holder_key
             if limit_agents is None or holder_cfg["id"] in limit_agents:
-                holders.append(issuer_cfg)
-                holder_ids.append(issuer_cfg["id"])
+                holders.append(holder_cfg)
+                holder_ids.append(holder_cfg["id"])
         if holders:
             for holder_cfg in holders:
-                await self._register_holder(client, issuer_cfg)
+                await self._register_holder(client, holder_cfg)
         elif config_holders:
             LOGGER.info("No defined holders referenced by AGENTS")
+
+        verifiers = []
+        verifier_ids = []
+        config_verifiers = self.services_config("verifiers")
+        if not config_verifiers:
+            LOGGER.info("No verifiers defined by configuration")
+        for verifier_key, verifier_cfg in config_verifiers.items():
+            if not verifier_cfg.get("id"):
+                verifier_cfg["id"] = verifier_key
+            if limit_agents is None or verifier_cfg["id"] in limit_agents:
+                verifiers.append(verifier_cfg)
+                verifier_ids.append(verifier_cfg["id"])
+        if verifiers:
+            for verifier_cfg in verifiers:
+                await self._register_verifier(client, verifier_cfg)
+        elif config_verifiers:
+            LOGGER.info("No defined verifiers referenced by AGENTS")
 
     async def _register_issuer(self, client: IndyClient, issuer_cfg: dict) -> str:
         issuer_id = issuer_cfg["id"]
@@ -206,13 +222,10 @@ class IndyManager(ConfigServiceManager):
             raise IndyConfigError("Missing credential_types for issuer: {}".format(issuer_id))
         cred_types = issuer_cfg["credential_types"]
         del issuer_cfg["credential_types"]
-        if "connection" in issuer_cfg:
-            connection_cfg = issuer_cfg["connection"]
-            del issuer_cfg["connection"]
-        else:
-            connection_cfg = {
-                "api_url": self._env.get("TOB_API_URL"),
-            }
+        if "connection" not in issuer_cfg:
+            raise IndyConfigError("Missing connection for issuer: {}".format(issuer_id))
+        connection_cfg = issuer_cfg["connection"]
+        del issuer_cfg["connection"]
 
         if not wallet_cfg.get("name"):
             wallet_cfg["name"] = issuer_id + "-Issuer-Wallet"
@@ -232,10 +245,11 @@ class IndyManager(ConfigServiceManager):
                 cred_type["params"],
             )
 
-        if "id" not in connection_cfg:
-            connection_cfg["id"] = issuer_id
-        _conn_id = await client.register_orgbook_connection(
-            issuer_id, connection_cfg)
+        if connection_cfg:
+            if not connection_cfg.get("id"):
+                connection_cfg["id"] = issuer_id
+            _conn_id = await client.register_orgbook_connection(
+                issuer_id, connection_cfg)
         return issuer_id
 
     async def _register_holder(self, client: IndyClient, holder_cfg: dict) -> str:
@@ -251,6 +265,31 @@ class IndyManager(ConfigServiceManager):
         wallet_id = await client.register_wallet(wallet_cfg)
         holder_id = await client.register_holder(wallet_id, holder_cfg)
         return holder_id
+
+    async def _register_verifier(self, client: IndyClient, verifier_cfg: dict) -> str:
+        verifier_id = verifier_cfg["id"]
+        if "wallet" not in verifier_cfg:
+            raise IndyConfigError("Wallet not defined for verifier: {}".format(verifier_id))
+        wallet_cfg = verifier_cfg["wallet"]
+        del verifier_cfg["wallet"]
+        if "connection" not in verifier_cfg:
+            raise IndyConfigError("Missing connection for verifier: {}".format(verifier_id))
+        connection_cfg = verifier_cfg["connection"]
+        del verifier_cfg["connection"]
+
+        if not wallet_cfg.get("name"):
+            wallet_cfg["name"] = verifier_id + "-Verifier-Wallet"
+        if not wallet_cfg.get("seed"):
+            raise IndyConfigError("Missing wallet seed for verifier: {}".format(verifier_id))
+        wallet_id = await client.register_wallet(wallet_cfg)
+        verifier_id = await client.register_verifier(wallet_id, verifier_cfg)
+
+        if connection_cfg:
+            if not connection_cfg.get("id"):
+                connection_cfg["id"] = verifier_id
+            _conn_id = await client.register_orgbook_connection(
+                verifier_id, connection_cfg)
+        return verifier_id
 
     async def _register_proof_requests(self, client: IndyClient):
         config_prs = self.services_config("proof_requests")

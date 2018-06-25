@@ -29,8 +29,8 @@ class IndyConnectionError(IndyError):
     A generic exception representing an issue with a :class:`ConnectionBase` operation
     """
 
-    def __init__(self, status_code, message: str, response=None):
+    def __init__(self, message: str, status=None, response=None):
         super(IndyConnectionError, self).__init__(message)
-        self.status_code = status_code
         self.message = message
+        self.status = status
         self.response = response

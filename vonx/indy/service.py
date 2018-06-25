@@ -15,7 +15,6 @@
 # limitations under the License.
 #
 
-import asyncio
 import json
 import hashlib
 import logging
@@ -24,7 +23,6 @@ import random
 import string
 from typing import Mapping, Sequence
 
-import aiohttp
 from didauth.indy import seed_to_did
 from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
 from von_agent.error import AbsentSchema, AbsentCredDef
@@ -47,7 +45,8 @@ from .config import (
     SchemaCfg,
     WalletCfg,
 )
-from .errors import IndyConfigError, IndyError
+from .connection import HttpSession
+from .errors import IndyConfigError, IndyConnectionError, IndyError
 from .messages import (
     IndyServiceAck,
     IndyServiceFail,
@@ -195,7 +194,9 @@ class IndyService(ServiceBase):
             cfg.agent_id = _make_id("agent-")
         if cfg.agent_id in self._agents:
             raise IndyConfigError("Duplicate agent ID: {}".format(cfg.agent_id))
-        self._agents[cfg.agent_id] = cfg
+        agents = self._agents.copy()
+        agents[cfg.agent_id] = cfg
+        self._agents = agents
         return cfg.agent_id
 
     def _get_agent_status(self, agent_id: str) -> ServiceResponse:
@@ -242,12 +243,14 @@ class IndyService(ServiceBase):
         """
         if agent_id not in self._agents:
             raise IndyConfigError("Agent ID not registered: {}".format(agent_id))
-        cfg = ConnectionCfg(connection_type, agent_id, **params)
+        cfg = ConnectionCfg(connection_type, agent_id, self._agents[agent_id].agent_type.value, **params)
         if not cfg.connection_id:
             cfg.connection_id = _make_id("connection-")
         if cfg.connection_id in self._connections:
             raise IndyConfigError("Duplicate connection ID: {}".format(cfg.connection_id))
-        self._connections[cfg.connection_id] = cfg
+        conns = self._connections.copy()
+        conns[cfg.connection_id] = cfg
+        self._connections = conns
         return cfg.connection_id
 
     def _get_connection_status(self, connection_id: str) -> ServiceResponse:
@@ -275,7 +278,9 @@ class IndyService(ServiceBase):
             cfg.wallet_id = _make_id("wallet-")
         if cfg.wallet_id in self._wallets:
             raise IndyConfigError("Duplicate wallet ID: {}".format(cfg.wallet_id))
-        self._wallets[cfg.wallet_id] = cfg
+        wallets = self._wallets.copy()
+        wallets[cfg.wallet_id] = cfg
+        self._wallets = wallets
         return cfg.wallet_id
 
     def _get_wallet_status(self, wallet_id: str) -> ServiceResponse:
@@ -338,10 +343,13 @@ class IndyService(ServiceBase):
                 agent_cfg = agent.get_connection_params(connection)
                 await connection.create(agent_cfg)
 
-            if not connection.opened:
-                await connection.open(self)
+            try:
+                if not connection.opened:
+                    await connection.open(self)
 
-            await connection.sync()
+                await connection.sync()
+            except IndyConnectionError as e:
+                raise ServiceSyncError(str(e))
         return connection.synced
 
     async def _setup_pool(self) -> None:
@@ -390,21 +398,14 @@ class IndyService(ServiceBase):
         )
 
         try:
-            await asyncio.sleep(1)  # help avoid odd TimeoutError on genesis txn retrieval
-            async with aiohttp.ClientSession(read_timeout=30) as client:
-                response = await client.get("{}/genesis".format(ledger_url))
-        except aiohttp.ClientError as e:
-            raise ServiceSyncError("Error downloading genesis transaction file: {}".format(str(e)))
-
-        if response.status != 200:
-            raise ServiceSyncError(
-                "Error downloading genesis file: status {}".format(
-                    response.status
-                )
-            )
+            async with HttpSession('fetching genesis transaction', timeout=15) as handler:
+                response = await handler.client.get("{}/genesis".format(ledger_url))
+                await handler.check_status(response, (200,))
+                data = await response.text()
+        except IndyConnectionError as e:
+            raise ServiceSyncError(str(e))
 
         # check data is valid json
-        data = await response.text()
         LOGGER.debug("Genesis transaction response: %s", data)
         lines = data.splitlines()
         if not lines or not json.loads(lines[0]):
@@ -441,23 +442,21 @@ class IndyService(ServiceBase):
                 raise IndyConfigError("Cannot register DID without ledger_url")
             LOGGER.info("Registering DID %s", did)
 
-            async with aiohttp.ClientSession(read_timeout=30) as client:
-                response = await client.post(
-                    "{}/register".format(ledger_url),
-                    json={"did": did, "verkey": agent.verkey, "role": role},
+            try:
+                async with HttpSession('DID registration', timeout=30) as handler:
+                    response = await handler.client.post(
+                        "{}/register".format(ledger_url),
+                        json={"did": did, "verkey": agent.verkey, "role": role},
+                    )
+                    await handler.check_status(response, (200,))
+                    nym_info = await response.json()
+            except IndyConnectionError as e:
+                raise ServiceSyncError(str(e))
+            LOGGER.debug("Registration response: %s", nym_info)
+            if not nym_info or not nym_info["did"]:
+                raise ServiceSyncError(
+                    "DID registration failed: {}".format(nym_info)
                 )
-                if response.status != 200:
-                    raise ServiceSyncError(
-                        "DID registration failed: {}".format(
-                            await response.text()
-                        )
-                    )
-                nym_info = await response.json()
-                LOGGER.debug("Registration response: %s", nym_info)
-                if not nym_info or not nym_info["did"]:
-                    raise ServiceSyncError(
-                        "DID registration failed: {}".format(nym_info)
-                    )
 
     async def _check_endpoint(self, agent: AgentCfg, endpoint: str) -> None:
         """
@@ -574,6 +573,8 @@ class IndyService(ServiceBase):
         conn = self._connections.get(connection_id)
         if not conn:
             raise IndyConfigError("Unknown connection id: {}".format(connection_id))
+        if not conn.synced:
+            raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         issuer = self._agents[conn.agent_id]
         if issuer.agent_type != AgentType.issuer:
             raise IndyConfigError(
@@ -655,6 +656,8 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.synced:
+            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
             json.dumps(cred_offer.offer),
             json.dumps(cred_offer.cred_def),
@@ -668,11 +671,13 @@ class IndyService(ServiceBase):
     async def _store_credential(self, holder_id: str,
                                 credential: Credential) -> StoredCredential:
         """
-        Store a credential in a given holder agent
+        Store a credential in a given holder agent's wallet
         """
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.synced:
+            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         cred_id = await holder.instance.store_cred(
             json.dumps(credential.cred_data),
             json.dumps(credential.cred_req_metadata),
@@ -680,7 +685,7 @@ class IndyService(ServiceBase):
         return StoredCredential(
             cred_id,
             credential,
-            None,
+            {"attributes": credential.cred_data},
         )
 
     async def _resolve_schema(self, schema_name: str, schema_version: str,
@@ -712,7 +717,8 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
-
+        if not holder.synced:
+            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         log_json("Fetching credentials for request", proof_req.request, LOGGER)
 
         # TODO - use separate request to find credentials and allow manual filtering?
@@ -828,6 +834,8 @@ class IndyService(ServiceBase):
         conn = self._connections.get(connection_id)
         if not conn:
             raise IndyConfigError("Unknown connection id: {}".format(connection_id))
+        if not conn.synced:
+            raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         verifier = self._agents[conn.agent_id]
         if verifier.agent_type != AgentType.verifier:
             raise IndyConfigError(

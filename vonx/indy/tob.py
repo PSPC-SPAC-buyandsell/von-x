@@ -17,9 +17,7 @@
 
 import logging
 
-import aiohttp
-
-from .connection import ConnectionBase
+from .connection import ConnectionBase, HttpSession
 from .errors import IndyConfigError, IndyConnectionError
 from .messages import (
     CredentialOffer,
@@ -80,51 +78,18 @@ def assemble_issuer_spec(config: dict) -> dict:
     return issuer_spec
 
 
-async def _handle_request_error(method: str, response=None):
-    """
-    Handle an exception or bad response from an HTTP request
-    """
-    if isinstance(response, Exception):
-        code = getattr(response, 'code', None)
-        raise IndyConnectionError(
-            code,
-            "Exception during {}: ({}) {}".format(
-                method, code, str(response)
-            ),
-        )
-    if response and response.status != 200 and response.status != 201:
-        raise IndyConnectionError(
-            response.status,
-            "Bad response from {}: ({}) {}".format(
-                method, response.status, await response.text()
-            ),
-            response,
-        )
-
-
 class TobConnection(ConnectionBase):
     """
     A class for managing communication with TheOrgBook API and performing the initial
     synchronization as an issuer
     """
 
-    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
-        super(TobConnection, self).__init__(agent_id, agent_params, conn_params)
-        self._agent_params = agent_params
+    def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
+        super(TobConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
         self._api_url = conn_params.get('api_url')
         if not self._api_url:
             raise IndyConfigError("Missing 'api_url' for TheOrgBook connection")
         self._http_client = None
-
-    @property
-    def http_client(self):
-        if not self._http_client:
-            return aiohttp.ClientSession()
-        return self._http_client
-
-    @http_client.setter
-    def http_client(self, client):
-        self._http_client = client
 
     async def open(self, service: 'IndyService') -> None:
         # TODO check DID is registered etc ..
@@ -135,24 +100,25 @@ class TobConnection(ConnectionBase):
         Shut down the connection
         """
         if self._http_client:
-            self._http_client.close()
+            await self._http_client.close()
             self._http_client = None
 
     async def sync(self) -> None:
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
         """
-        spec = assemble_issuer_spec(self._agent_params)
-        response = await self.post_json(
-            "indy/register-issuer", spec
-        )
-        result = response.get("result")
-        if not response.get("success"):
-            raise IndyConnectionError(
-                400,
-                "Issuer service was not registered: {}".format(result),
-                response,
+        if self.agent_type == 'issuer':
+            spec = assemble_issuer_spec(self.agent_params)
+            response = await self.post_json(
+                "indy/register-issuer", spec
             )
+            result = response.get("result")
+            if not response.get("success"):
+                raise IndyConnectionError(
+                    "Issuer service was not registered: {}".format(result),
+                    400,
+                    response,
+                )
 
     async def generate_credential_request(
             self, indy_offer: CredentialOffer) -> CredentialRequest:
@@ -172,8 +138,8 @@ class TobConnection(ConnectionBase):
         result = response.get("result")
         if not response.get("success"):
             raise IndyConnectionError(
-                400,
                 "Could not create credential request: {}".format(result),
+                400,
                 response,
             )
         return CredentialRequest(
@@ -202,8 +168,8 @@ class TobConnection(ConnectionBase):
         result = response.get("result")
         if not response.get("success"):
             raise IndyConnectionError(
-                400,
                 "Credential was not stored: {}".format(result),
+                400,
                 response,
             )
         return StoredCredential(
@@ -250,12 +216,10 @@ class TobConnection(ConnectionBase):
         """
         url = self.get_api_url(path)
         LOGGER.debug("fetch_list: %s", url)
-        try:
-            response = await self.http_client.get(url)
-        except aiohttp.ClientError as e:
-            response = e
-        await _handle_request_error('fetch_list', response)
-        return await response.json()
+        async with HttpSession("fetch_list", self._http_client) as handler:
+            response = await handler.client.get(url)
+            await handler.check_status(response)
+            return await response.json()
 
     async def post_json(self, path: str, data):
         """
@@ -270,9 +234,7 @@ class TobConnection(ConnectionBase):
         """
         url = self.get_api_url(path)
         LOGGER.debug("post_json: %s", url)
-        try:
-            response = await self.http_client.post(url, json=data)
-        except aiohttp.ClientError as e:
-            response = e
-        await _handle_request_error('post_json', response)
-        return await response.json()
+        async with HttpSession("post_json", self._http_client) as handler:
+            response = await handler.client.post(url, json=data)
+            await handler.check_status(response)
+            return await response.json()

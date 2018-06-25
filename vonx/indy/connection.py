@@ -15,7 +15,10 @@
 # limitations under the License.
 #
 
+import asyncio
 from enum import Enum
+
+import aiohttp
 
 from ..common.exchange import RequestTarget
 from .errors import IndyConfigError, IndyConnectionError
@@ -39,9 +42,63 @@ class ConnectionType(Enum):
     remote = "remote"
 
 
+class HttpSession:
+    """
+    Handle an exception or bad response from an HTTP request
+    """
+
+    def __init__(self, method: str, http_client: aiohttp.ClientSession = None, timeout=None):
+        self._client = http_client
+        self._method = method
+        self._opened = False
+        self._timeout = timeout
+
+    @property
+    def client(self) -> aiohttp.ClientSession:
+        return self._client
+
+    async def check_status(self, response: aiohttp.ClientResponse, accept=(200, 201)):
+        if response.status not in accept:
+            raise IndyConnectionError(
+                "Bad response from {}: ({}) {}".format(
+                    self._method, response.status, await response.text()
+                ),
+                response.status,
+                response,
+            )
+
+    async def __aenter__(self) -> 'ErrorHandler':
+        if not self._client:
+            self._client = aiohttp.ClientSession(read_timeout=self._timeout)
+            self._opened = True
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        if self._opened:
+            await self._client.close()
+        if exc_type == IndyConnectionError:
+            return False
+        if exc_type == asyncio.TimeoutError:
+            raise IndyConnectionError(
+                "Connection timed out during {}".format(self._method),
+                status=598,
+            ) from None
+        if exc_value:
+            code = getattr(exc_value, 'code', None)
+            raise IndyConnectionError(
+                "Exception during {}: {} ({})".format(self._method, str(exc_value), code),
+                status=code,
+            ) from None
+
+
 class ConnectionBase:
-    def __init__(self, agent_id: str, _agent_params: dict, _conn_params: dict):
+    def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
         self.agent_id = agent_id
+        self.agent_type = agent_type
+        self.agent_params = agent_params
+        self.created = False
+        self.opened = False
+        self.synced = False
 
     async def open(self, service: 'IndyService') -> None:
         """
@@ -94,8 +151,8 @@ class ConnectionBase:
 
 
 class HolderConnection(ConnectionBase):
-    def __init__(self, agent_id: str, agent_params: dict, conn_params: dict):
-        super(HolderConnection, self).__init__(agent_id, agent_params, conn_params)
+    def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
+        super(HolderConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
         self.holder_id = conn_params.get("holder_id")
         if not self.holder_id:
             raise IndyConfigError("Missing 'holder_id' for holder connection")
