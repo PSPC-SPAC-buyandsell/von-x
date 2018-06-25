@@ -84,7 +84,7 @@ class TestIndyManager(IndyManager):
         })
         all["holder_conn_id"] = await client.register_holder_connection(
             all["issuer_id"], {
-                "id": "test",
+                "id": "holder",
                 "holder_id": all["holder_id"],
             }
         )
@@ -98,10 +98,12 @@ class TestIndyManager(IndyManager):
         })
         all["verifier_conn_id"] = await client.register_holder_connection(
             all["verifier_id"], {
+                "id": "verifier",
                 "holder_id": all["holder_id"],
             }
         )
         proof_spec = {
+            "id": "test-proof",
             "version": "1.0.0",
             "schemas": [
                 {

@@ -138,45 +138,35 @@ class IndyClient:
         result = await self._fetch(ConnectionStatusReq(connection_id), ConnectionStatus)
         return result.status
 
-    async def issue_credential(
-            self,
-            connection_id: str,
-            schema_name: str,
-            schema_version: str,
-            origin_did: str,
-            cred_data: dict) -> (str, dict):
-        stored = await self._fetch(
+    async def issue_credential(self, connection_id: str, schema_name: str, schema_version: str,
+                               origin_did: str, cred_data: dict) -> StoredCredential:
+        return await self._fetch(
             IssueCredentialReq(connection_id, schema_name, schema_version, origin_did, cred_data),
             StoredCredential)
-        return (stored.cred_id, stored.result)
 
     async def create_credential_request(self, holder_id: str,
                                         cred_offer: CredentialOffer) -> CredentialRequest:
-        request = await self._fetch(
+         return await self._fetch(
             GenerateCredentialRequestReq(holder_id, cred_offer),
             CredentialRequest)
-        return request
 
     async def store_credential(self, holder_id: str,
                                credential: Credential) -> StoredCredential:
-        stored = await self._fetch(
+        return await self._fetch(
             StoreCredentialReq(holder_id, credential),
             StoredCredential)
-        return stored
 
     async def resolve_schema(self, name: str, version: str = None,
                              origin_did: str = None) -> ResolvedSchema:
-        found = await self._fetch(
+        return await self._fetch(
             ResolveSchemaReq(name, version, origin_did),
             ResolvedSchema)
-        return found
 
     async def construct_proof(self, holder_id: str, proof_req: ProofRequest,
                               cred_ids: set = None) -> ConstructedProof:
-        proof = await self._fetch(
+        return await self._fetch(
             ConstructProofReq(holder_id, proof_req, cred_ids),
             ConstructedProof)
-        return proof
 
     async def register_proof_spec(self, spec: dict) -> str:
         result = await self._fetch(
@@ -185,17 +175,15 @@ class IndyClient:
         return result.spec_id
 
     async def generate_proof_request(self, spec_id: str) -> ProofRequest:
-        request = await self._fetch(
+        return await self._fetch(
             GenerateProofRequestReq(spec_id),
             ProofRequest)
-        return request
 
     async def request_proof(self, connection_id: str, proof_req: ProofRequest,
                             cred_ids: set = None, params: dict = None) -> ConstructedProof:
-        request = await self._fetch(
+        return await self._fetch(
             RequestProofReq(connection_id, proof_req, cred_ids, params),
             VerifiedProof)
-        return request
 
     async def sync(self, wait: bool = True) -> bool:
         result = await self._fetch(

@@ -137,9 +137,9 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
             text="Request body must contain the schema attributes as a JSON object",
             status=400)
     try:
-        (cred_id, result) = await indy_client(request).issue_credential(
+        stored = await indy_client(request).issue_credential(
             connection_id, schema_name, schema_version, None, params)
-        ret = {"success": True, "result": result, "credential_id": cred_id}
+        ret = {"success": True, "result": stored.result, "credential_id": stored.cred_id}
     except IndyClientError as e:
         ret = {"success": False, "result": str(e), "credential_id": None}
     return web.json_response(ret)
@@ -167,8 +167,12 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
     try:
         client = indy_client(request)
         proof_req = await client.generate_proof_request(proof_name)
-        result = await client.request_proof(
-            connection_id, proof_req, None, params)
+        verified = await client.request_proof(connection_id, proof_req, None, params)
+        result = {
+            "verified": verified.verified,
+            "parsed_proof": verified.parsed_proof,
+            "proof": verified.proof.proof,
+        }
         ret = {"success": True, "result": result}
     except IndyClientError as e:
         ret = {"success": False, "result": str(e)}

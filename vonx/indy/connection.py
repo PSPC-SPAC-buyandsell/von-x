@@ -181,9 +181,9 @@ class HolderConnection(ConnectionBase):
         result = await self.target.request(
             GenerateCredentialRequestReq(self.holder_id, indy_offer))
         if isinstance(result, IndyServiceFail):
-            raise IndyConnectionError(500, result.value)
+            raise IndyConnectionError(result.value, 500)
         elif not isinstance(result, CredentialRequest):
-            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+            raise IndyConnectionError("Unexpected result: {}".format(result), 500)
         return result
 
     async def store_credential(
@@ -197,9 +197,9 @@ class HolderConnection(ConnectionBase):
         result = await self.target.request(
             StoreCredentialReq(self.holder_id, indy_cred))
         if isinstance(result, IndyServiceFail):
-            raise IndyConnectionError(500, result.value)
+            raise IndyConnectionError(result.value, 500)
         elif not isinstance(result, StoredCredential):
-            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+            raise IndyConnectionError("Unexpected result: {}".format(result), 500)
         return result
 
     async def construct_proof(self, request: ProofRequest,
@@ -214,7 +214,7 @@ class HolderConnection(ConnectionBase):
         result = await self.target.request(
             ConstructProofReq(self.holder_id, request, cred_ids))
         if isinstance(result, IndyServiceFail):
-            raise IndyConnectionError(500, result.value)
+            raise IndyConnectionError(result.value, 500)
         elif not isinstance(result, ConstructedProof):
-            raise IndyConnectionError(500, "Unexpected result: {}".format(result))
+            raise IndyConnectionError("Unexpected result: {}".format(result), 500)
         return result

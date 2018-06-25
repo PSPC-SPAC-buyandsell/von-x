@@ -145,7 +145,8 @@ class TobConnection(ConnectionBase):
         return CredentialRequest(
             indy_offer,
             result["credential_request"],
-            result["credential_request_metadata"])
+            result["credential_request_metadata"],
+        )
 
     async def store_credential(
             self, indy_cred: Credential) -> StoredCredential:
@@ -175,7 +176,8 @@ class TobConnection(ConnectionBase):
         return StoredCredential(
             None,
             indy_cred,
-            result)
+            result,
+        )
 
     async def construct_proof(self, request: ProofRequest,
                               cred_ids: set = None, params: dict = None) -> ConstructedProof:
@@ -185,13 +187,24 @@ class TobConnection(ConnectionBase):
         Args:
             proof_request: the prepared Indy proof request
         """
-        return await self.post_json(
+        response = await self.post_json(
             "indy/construct-proof", {
                 "source_id": params and params.get("source_id") or None,
                 "proof_request": request.request,
                 "cred_ids": list(cred_ids) if cred_ids else None,
             }
         )
+        result = response.get("result")
+        if not response.get("success"):
+            raise IndyConnectionError(
+                "Error constructing proof: {}".format(result),
+                400,
+                response,
+            )
+        return ConstructedProof(
+            result,
+        )
+
 
     def get_api_url(self, path: str = None) -> str:
         """
