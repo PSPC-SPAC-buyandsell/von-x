@@ -74,6 +74,7 @@ class TestIndyManager(IndyManager):
         #    issuer_id, {
         #        "api_url": "http://192.168.65.3:8081/api/v2",
         #    })
+
         all["holder_wallet_id"] = await client.register_wallet({
             "name": "holder-wallet",
             "seed": "holder-wallet-000000000000000001",
@@ -83,6 +84,7 @@ class TestIndyManager(IndyManager):
         })
         all["holder_conn_id"] = await client.register_holder_connection(
             all["issuer_id"], {
+                "id": "test",
                 "holder_id": all["holder_id"],
             }
         )
@@ -140,6 +142,14 @@ class TestIndyManager(IndyManager):
         LOGGER.info("test proof verified: %s, result: %s", result.verified, result.parsed_proof)
 
 
+def test_web(manager):
+    from vonx.web import init_web
+    app = init_web(manager)
+
+    from aiohttp import web
+    web.run_app(app, host='0.0.0.0', port=5000)
+
+
 if __name__ == '__main__':
     LOGGER.setLevel(logging.DEBUG)
     CONSOLE = logging.StreamHandler()
@@ -153,13 +163,13 @@ if __name__ == '__main__':
     DONE = False
     async def setup(client):
         ids = await MGR.add_test_services(client)
-        if await client.sync():
+        if 0 and await client.sync():
             cred_id = await MGR.test_issue_cred(client, ids["holder_conn_id"])
             await MGR.test_proof(client, ids["verifier_conn_id"], ids["proof_spec_id"], {cred_id})
-        MGR.stop()
+        #MGR.stop()
 
     asyncio.get_event_loop().run_until_complete(setup(CLIENT))
 
+    test_web(MGR)
+    MGR.stop()
     LOGGER.info("done")
-    #import threading
-    #LOGGER.info(threading.enumerate())
