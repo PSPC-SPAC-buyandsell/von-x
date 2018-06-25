@@ -350,7 +350,7 @@ class Exchange:
         pending = 0
         processed = {}
         queue = {}
-        stopTime = None
+        stop_time = None
         event.set()
         try:
             while True:
@@ -367,7 +367,7 @@ class Exchange:
                     to_pid = command[1]
                     self._cmd_pipe[0].send(to_pid and to_pid in queue)
                 elif command[0] == 'send':
-                    if stopTime and 0:
+                    if stop_time:
                         LOGGER.debug("rejected message %s %s", command[1], command[2])
                         self._cmd_pipe[0].send(False)
                     else:
@@ -401,8 +401,8 @@ class Exchange:
                         'total': total})
                 elif command[0] == 'drain':
                     # clean up expired messages ...
-                    if stopTime:
-                        if not pending or time.time() - stopTime >= 5:
+                    if stop_time:
+                        if not pending or time.time() - stop_time >= 5:
                             if pending:
                                 LOGGER.debug("terminating with %s messages pending", pending)
                             self._cmd_pipe[0].send(False)
@@ -413,7 +413,7 @@ class Exchange:
                         LOGGER.debug("ordering %s to stop", to_pid)
                         queue[to_pid].append(MessageWrapper(None, None, StopMessage()))
                         pending += 1
-                    stopTime = time.time()
+                    stop_time = time.time()
                     self._cmd_pipe[0].send(True)
                 else:
                     raise ValueError('Unrecognized command: {}'.format(command[0]))
@@ -556,14 +556,14 @@ class MessageProcessor:
         if self._poll_thread:
             self._poll_thread.join()
 
-    def stop_message(self) -> ExchangeMessage:
-        return StopMessage()
+    def send_stop_message(self) -> bool:
+        return self.send_noreply(self._pid, StopMessage())
 
     def stop(self, wait: bool = True) -> None:
         """
         Send a stop signal to the polling thread in order to abort polling
         """
-        if self.send_noreply(self._pid, self.stop_message()):
+        if self.send_stop_message():
             while wait and self._exchange.is_registered(self._pid):
                 time.sleep(0.01)
 

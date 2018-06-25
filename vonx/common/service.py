@@ -17,7 +17,6 @@
 
 import asyncio
 import logging
-from threading import Event
 from typing import Mapping
 
 from .exchange import (
@@ -130,8 +129,8 @@ class ServiceBase(RequestExecutor):
         """
         return True
 
-    def stop_message(self) -> ExchangeMessage:
-        return ServiceStopReq()
+    def send_stop_message(self) -> bool:
+        return self.send_noreply(self._pid, ServiceStopReq())
 
     async def _stop(self) -> None:
         """
@@ -173,7 +172,7 @@ class ServiceBase(RequestExecutor):
                 except ServiceSyncError:
                     LOGGER.exception("Error during %s sync: ", self.pid)
                     synced = False
-                except Exception as e:
+                except Exception:
                     LOGGER.exception("Fatal error during %s sync: ", self.pid)
                     synced = False
                     failed = True
@@ -219,7 +218,7 @@ class ServiceBase(RequestExecutor):
             # run service shutdown in async thread
             await self._stop()
             # finish polling
-            self.send_noreply(self._pid, super(ServiceBase, self).stop_message())
+            super(ServiceBase, self).send_stop_message()
             return True
 
         elif isinstance(request, ServiceSyncReq):
@@ -232,7 +231,7 @@ class ServiceBase(RequestExecutor):
                     if self._status["synced"]:
                         reply = ServiceAck()
                         break
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
             else:
                 self.run_task(self._sync())
                 reply = ServiceAck()
