@@ -1,7 +1,20 @@
-vonx
-====
+vonx package
+============
+
+Subpackages
+-----------
 
 .. toctree::
-   :maxdepth: 4
 
-   vonx
+    vonx.common
+    vonx.config
+    vonx.indy
+    vonx.web
+
+Module contents
+---------------
+
+.. automodule:: vonx
+    :members:
+    :undoc-members:
+    :show-inheritance:

@@ -24,9 +24,9 @@ copyright = '2018, Public Services and Procurement Canada - buyandsell.gc.ca'
 author = 'Andrew Whitehead'
 
 # The short X.Y version
-version = '1.0.0'
+version = '1.2.0'
 # The full version, including alpha/beta/rc tags
-release = '1.0.0rc1'
+release = '1.2.0rc1'
 
 
 # -- General configuration ---------------------------------------------------
@@ -183,7 +183,7 @@ class Mock(MagicMock):
     def __getattr__(cls, name):
         return MagicMock()
 MOCK_MODULES = [
-    'aiohttp', 'aiohttp.helpers',
+    'aiohttp', 'aiohttp.abc', 'aiohttp.helpers',
     'didauth', 'didauth.ext', 'didauth.ext.aiohttp', 'didauth.indy',
     'von_agent', 'von_agent.agents', 'von_agent.codec', 'von_agent.error', 'von_agent.nodepool', 'von_agent.util', 'von_agent.wallet',
     'nacl', 'yaml']

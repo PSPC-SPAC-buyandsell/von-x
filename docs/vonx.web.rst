@@ -20,14 +20,6 @@ vonx.web.process module
     :undoc-members:
     :show-inheritance:
 
-vonx.web.proxy module
----------------------
-
-.. automodule:: vonx.web.proxy
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 vonx.web.render module
 ----------------------
 
