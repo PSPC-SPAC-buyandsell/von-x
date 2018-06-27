@@ -50,8 +50,8 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
             proof_req = await client.generate_proof_request(proof_meta["id"])
 
             params = {}
-            if "params" in proof_req:
-                for attr_name, param in proof_req["params"].items():
+            if "params" in proof_meta:
+                for attr_name, param in proof_meta["params"].items():
                     if isinstance(param, str):
                         param_from = param
                     elif isinstance(param, dict):
@@ -61,11 +61,13 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                         if val is not None and val != '':
                             params[attr_name] = val
 
-            result = await client.request_proof(
+            verified = await client.request_proof(
                 proof_meta["connection_id"], proof_req, None, params)
             proof_response = {
                 "success": True,
-                "parsed_proof": result.parsed_proof,
+                "verified": verified.verified,
+                "parsed_proof": verified.parsed_proof,
+                "proof": verified.proof.proof,
             }
         except IndyClientError as e:
             proof_response = {"success": False, "result": str(e)}

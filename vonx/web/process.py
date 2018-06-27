@@ -32,41 +32,40 @@ def load_cred_request(form, attr_names, request: web.Request) -> dict:
     """
 
     cred = {}
-    mapping = form.get('mapping') or {}
-    if mapping.get('fill_defaults', True):
+    mapping = form.get("mapping") or {}
+    if mapping.get("fill_defaults", True):
         for attr in attr_names:
             cred[attr] = request.get(attr)
-            LOGGER.info("credential %s %s", attr, cred[attr])
-    map_attr = mapping.get('attributes') or []
+            LOGGER.debug("credential %s %s", attr, cred[attr])
+    map_attr = mapping.get("attributes") or []
     # Build credential data from schema mapping
     for attribute in map_attr:
-        attr_name = attribute.get('name')
-        from_type = attribute.get('from', 'request')
+        attr_name = attribute.get("name")
+        from_type = attribute.get("from", "request")
         # Handle getting value from request data
-        if from_type == 'request':
-            source = attribute.get('source', attr_name)
+        if from_type == "request":
+            source = attribute.get("source", attr_name)
             cred[attr_name] = request.get(source)
         # Handle getting value from helpers (function defined in config)
-        elif from_type == 'helper':
-            helper = getattr(helpers, attribute['source'], None)
+        elif from_type == "helper":
+            helper = getattr(helpers, attribute["source"], None)
             if not helper:
-                raise Exception(
-                    'Cannot find helper "%s"' % attribute['source'])
-            cred[attribute['name']] = helper()
+                raise ValueError("Cannot find helper '{}'".format(attribute["source"]))
+            cred[attribute["name"]] = helper()
         # Handle setting value with string literal or None
-        elif from_type == 'literal':
-            cred[attr_name] = attribute.get('source')
+        elif from_type == "literal":
+            cred[attr_name] = attribute.get("source")
         # Handle getting value already set on schema skeleton
-        elif from_type == 'previous':
-            source = attribute.get('source')
+        elif from_type == "previous":
+            source = attribute.get("source")
             if source:
                 try:
                     cred[attr_name] = cred[source]
                 except KeyError:
                     raise ValueError(
-                        'Cannot find previous value "%s"' % source)
+                        "Cannot find previous value '%s'".format(source))
         else:
-            raise ValueError('Unkown mapping type "%s"' % attribute['from'])
+            raise ValueError("Unknown mapping type '%s'".format(attribute["from"]))
     return cred
 
 
@@ -77,42 +76,42 @@ async def process_form(form, request: web.Request) -> web.Response:
     """
 
     #pylint: disable=broad-except
-    if form['type'] == 'issue-credential':
-        schema_name = form['schema_name']
-        schema_version = form.get('schema_version')
+    if form["type"] == "issue-credential":
+        schema_name = form.get("schema_name")
+        schema_version = form.get("schema_version")
         if not schema_name:
             # FIXME should be an internal error
             return web.Response(reason="Form definition missing 'schema_name'", status=400)
 
-        LOGGER.info("request %s", request)
+        LOGGER.debug("request %s", request)
         inputs = await request.json()
         if isinstance(inputs, dict):
-            inputs = inputs.get('attributes') or {}
+            inputs = inputs.get("attributes") or {}
         else:
             inputs = await request.post()
 
-        client = request.app['manager'].get_client()
+        client = request.app["manager"].get_client()
         try:
             result = await client.resolve_schema(schema_name, schema_version)
         except IndyClientError:
-            msg = 'Issuer for schema \'{}\' is not defined or not loaded'.format(schema_name)
+            msg = "Issuer for schema '{}' is not defined or not loaded".format(schema_name)
             return web.Response(reason=msg, status=400)
 
         params = load_cred_request(form, result.attr_names, inputs)
         #return web.json_response(params)
 
         try:
-            (_cred_id, result) = await client.issue_credential(
+            stored = await client.issue_credential(
                 result.issuer_id, result.schema_name, result.schema_version,
                 result.origin_did, params)
         except IndyClientError as e:
-            ret = {'success': False, 'result': str(e)}
+            ret = {"success": False, "result": str(e), "credential_id": None}
         else:
-            ret = {'success': True, 'result': result}
+            ret = {"success": True, "result": stored.result, "credential_id": stored.cred_id}
 
-        #if ret['success']:
+        #if ret["success"]:
         #    return response.html('<h3>Registration successful</h3>')
         #else:
         #    return response.html('<h3>Registration could not be completed</h3>')
         return web.json_response(ret)
-    return web.Response(reason='Method not supported', status=405)
+    return web.Response(reason="Method not supported", status=405)
