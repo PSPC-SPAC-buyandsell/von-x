@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Basic implementation and message classes for services running on the exchange
+"""
+
 import asyncio
 import logging
 from typing import Mapping
@@ -82,6 +86,9 @@ class ServiceSyncReq(ServiceRequest):
     )
 
 class ServiceSyncError(Exception):
+    """
+    An exception raised in response to a controlled failure during synchronization
+    """
     pass
 
 
@@ -262,7 +269,13 @@ class ServiceBase(RequestExecutor):
         return True
 
     async def _service_request(self, request: ServiceRequest) -> ServiceResponse:
+        """
+        Handle a request from another service
+        """
         pass
 
     async def _service_response(self, response: ServiceResponse) -> bool:
+        """
+        Handle a response from another service
+        """
         pass

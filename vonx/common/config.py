@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Methods for loading and working with our standard YAML-based configuration files
+"""
+
 import logging
 import os
 import re

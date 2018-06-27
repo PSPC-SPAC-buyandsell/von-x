@@ -16,6 +16,10 @@
 #
 #pylint: disable=broad-except
 
+"""
+View classes for handling AJAX requests as an issuer or holder service
+"""
+
 from concurrent.futures import Future
 import json
 import logging

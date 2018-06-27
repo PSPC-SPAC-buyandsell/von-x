@@ -15,6 +15,11 @@
 # limitations under the License.
 #
 
+"""
+Handle rendering of issue-credential forms
+"""
+
+
 import logging
 
 from aiohttp import web

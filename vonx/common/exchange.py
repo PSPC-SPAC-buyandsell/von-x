@@ -15,6 +15,11 @@
 # limitations under the License.
 #
 
+"""
+Implementation of the shared Exchange message bus and related classes for sending
+and acting upon messages
+"""
+
 import asyncio
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -173,6 +178,9 @@ class ExchangeFail(ExchangeMessage):
 
 
 class StopMessage(ExchangeMessage):
+    """
+    Basic stop-processing message for :class:`MessageProcessor` instances
+    """
     pass
 
 
@@ -557,6 +565,9 @@ class MessageProcessor:
             self._poll_thread.join()
 
     def send_stop_message(self) -> bool:
+        """
+        Send the service a stop signal to end processing
+        """
         return self.send_noreply(self._pid, StopMessage())
 
     def stop(self, wait: bool = True) -> None:

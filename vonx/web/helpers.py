@@ -1,3 +1,7 @@
+"""
+Helper methods provided for issue-credential credential generation
+"""
+
 import time
 import datetime
 from uuid import uuid4

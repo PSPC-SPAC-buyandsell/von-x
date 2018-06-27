@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Implementation of the standard manager class for the :class:`IndyService`
+"""
+
 import logging
 from typing import Mapping
 
@@ -126,16 +130,19 @@ class IndyManager(ConfigServiceManager):
         return IndyService(pid, self._exchange, self._env, spec)
 
     async def _service_start(self) -> bool:
+        """
+        After running processing load our schemas and initialize all services
+        """
         ret = await super(IndyManager, self)._service_start()
         if ret:
             self._schema_mgr = self._load_schemas()
+            self.run_task(self._load_config())
         return ret
 
-    async def _service_sync(self):
-        await super(IndyManager, self)._service_sync()
-        await self._load_config()
-
     def _load_schemas(self) -> SchemaManager:
+        """
+        Load all configured schemas
+        """
         mgr = SchemaManager()
         std = load_config('vonx.config:schemas.yml')
         if std:
@@ -146,9 +153,13 @@ class IndyManager(ConfigServiceManager):
         return mgr
 
     async def _load_config(self) -> None:
+        """
+        Initialize our client and populate services based on configuration
+        """
         client = self.get_client()
         await self._register_agents(client)
         await self._register_proof_requests(client)
+        await client.sync(False)
 
     async def _register_agents(self, client: IndyClient) -> None:
         """
@@ -156,11 +167,19 @@ class IndyManager(ConfigServiceManager):
         """
         limit_agents = self._env.get("AGENTS")
         limit_agents = (
-            limit_agents.split()
+            set(limit_agents.split())
             if (limit_agents and limit_agents != "all")
             else None
         )
 
+        await self._register_issuers(client, limit_agents)
+        await self._register_holders(client, limit_agents)
+        await self._register_verifiers(client, limit_agents)
+
+    async def _register_issuers(self, client: IndyClient, limit_agents: set):
+        """
+        Register all issuer services from the configuration
+        """
         issuers = []
         issuer_ids = []
         config_issuers = self.services_config("issuers")
@@ -178,41 +197,10 @@ class IndyManager(ConfigServiceManager):
         elif config_issuers:
             LOGGER.warning("No defined issuers referenced by AGENTS")
 
-        holders = []
-        holder_ids = []
-        config_holders = self.services_config("holders")
-        if not config_holders:
-            LOGGER.info("No holders defined by configuration")
-        for holder_key, holder_cfg in config_holders.items():
-            if not holder_cfg.get("id"):
-                holder_cfg["id"] = holder_key
-            if limit_agents is None or holder_cfg["id"] in limit_agents:
-                holders.append(holder_cfg)
-                holder_ids.append(holder_cfg["id"])
-        if holders:
-            for holder_cfg in holders:
-                await self._register_holder(client, holder_cfg)
-        elif config_holders:
-            LOGGER.info("No defined holders referenced by AGENTS")
-
-        verifiers = []
-        verifier_ids = []
-        config_verifiers = self.services_config("verifiers")
-        if not config_verifiers:
-            LOGGER.info("No verifiers defined by configuration")
-        for verifier_key, verifier_cfg in config_verifiers.items():
-            if not verifier_cfg.get("id"):
-                verifier_cfg["id"] = verifier_key
-            if limit_agents is None or verifier_cfg["id"] in limit_agents:
-                verifiers.append(verifier_cfg)
-                verifier_ids.append(verifier_cfg["id"])
-        if verifiers:
-            for verifier_cfg in verifiers:
-                await self._register_verifier(client, verifier_cfg)
-        elif config_verifiers:
-            LOGGER.info("No defined verifiers referenced by AGENTS")
-
     async def _register_issuer(self, client: IndyClient, issuer_cfg: dict) -> str:
+        """
+        Register a single issuer service from the configuration
+        """
         issuer_id = issuer_cfg["id"]
         if "wallet" not in issuer_cfg:
             raise IndyConfigError("Wallet not defined for issuer: {}".format(issuer_id))
@@ -252,7 +240,31 @@ class IndyManager(ConfigServiceManager):
                 issuer_id, connection_cfg)
         return issuer_id
 
+    async def _register_holders(self, client: IndyClient, limit_agents: set):
+        """
+        Register all holder services from the configuration
+        """
+        holders = []
+        holder_ids = []
+        config_holders = self.services_config("holders")
+        if not config_holders:
+            LOGGER.info("No holders defined by configuration")
+        for holder_key, holder_cfg in config_holders.items():
+            if not holder_cfg.get("id"):
+                holder_cfg["id"] = holder_key
+            if limit_agents is None or holder_cfg["id"] in limit_agents:
+                holders.append(holder_cfg)
+                holder_ids.append(holder_cfg["id"])
+        if holders:
+            for holder_cfg in holders:
+                await self._register_holder(client, holder_cfg)
+        elif config_holders:
+            LOGGER.info("No defined holders referenced by AGENTS")
+
     async def _register_holder(self, client: IndyClient, holder_cfg: dict) -> str:
+        """
+        Register a single holder service from the configuration
+        """
         holder_id = holder_cfg["id"]
         if "wallet" not in holder_cfg:
             raise IndyConfigError("Wallet not defined for holder: {}".format(holder_id))
@@ -266,7 +278,31 @@ class IndyManager(ConfigServiceManager):
         holder_id = await client.register_holder(wallet_id, holder_cfg)
         return holder_id
 
+    async def _register_verifiers(self, client: IndyClient, limit_agents: set):
+        """
+        Register all verifier services from the configuration
+        """
+        verifiers = []
+        verifier_ids = []
+        config_verifiers = self.services_config("verifiers")
+        if not config_verifiers:
+            LOGGER.info("No verifiers defined by configuration")
+        for verifier_key, verifier_cfg in config_verifiers.items():
+            if not verifier_cfg.get("id"):
+                verifier_cfg["id"] = verifier_key
+            if limit_agents is None or verifier_cfg["id"] in limit_agents:
+                verifiers.append(verifier_cfg)
+                verifier_ids.append(verifier_cfg["id"])
+        if verifiers:
+            for verifier_cfg in verifiers:
+                await self._register_verifier(client, verifier_cfg)
+        elif config_verifiers:
+            LOGGER.info("No defined verifiers referenced by AGENTS")
+
     async def _register_verifier(self, client: IndyClient, verifier_cfg: dict) -> str:
+        """
+        Register a single verifier service from the configuration
+        """
         verifier_id = verifier_cfg["id"]
         if "wallet" not in verifier_cfg:
             raise IndyConfigError("Wallet not defined for verifier: {}".format(verifier_id))
@@ -292,6 +328,9 @@ class IndyManager(ConfigServiceManager):
         return verifier_id
 
     async def _register_proof_requests(self, client: IndyClient):
+        """
+        Register all proof request specifications from the configuration
+        """
         config_prs = self.services_config("proof_requests")
         if config_prs:
             for pr_id, pr_spec in config_prs.items():

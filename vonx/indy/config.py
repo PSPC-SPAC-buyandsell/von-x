@@ -15,6 +15,11 @@
 # limitations under the License.
 #
 
+"""
+Classes for managing the active :class:`IndyService` configuration - agents, connections,
+schemas, proof requests, and wallets.
+"""
+
 from distutils.version import LooseVersion
 from enum import Enum
 import logging
@@ -39,6 +44,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class AgentType(Enum):
+    """
+    Enumeration of supported agent types
+    """
     issuer = "issuer"
     holder = "holder"
     verifier = "verifier"
@@ -68,10 +76,16 @@ class AgentCfg:
 
     @property
     def created(self) -> bool:
+        """
+        Accessor for the current created status of the agent instance
+        """
         return self.instance is not None
 
     @property
     def did(self) -> str:
+        """
+        Accessor for DID of the agent's wallet
+        """
         return self._instance and self._instance.did
 
     @property
@@ -86,10 +100,16 @@ class AgentCfg:
 
     @property
     def instance(self) -> _BaseAgent:
+        """
+        Accessor for the current agent instance
+        """
         return self._instance
 
     @property
     def role(self) -> str:
+        """
+        Accessor for the role of the agent to be registered on the ledger
+        """
         return "TRUST_ANCHOR" if self.agent_type == AgentType.issuer else ""
 
     @property
@@ -107,9 +127,18 @@ class AgentCfg:
 
     @property
     def verkey(self) -> str:
+        """
+        Accessor for the verkey of the agent's wallet
+        """
         return self._instance and self._instance.verkey
 
     async def create(self, wallet: 'WalletCfg') -> None:
+        """
+        Create the agent instance
+
+        Args:
+            wallet: the registered wallet configuration, previously created and opened
+        """
         if not self._instance:
             if self.agent_type == AgentType.issuer:
                 cls = Issuer
@@ -123,6 +152,9 @@ class AgentCfg:
         await self.open()
 
     async def open(self) -> None:
+        """
+        Open the agent instance for storing or issuing credentials
+        """
         if not self.opened:
             self.opened = await self._instance.open()
             if isinstance(self._instance, HolderProver):
@@ -131,6 +163,9 @@ class AgentCfg:
                 await self._instance.create_link_secret(str(uuid.uuid4()))
 
     async def close(self) -> None:
+        """
+        Close the agent instance
+        """
         if self.opened:
             await self._instance.close()
             self.opened = False
@@ -193,6 +228,7 @@ class AgentCfg:
                 "name": self.name,
                 "url": self.url,
             }
+        return None
 
 
 class ConnectionCfg:
@@ -218,14 +254,23 @@ class ConnectionCfg:
 
     @property
     def created(self) -> bool:
+        """
+        Accessor for the current created status of the connection instance
+        """
         return self._instance is not None
 
     @property
     def instance(self) -> ConnectionBase:
+        """
+        Accessor for the connection instance
+        """
         return self._instance
 
     @property
     def status(self) -> dict:
+        """
+        Accessor for the status of the connection
+        """
         return {
             "created": self.created,
             "opened": self.opened,
@@ -233,6 +278,12 @@ class ConnectionCfg:
         }
 
     async def create(self, agent_params: dict) -> None:
+        """
+        Create the connection instance
+
+        Args:
+            agent_params: extra parameters assembled by the agent service for this connection
+        """
         if self.connection_type == ConnectionType.TheOrgBook:
             cls = TobConnection
         elif self.connection_type == ConnectionType.holder:
@@ -240,16 +291,28 @@ class ConnectionCfg:
         self._instance = cls(self.agent_id, self.agent_type, agent_params, self.connection_params)
 
     async def open(self, service: 'IndyService') -> None:
+        """
+        Open the connection
+
+        Args:
+            service: the Indy service handling this connection
+        """
         if not self.opened:
             await self._instance.open(service)
             self.opened = True
 
     async def sync(self) -> None:
+        """
+        Perform synchronization of the connection instance
+        """
         if not self.synced:
             await self._instance.sync()
             self.synced = True
 
     async def close(self) -> None:
+        """
+        Close the connection instance
+        """
         if self.opened:
             await self._instance.close()
             self.opened = False
@@ -271,11 +334,17 @@ class ProofSpecCfg:
 
     @property
     def status(self) -> dict:
+        """
+        Accessor for the status of the proof specification
+        """
         return {
             "synced": self.synced,
         }
 
-    def get_incomplete_schemas(self):
+    def get_incomplete_schemas(self) -> set:
+        """
+        Get a set of schemas which have yet to be populated with details from the ledger
+        """
         missing = set()
         for schema in self.schemas:
             if not schema.get("definition"):
@@ -283,7 +352,10 @@ class ProofSpecCfg:
                 missing.add((s_key["name"], s_key["version"], s_key.get("did")))
         return missing
 
-    def populate_schema(self, found_schema: 'SchemaCfg'):
+    def populate_schema(self, found_schema: 'SchemaCfg') -> None:
+        """
+        Populate required schema details from the ledger
+        """
         for schema in self.schemas:
             if not schema.get("definition"):
                 s_key = schema["key"]
@@ -308,6 +380,9 @@ class SchemaCfg:
 
     @property
     def schema_id(self) -> str:
+        """
+        Accessor for the schema_id of this schema
+        """
         return schema_id(self.origin_did, self.name, self.version)
 
     @property
@@ -508,24 +583,42 @@ class WalletCfg:
 
     @property
     def created(self) -> bool:
+        """
+        Accessor for the current created status of the wallet instance
+        """
         return self._instance and self._instance.created
 
     @property
     def instance(self) -> Wallet:
+        """
+        Accessor for the wallet instance
+        """
         return self._instance
 
     @property
     def opened(self) -> bool:
+        """
+        Accessor for the current opened status of the wallet instance
+        """
         return self._instance and self._instance.handle is not None
 
     @property
     def status(self) -> dict:
+        """
+        Accessor for the current status of the wallet instance
+        """
         return {
             "created": self.created,
             "opened": self.opened,
         }
 
     async def create(self, pool: NodePool) -> None:
+        """
+        Create the wallet instance
+
+        Args:
+            pool: the initialized :class:`NodePool` instance for the wallet
+        """
         self._instance = Wallet(
             pool,
             self.seed,
@@ -536,8 +629,14 @@ class WalletCfg:
         await self.instance.create()
 
     async def open(self):
+        """
+        Open the wallet instance
+        """
         await self._instance.open()
 
     async def close(self) -> None:
+        """
+        Close the wallet instance
+        """
         if self.opened:
             await self._instance.close()

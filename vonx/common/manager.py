@@ -15,6 +15,12 @@
 # limitations under the License.
 #
 
+"""
+Implemention of the generic :class:`ServiceManager` class which is used to manage
+a collection of :class:`ServiceBase` instances
+"""
+
+
 import logging
 import os
 from typing import Mapping

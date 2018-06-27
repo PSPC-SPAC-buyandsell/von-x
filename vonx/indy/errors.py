@@ -15,13 +15,27 @@
 # limitations under the License.
 #
 
+"""
+Common exception classes for Indy services
+"""
+
+
 class IndyError(Exception):
+    """
+    Base class for all exceptions thrown by :class:`IndyService` and related classes
+    """
     pass
 
 class IndyClientError(IndyError):
+    """
+    Base class for :class:`IndyClient`-related errors
+    """
     pass
 
 class IndyConfigError(IndyError):
+    """
+    Base class for :class:`IndyService` errors arising from configuration issues
+    """
     pass
 
 class IndyConnectionError(IndyError):

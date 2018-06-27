@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Connection handling specific to using TheOrgBook as a holder/prover
+"""
+
 import logging
 
 from .connection import ConnectionBase, HttpSession
@@ -86,7 +90,7 @@ class TobConnection(ConnectionBase):
 
     def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
         super(TobConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
-        self._api_url = conn_params.get('api_url')
+        self._api_url = self.conn_params.get('api_url')
         if not self._api_url:
             raise IndyConfigError("Missing 'api_url' for TheOrgBook connection")
         self._http_client = None

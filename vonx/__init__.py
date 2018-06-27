@@ -15,4 +15,8 @@
 # limitations under the License.
 #
 
+"""
+vonx module initialization
+"""
+
 __version__ = '1.0.0'

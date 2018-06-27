@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Define routes for the aiohttp webserver application based on the defined configuration
+"""
+
 import logging
 from typing import Coroutine
 

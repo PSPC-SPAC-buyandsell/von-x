@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Methods and classes for working with asyncio event loops
+"""
+
 import asyncio
 from concurrent.futures import Executor, Future
 from threading import get_ident, Event, Thread

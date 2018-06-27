@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Base implemention of Connections, to be managed by :class:`ConnectionCfg`.
+"""
+
 import asyncio
 from enum import Enum
 
@@ -37,6 +41,9 @@ from .messages import (
 
 
 class ConnectionType(Enum):
+    """
+    Enumeration of supported connection types
+    """
     TheOrgBook = "TheOrgBook"
     holder = "holder"
     remote = "remote"
@@ -55,9 +62,15 @@ class HttpSession:
 
     @property
     def client(self) -> aiohttp.ClientSession:
+        """
+        Accessor for the :class:`ClientSession` instance
+        """
         return self._client
 
     async def check_status(self, response: aiohttp.ClientResponse, accept=(200, 201)):
+        """
+        Check the HTTP status of a response to a previous request
+        """
         if response.status not in accept:
             raise IndyConnectionError(
                 "Bad response from {}: ({}) {}".format(
@@ -92,10 +105,15 @@ class HttpSession:
 
 
 class ConnectionBase:
+    """
+    Base interface for Connection implementations
+    """
+
     def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
         self.agent_id = agent_id
         self.agent_type = agent_type
         self.agent_params = agent_params
+        self.conn_params = conn_params
         self.created = False
         self.opened = False
         self.synced = False
@@ -151,9 +169,13 @@ class ConnectionBase:
 
 
 class HolderConnection(ConnectionBase):
+    """
+    :class:`ConnectionBase` interface implementation for local holder services
+    """
+
     def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
         super(HolderConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
-        self.holder_id = conn_params.get("holder_id")
+        self.holder_id = self.conn_params.get("holder_id")
         if not self.holder_id:
             raise IndyConfigError("Missing 'holder_id' for holder connection")
         self.target = None

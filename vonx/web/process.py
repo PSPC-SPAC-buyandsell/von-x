@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Handle processing of issue-credential forms
+"""
+
 import logging
 
 from aiohttp import web
@@ -27,7 +31,7 @@ LOGGER = logging.getLogger(__name__)
 
 def load_cred_request(form, attr_names, request: web.Request) -> dict:
     """
-    Create a new credential request from a `submit-credential` form definition, fetching
+    Create a new credential request from a `issue-credential` form definition, fetching
     input from the client request as necessary
     """
 
@@ -63,9 +67,9 @@ def load_cred_request(form, attr_names, request: web.Request) -> dict:
                     cred[attr_name] = cred[source]
                 except KeyError:
                     raise ValueError(
-                        "Cannot find previous value '%s'".format(source))
+                        "Cannot find previous value '{}'".format(source))
         else:
-            raise ValueError("Unknown mapping type '%s'".format(attribute["from"]))
+            raise ValueError("Unknown mapping type '{}'".format(attribute["from"]))
     return cred
 
 

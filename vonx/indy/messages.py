@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Message classes used to communicate with the :class:`IndyService`
+"""
+
 from typing import Sequence
 
 from ..common.service import (
@@ -26,6 +30,9 @@ from ..common.service import (
 
 
 class IndyServiceAck(ServiceAck):
+    """
+    A generic acknowledgement in response to an Indy service request
+    """
     pass
 
 
@@ -36,9 +43,15 @@ class IndyServiceFail(ServiceFail):
     pass
 
 class IndyServiceReq(ServiceRequest):
+    """
+    A generic Indy service request base class
+    """
     pass
 
 class IndyServiceRep(ServiceResponse):
+    """
+    A generic Indy service response base class
+    """
     pass
 
 

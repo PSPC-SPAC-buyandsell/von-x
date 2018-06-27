@@ -15,6 +15,11 @@
 # limitations under the License.
 #
 
+"""
+vonx.web module initialization
+"""
+
+
 import json
 import os
 

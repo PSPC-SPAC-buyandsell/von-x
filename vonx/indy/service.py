@@ -15,6 +15,11 @@
 # limitations under the License.
 #
 
+"""
+The Indy service implements handlers for all the ledger-related messages, sychronizes
+agents and connections, and handles the core logic for working with credentials and proofs.
+"""
+
 import json
 import hashlib
 import logging
@@ -349,7 +354,8 @@ class IndyService(ServiceBase):
 
                 await connection.sync()
             except IndyConnectionError as e:
-                raise ServiceSyncError(str(e))
+                raise ServiceSyncError("Error syncing connection {}: {}".format(
+                    connection.connection_id, str(e))) from None
         return connection.synced
 
     async def _setup_pool(self) -> None:
@@ -403,7 +409,7 @@ class IndyService(ServiceBase):
                 await handler.check_status(response, (200,))
                 data = await response.text()
         except IndyConnectionError as e:
-            raise ServiceSyncError(str(e))
+            raise ServiceSyncError(str(e)) from None
 
         # check data is valid json
         LOGGER.debug("Genesis transaction response: %s", data)
@@ -451,7 +457,7 @@ class IndyService(ServiceBase):
                     await handler.check_status(response, (200,))
                     nym_info = await response.json()
             except IndyConnectionError as e:
-                raise ServiceSyncError(str(e))
+                raise ServiceSyncError(str(e)) from None
             LOGGER.debug("Registration response: %s", nym_info)
             if not nym_info or not nym_info["did"]:
                 raise ServiceSyncError(

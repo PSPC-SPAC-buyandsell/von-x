@@ -15,6 +15,10 @@
 # limitations under the License.
 #
 
+"""
+Utility functions and classes
+"""
+
 import json
 import logging
 
@@ -22,6 +26,9 @@ from .exchange import ExchangeMessage
 
 
 class MessageEncoder(json.JSONEncoder):
+    """
+    Customize JSONEncoder to automatically encode :class:`ExchangeMessage` instances
+    """
     def default(self, o):
         if isinstance(o, ExchangeMessage):
             return dict(o)
