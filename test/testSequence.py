@@ -1,8 +1,8 @@
 import asyncio
 import logging
+import sys
 
 from vonx.indy.manager import IndyManager
-from vonx.indy.service import IndyService
 
 LOGGER = logging.getLogger()
 
@@ -16,18 +16,16 @@ class TestIndyManager(IndyManager):
     schema_version = "1.0.0"
 
 
-    def init_indy_service(self, pid: str = "indy") -> IndyService:
-        spec = {
+    def get_service_init_params(self) -> dict:
+        return {
             "auto_register": 1,
             "genesis_path": "/home/indy/genesis",
             "ledger_url": "http://192.168.65.3:9000",
         }
-        LOGGER.info("init indy")
-        return IndyService(pid, self._exchange, self._env, spec)
 
     async def _load_config(self) -> None:
+        # skip default implementation
         pass
-
 
     async def add_test_services(self, client):
         LOGGER.info("setting up test indy issuer")
@@ -161,17 +159,22 @@ if __name__ == '__main__':
     MGR = TestIndyManager()
     MGR.start()
 
+    TEST = sys.argv[1] if len(sys.argv) > 1 else "proof"
+
     CLIENT = MGR.get_client()
     DONE = False
-    async def setup(client):
+    async def setup(client, teardown=False):
         ids = await MGR.add_test_services(client)
-        if 0 and await client.sync():
+        if TEST == "proof" and await client.sync():
             cred_id = await MGR.test_issue_cred(client, ids["holder_conn_id"])
             await MGR.test_proof(client, ids["verifier_conn_id"], ids["proof_spec_id"], {cred_id})
-        #MGR.stop()
+        if teardown:
+            MGR.stop()
 
-    asyncio.get_event_loop().run_until_complete(setup(CLIENT))
+    asyncio.get_event_loop().run_until_complete(setup(CLIENT, TEST != "web"))
 
-    test_web(MGR)
-    MGR.stop()
+    if TEST == "web":
+        test_web(MGR)
+    #MGR.stop()
+
     LOGGER.info("done")
