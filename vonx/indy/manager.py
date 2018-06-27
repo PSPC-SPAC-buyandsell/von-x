@@ -105,12 +105,9 @@ class IndyManager(ConfigServiceManager):
         """
         return IndyClient(self.get_service_request_target("indy"))
 
-    def init_indy_service(self, pid: str = "indy") -> IndyService:
+    def get_service_init_params(self) -> dict:
         """
-        Initialize the Hyperledger Indy service
-
-        Args:
-            pid: the identifier for the :class:`IndyService` instance
+        Get a dictionary of parameters for initializing the :class:`IndyService` instance
         """
         genesis_path = self._env.get("INDY_GENESIS_PATH")
         if not genesis_path:
@@ -120,12 +117,20 @@ class IndyManager(ConfigServiceManager):
         ledger_url = self._env.get("INDY_LEDGER_URL")
         if not ledger_url:
             raise IndyConfigError("INDY_LEDGER_URL not defined")
-
-        spec = {
+        return {
             "auto_register": self._env.get("AUTO_REGISTER_DID", 1),
             "genesis_path": genesis_path,
             "ledger_url": ledger_url,
         }
+
+    def init_indy_service(self, pid: str = "indy") -> IndyService:
+        """
+        Initialize the Hyperledger Indy service
+
+        Args:
+            pid: the identifier for the :class:`IndyService` instance
+        """
+        spec = self.get_service_init_params()
         LOGGER.info("Initializing Indy service")
         return IndyService(pid, self._exchange, self._env, spec)
 
