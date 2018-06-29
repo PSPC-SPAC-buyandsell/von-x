@@ -179,6 +179,7 @@ class IssueCredentialReq(IndyServiceReq):
     )
 
 
+# FIXME - change to only include the cred_def_id, not the whole cred_def (requires TOB update)
 class CredentialOffer(IndyServiceRep):
     """
     A successful credential offer response

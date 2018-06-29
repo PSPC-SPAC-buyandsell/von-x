@@ -506,9 +506,8 @@ class IndyService(ServiceBase):
             # Check if schema exists on ledger
 
             try:
-                s_key = schema_key(
-                    schema_id(issuer.did, definition.name, definition.version)
-                )
+                s_id = schema_id(issuer.did, definition.name, definition.version)
+                s_key = schema_key(s_id)
                 schema_json = await issuer.instance.get_schema(s_key)
                 ledger_schema = json.loads(schema_json)
                 log_json("Schema found on ledger:", ledger_schema, LOGGER)
@@ -556,7 +555,7 @@ class IndyService(ServiceBase):
                     definition.version,
                 )
                 cred_def_json = await issuer.instance.send_cred_def(
-                    schema_json, revocation=False
+                    s_id, revocation=False
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Published credential def:", cred_def, LOGGER)
@@ -639,7 +638,7 @@ class IndyService(ServiceBase):
         """
 
         cred_offer = request.cred_offer
-        (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
+        (cred_json, cred_revoc_id, _epoch_creation) = await issuer.instance.create_cred(
             json.dumps(cred_offer.offer),
             request.data,
             cred_data,
@@ -665,7 +664,7 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
             json.dumps(cred_offer.offer),
-            json.dumps(cred_offer.cred_def),
+            cred_offer.cred_def["id"],
         )
         return CredentialRequest(
             cred_offer,
