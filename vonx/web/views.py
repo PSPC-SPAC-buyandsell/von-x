@@ -145,7 +145,7 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
             connection_id, schema_name, schema_version, None, params)
         ret = {"success": True, "result": stored.cred_id}
     except IndyClientError as e:
-        ret = {"success": False, "result": str(e), "credential_id": None}
+        ret = {"success": False, "result": str(e)}
     return web.json_response(ret)
 
 
