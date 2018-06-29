@@ -109,9 +109,9 @@ async def process_form(form, request: web.Request) -> web.Response:
                 result.issuer_id, result.schema_name, result.schema_version,
                 result.origin_did, params)
         except IndyClientError as e:
-            ret = {"success": False, "result": str(e), "credential_id": None}
+            ret = {"success": False, "result": str(e)}
         else:
-            ret = {"success": True, "result": stored.result, "credential_id": stored.cred_id}
+            ret = {"success": True, "result": stored.cred_id}
 
         #if ret["success"]:
         #    return response.html('<h3>Registration successful</h3>')

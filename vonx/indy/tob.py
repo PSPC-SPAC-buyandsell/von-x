@@ -64,19 +64,18 @@ def assemble_issuer_spec(config: dict) -> dict:
     ctypes = []
     for type_spec in cred_type_specs:
         schema = type_spec["schema"]
-        if not type_spec.get("source_claim"):
-            raise IndyConfigError("Missing 'source_claim' for credential type")
+        if not type_spec.get("topic"):
+            raise IndyConfigError("Missing 'topic' for credential type")
         ctype = {
             "name": type_spec.get("description") or schema.name,
             "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
             "schema": schema.name,
             "version": schema.version,
-            "source_claim": type_spec["source_claim"],
+            "topic": type_spec["topic"],
         }
-        mapping = type_spec.get("mapping")
-        if mapping:
-            ctype["mapping"] = mapping
-
+        for k in ("mapping", "cardinality_fields"):
+            if k in type_spec:
+                ctype[k] = type_spec[k]
         ctypes.append(ctype)
     issuer_spec["credential_types"] = ctypes
     return issuer_spec
@@ -178,9 +177,8 @@ class TobConnection(ConnectionBase):
                 response,
             )
         return StoredCredential(
-            None,
-            indy_cred,
             result,
+            indy_cred,
         )
 
     async def construct_proof(self, request: ProofRequest,

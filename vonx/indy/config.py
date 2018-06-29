@@ -211,14 +211,10 @@ class AgentCfg:
                 params = cred_type["params"]
                 type_spec = {
                     "schema": cred_type["definition"],
-                    "source_claim": params.get("source_claim"),
                 }
-                if "description" in params:
-                    type_spec["description"] = params["description"]
-                if "issuer_url" in params:
-                    type_spec["issuer_url"] = params["issuer_url"]
-                if "mapping" in params:
-                    type_spec["mapping"] = params["mapping"]
+                for k in ("cardinality_fields", "description", "issuer_url", "mapping", "topic"):
+                    if k in params:
+                        type_spec[k] = params[k]
                 cred_specs.append(type_spec)
             return {
                 "abbreviation": self.abbreviation,

@@ -688,9 +688,8 @@ class IndyService(ServiceBase):
             json.dumps(credential.cred_req_metadata),
         )
         return StoredCredential(
-            cred_id,
             credential,
-            {"attributes": credential.cred_data},
+            cred_id,
         )
 
     async def _resolve_schema(self, schema_name: str, schema_version: str,
