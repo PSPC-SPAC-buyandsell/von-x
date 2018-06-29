@@ -129,11 +129,11 @@ class TestIndyManager(IndyManager):
 
 
     async def test_issue_cred(self, client, conn_id) -> str:
-        (cred_id, _result) = await client.issue_credential(
+        stored = await client.issue_credential(
             conn_id, self.schema_name, self.schema_version, None,
             {"attr1": "Test Name", "attr2": "Second Value"})
-        LOGGER.info("issued: %s", cred_id)
-        return cred_id
+        LOGGER.info("issued: %s", stored.cred_id)
+        return stored.cred_id
 
 
     async def test_proof(self, client, conn_id, spec_id, cred_ids=None):
@@ -171,10 +171,13 @@ if __name__ == '__main__':
         if teardown:
             MGR.stop()
 
-    asyncio.get_event_loop().run_until_complete(setup(CLIENT, TEST != "web"))
+    try:
+        asyncio.get_event_loop().run_until_complete(setup(CLIENT, TEST != "web"))
 
-    if TEST == "web":
-        test_web(MGR)
-    #MGR.stop()
+        if TEST == "web":
+            test_web(MGR)
+    except:
+        LOGGER.exception("Error during init")
+        MGR.stop()
 
     LOGGER.info("done")
