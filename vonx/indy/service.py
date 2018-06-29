@@ -28,7 +28,6 @@ import random
 import string
 from typing import Mapping, Sequence
 
-from didauth.indy import seed_to_did
 from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
 from von_agent.error import AbsentSchema, AbsentCredDef
 from von_agent.nodepool import NodePool

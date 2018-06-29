@@ -26,12 +26,12 @@ import logging
 from typing import Mapping, Sequence
 import uuid
 
-from von_agent.agents import (
-    _BaseAgent,
+from von_agent import (
     Issuer,
     HolderProver,
     Verifier,
 )
+from von_agent.agent.base import _BaseAgent
 from von_agent.nodepool import NodePool
 from von_agent.wallet import Wallet
 from von_agent.util import schema_id
@@ -141,14 +141,13 @@ class AgentCfg:
         """
         if not self._instance:
             if self.agent_type == AgentType.issuer:
-                cls = Issuer
+                self._instance = Issuer(wallet.instance)
             elif self.agent_type == AgentType.holder:
-                cls = HolderProver
+                self._instance = HolderProver(wallet.instance, self.extended_config)
             elif self.agent_type == AgentType.verifier:
-                cls = Verifier
+                self._instance = Verifier(wallet.instance, self.extended_config)
             else:
                 raise IndyConfigError("Unknown agent type")
-            self._instance = cls(wallet.instance, self.extended_config)
         await self.open()
 
     async def open(self) -> None:
