@@ -231,9 +231,8 @@ class StoredCredential(IndyServiceRep):
     A successful response to storing a credential
     """
     _fields = (
-        ("cred_id", str),
         ("cred", Credential),
-        ("result", dict),
+        ("cred_id", str),
     )
 
 
