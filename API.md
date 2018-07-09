@@ -7,8 +7,10 @@ for each connection. For issuer connections, the `issue-credential` method is pr
     /{CONNECTION_ID}/issue-credential?schema={SCHEMA_NAME}&version={SCHEMA_VERSION}
 ```
   
-> The schema version is optional. The body of the POST request must be a JSON-formatted
-  dictionary of the credential attributes.
+The schema version is optional. The body of the POST request must be a JSON-formatted
+dictionary of the credential attributes.
+
+***
 
 For connections from a verifier agent, the `request-proof` method is offered:
 
@@ -16,10 +18,12 @@ For connections from a verifier agent, the `request-proof` method is offered:
     /{CONNECTION_ID}/request-proof?name={PROOF_NAME}
 ```
   
-> The proof request specification for the given proof name must be registered in advance.
+The proof request specification for the given proof name must be registered in advance.
   
-> The body of this request may be a JSON-formatted dictionary of input parameters for the
-  proof request.
+The body of this request may be a JSON-formatted dictionary of input parameters for the
+proof request.
+
+***
 
 When connecting to an external TheOrgBook holder instance, API methods are used to store credentials
 and construct proofs. Similar methods will be added for von-x holder services.
@@ -28,11 +32,12 @@ and construct proofs. Similar methods will be added for von-x holder services.
     /indy/register-issuer
 ```
 
-> This method is called each time an TheOrgBook holder connection is established, to establish
-  credential types and other issuer information.
+This method is called each time an TheOrgBook holder connection is established, to establish
+credential types and other issuer information.
 
-> The body of the request must be a JSON-formatted issuer specification (defined by TheOrgBook).
+The body of the request must be a JSON-formatted issuer specification (defined by TheOrgBook).
 
+***
 
 Before storing a credential the following method is called to generate a credential request:
 
@@ -45,6 +50,8 @@ Before storing a credential the following method is called to generate a credent
       "credential_definition": {"...indy credential definition..."}
     }
 ```
+
+***
 
 The credential is then stored using the following method:
 
@@ -60,6 +67,8 @@ The credential is then stored using the following method:
       "credential_request_metadata": {"...indy credential request metadata..."}
     }
 ```
+
+***
 
 Finally, proof requests are performed using the following method:
 
