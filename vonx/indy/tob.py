@@ -177,8 +177,8 @@ class TobConnection(ConnectionBase):
                 response,
             )
         return StoredCredential(
-            result,
             indy_cred,
+            result,
         )
 
     async def construct_proof(self, request: ProofRequest,
