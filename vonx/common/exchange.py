@@ -174,7 +174,10 @@ class ExchangeFail(ExchangeMessage):
 
     def __repr__(self):
         cls = self.__class__.__name__
-        return '{}(value={})'.format(cls, self.value)
+        ret = '{}(value={})'.format(cls, self.value)
+        if self.exc_info:
+            ret += "\n" + str(self.exc_info)
+        return ret
 
 
 class StopMessage(ExchangeMessage):
@@ -617,7 +620,8 @@ class MessageProcessor:
         try:
             if self._process_message(received) is False:
                 return False
-        except Exception:
+        except Exception as e:
+            LOGGER.error('Exception during message processing', e)
             errmsg = ExchangeFail('Exception during message processing', True)
             self._reply_with_error(received, errmsg)
         return True
