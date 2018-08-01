@@ -117,7 +117,7 @@ class ServiceManager(ServiceBase):
         """
         status = self._status.copy()
         status["services"] = {}
-        for svc_id, service in self._services:
+        for svc_id, service in self._services.items():
             status["services"][svc_id] = await self.get_service_status(svc_id)
         return ServiceStatus(status)
 
