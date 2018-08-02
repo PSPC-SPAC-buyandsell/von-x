@@ -870,40 +870,44 @@ class IndyService(ServiceBase):
             response = await client.get("{}/status".format(url))
         return await response.text()
 
-    def _agent_http_client(self, agent_id: str = None, **kwargs):
+    def _connection_http_client(self, conn_id: str = None, **kwargs):
         """
         Create a new :class:`ClientSession` which includes DID signing information in each request
 
         Args:
-            agent_id: an optional identifier for a specific issuer service (to enable DID signing)
+            conn_id: an optional identifier for a specific connection (to enable DID signing)
         Returns:
             the initialized :class:`ClientSession` object
         """
         if "request_class" not in kwargs:
             kwargs["request_class"] = SignedRequest
-        if agent_id and "auth" not in kwargs:
-            kwargs["auth"] = self._did_auth(agent_id)
+        if conn_id and "auth" not in kwargs:
+            kwargs["auth"] = self._signed_request_auth(conn_id)
         return super(IndyService, self).http_client(**kwargs)
 
-    def _did_auth(self, agent_id: str, header_list=None):
+    def _signed_request_auth(self, conn_id: str, header_list=None):
         """
         Create a :class:`SignedRequestAuth` representing our authentication credentials,
         used to sign outgoing requests
 
         Args:
-            agent_id: the unique identifier of the issuer
+            conn_id: the unique identifier of the connection
             header_list: optionally override the list of headers to sign
         """
-        agent = self._agents.get(agent_id)
-        if not agent:
-            raise IndyConfigError("Unknown agent ID: {}".format(agent_id))
+        conn = self._connections.get(conn_id)
+        if not conn:
+            raise IndyConfigError("Unknown connection ID: {}".format(conn_id))
+        agent = self._agents[conn.agent_id]
         wallet = self._wallets[agent.wallet_id]
         if agent.did and wallet.seed:
             key_id = "did:sov:{}".format(agent.did)
             secret = wallet.seed
             if isinstance(secret, str):
                 secret = secret.encode("ascii")
-            return SignedRequestAuth(key_id, "ed25519", secret, header_list)
+            ret = SignedRequestAuth(key_id, "ed25519", secret, header_list)
+            if not conn.sign_target and hasattr(ret, "sign_target"):
+                ret.sign_target = False
+            return ret
         return None
 
     async def _service_request(self, request: ServiceRequest) -> ServiceResponse:

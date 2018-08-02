@@ -242,6 +242,8 @@ class ConnectionCfg:
         self._instance = None
         self.connection_params = params
         self.opened = False
+        sign = params.get("sign_target", True)
+        self.sign_target = sign and str(sign) != "0" and str(sign).lower() != "false"
         self.synced = False
 
         if self.connection_type != ConnectionType.TheOrgBook and \
@@ -284,7 +286,9 @@ class ConnectionCfg:
             cls = TobConnection
         elif self.connection_type == ConnectionType.holder:
             cls = HolderConnection
-        self._instance = cls(self.agent_id, self.agent_type, agent_params, self.connection_params)
+        conn_params = self.connection_params.copy()
+        conn_params["id"] = self.connection_id
+        self._instance = cls(self.agent_id, self.agent_type, agent_params, conn_params)
 
     async def open(self, service: 'IndyService') -> None:
         """

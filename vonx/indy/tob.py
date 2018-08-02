@@ -89,14 +89,14 @@ class TobConnection(ConnectionBase):
 
     def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
         super(TobConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
-        self._api_url = self.conn_params.get('api_url')
+        self._api_url = self.conn_params.get("api_url")
         if not self._api_url:
             raise IndyConfigError("Missing 'api_url' for TheOrgBook connection")
         self._http_client = None
 
-    async def open(self, service: 'IndyService') -> None:
+    async def open(self, service: "IndyService") -> None:
         # TODO check DID is registered etc ..
-        self._http_client = service._agent_http_client(self.agent_id)
+        self._http_client = service._connection_http_client(self.conn_params["id"])
 
     async def close(self) -> None:
         """
@@ -110,7 +110,7 @@ class TobConnection(ConnectionBase):
         """
         Submit the issuer JSON definition to TheOrgBook to register our service
         """
-        if self.agent_type == 'issuer':
+        if self.agent_type == "issuer":
             spec = assemble_issuer_spec(self.agent_params)
             response = await self.post_json(
                 "indy/register-issuer", spec
