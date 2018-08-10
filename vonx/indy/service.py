@@ -592,15 +592,31 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Could not locate credential type: {}/{} {}".format(
                 schema_name, schema_version, origin_did))
 
+        fixed_data = self._fix_cred_data(cred_type["definition"], cred_data)
+
         cred_offer = await self._create_cred_offer(issuer, cred_type)
         log_json("Created cred offer:", cred_offer, LOGGER)
         cred_request = await conn.instance.generate_credential_request(cred_offer)
         log_json("Got cred request:", cred_request, LOGGER)
-        cred = await self._create_cred(issuer, cred_request, cred_data)
+        cred = await self._create_cred(issuer, cred_request, fixed_data)
         log_json("Created cred:", cred, LOGGER)
         stored = await conn.instance.store_credential(cred)
         log_json("Stored credential:", stored, LOGGER)
         return stored
+
+    def _fix_cred_data(self, schema, cred_data: dict):
+        """
+        Provide empty values for any missing schema attributes and remove unknown
+        attributes from the credential data
+
+        Args:
+            schema: the schema definition
+            cred_data: the dictionary of schema attributes
+        """
+        ret = {}
+        for key in schema.attr_names:
+            ret[key] = cred_data.get(key)
+        return ret
 
     async def _create_cred_offer(self, issuer: AgentCfg,
                                  cred_type) -> CredentialOffer:
@@ -698,6 +714,7 @@ class IndyService(ServiceBase):
         """
         Resolve a schema defined by one of our issuers
         """
+        lookup_agent = None
         for agent_id, agent in self._agents.items():
             if agent.synced:
                 found = agent.find_credential_type(schema_name, schema_version, origin_did)
@@ -712,6 +729,24 @@ class IndyService(ServiceBase):
                         did,
                         defn.attr_names,
                     )
+                lookup_agent = agent
+        if schema_name and schema_version and origin_did and lookup_agent:
+            s_id = schema_id(origin_did, schema_name, schema_version)
+            s_key = schema_key(s_id)
+            try:
+                schema_json = await lookup_agent.instance.get_schema(s_key)
+                ledger_schema = json.loads(schema_json)
+                log_json("Schema found on ledger:", ledger_schema, LOGGER)
+                return ResolvedSchema(
+                    None,
+                    s_id,
+                    schema_name,
+                    schema_version,
+                    origin_did,
+                    ledger_schema["attrNames"],
+                )
+            except AbsentSchema:
+                pass
         raise IndyConfigError("Issuer schema not found: {}/{}".format(schema_name, schema_version))
 
     async def _construct_proof(self, holder_id: str, proof_req: ProofRequest,
