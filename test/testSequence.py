@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from vonx.indy.manager import IndyManager
@@ -106,6 +107,7 @@ class TestIndyManager(IndyManager):
             "schemas": [
                 {
                     "key": {
+                        "did": "PXocv6sBRa7YefPvnHpsqp",
                         "name": self.schema_name,
                         "version": self.schema_version,
                     }
@@ -153,7 +155,7 @@ def test_web(manager):
 if __name__ == '__main__':
     LOGGER.setLevel(logging.DEBUG)
     CONSOLE = logging.StreamHandler()
-    CONSOLE.setLevel(logging.INFO)
+    CONSOLE.setLevel(os.environ.get("LOG_LEVEL", logging.INFO))
     LOGGER.addHandler(CONSOLE)
 
     MGR = TestIndyManager()
