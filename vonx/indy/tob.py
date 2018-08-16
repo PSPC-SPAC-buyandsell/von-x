@@ -21,16 +21,8 @@ Connection handling specific to using TheOrgBook as a holder/prover
 
 import logging
 
-from .connection import ConnectionBase, HttpSession
+from .connection import HttpConnection, HttpSession
 from .errors import IndyConfigError, IndyConnectionError
-from .messages import (
-    CredentialOffer,
-    Credential,
-    CredentialRequest,
-    StoredCredential,
-    ProofRequest,
-    ConstructedProof,
-)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -81,30 +73,11 @@ def assemble_issuer_spec(config: dict) -> dict:
     return issuer_spec
 
 
-class TobConnection(ConnectionBase):
+class TobConnection(HttpConnection):
     """
     A class for managing communication with TheOrgBook API and performing the initial
     synchronization as an issuer
     """
-
-    def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
-        super(TobConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
-        self._api_url = self.conn_params.get("api_url")
-        if not self._api_url:
-            raise IndyConfigError("Missing 'api_url' for TheOrgBook connection")
-        self._http_client = None
-
-    async def open(self, service: "IndyService") -> None:
-        # TODO check DID is registered etc ..
-        self._http_client = service._connection_http_client(self.conn_params["id"])
-
-    async def close(self) -> None:
-        """
-        Shut down the connection
-        """
-        if self._http_client:
-            await self._http_client.close()
-            self._http_client = None
 
     async def sync(self) -> None:
         """
@@ -123,104 +96,9 @@ class TobConnection(ConnectionBase):
                     response,
                 )
 
-    async def generate_credential_request(
-            self, indy_offer: CredentialOffer) -> CredentialRequest:
-        """
-        Ask the API to generate a credential request from our credential offer
-
-        Args:
-            indy_offer: the result of preparing a credential offer
-        """
-        response = await self.post_json(
-            "indy/generate-credential-request", {
-                "credential_offer": indy_offer.offer,
-                "credential_definition": indy_offer.cred_def,
-            }
-        )
-        LOGGER.debug("Credential request response: %s", response)
-        result = response.get("result")
-        if not response.get("success"):
-            raise IndyConnectionError(
-                "Could not create credential request: {}".format(result),
-                400,
-                response,
-            )
-        return CredentialRequest(
-            indy_offer,
-            result["credential_request"],
-            result["credential_request_metadata"],
-        )
-
-    async def store_credential(
-            self, indy_cred: Credential) -> StoredCredential:
-        """
-        Ask the API to store a credential
-
-        Args:
-            indy_cred: the result of preparing a credential from a credential request
-        """
-        response = await self.post_json(
-            "indy/store-credential", {
-                "credential_type": indy_cred.schema_name,
-                "credential_data": indy_cred.cred_data,
-                "issuer_did": indy_cred.issuer_did,
-                "credential_definition": indy_cred.cred_def,
-                "credential_request_metadata": indy_cred.cred_req_metadata,
-            }
-        )
-        LOGGER.debug("Store credential response: %s", response)
-        result = response.get("result")
-        if not response.get("success"):
-            raise IndyConnectionError(
-                "Credential was not stored: {}".format(result),
-                400,
-                response,
-            )
-        return StoredCredential(
-            indy_cred,
-            result,
-        )
-
-    async def construct_proof(self, request: ProofRequest,
-                              cred_ids: set = None, params: dict = None) -> ConstructedProof:
-        """
-        Ask the API to construct a proof from a proof request
-
-        Args:
-            proof_request: the prepared Indy proof request
-        """
-        response = await self.post_json(
-            "indy/construct-proof", {
-                "source_id": params and params.get("source_id") or None,
-                "proof_request": request.request,
-                "cred_ids": list(cred_ids) if cred_ids else None,
-            }
-        )
-        result = response.get("result")
-        if not response.get("success"):
-            raise IndyConnectionError(
-                "Error constructing proof: {}".format(result),
-                400,
-                response,
-            )
-        return ConstructedProof(
-            result,
-        )
-
-
-    def get_api_url(self, path: str = None) -> str:
-        """
-        Construct the URL for an API request
-
-        Args:
-            path: an optional path to be appended to the URL
-        """
-        url = self._api_url
-        if not url.endswith("/"):
-            url += "/"
-        if path:
-            url = url + path
-        return url
+    @property
+    def path_prefix(self):
+        return "indy/"
 
     async def fetch_list(self, path: str) -> dict:
         """
@@ -233,23 +111,5 @@ class TobConnection(ConnectionBase):
         LOGGER.debug("fetch_list: %s", url)
         async with HttpSession("fetch_list", self._http_client) as handler:
             response = await handler.client.get(url)
-            await handler.check_status(response)
-            return await response.json()
-
-    async def post_json(self, path: str, data):
-        """
-        A standard POST request to an API method
-
-        Args:
-            path: The relative path to the API method
-            data: The body of the request, to be converted to JSON
-
-        Returns:
-            the decoded JSON response
-        """
-        url = self.get_api_url(path)
-        LOGGER.debug("post_json: %s", url)
-        async with HttpSession("post_json", self._http_client) as handler:
-            response = await handler.client.post(url, json=data)
             await handler.check_status(response)
             return await response.json()

@@ -195,6 +195,19 @@ class IndyClient:
                 origin_did, attr_names, config),
             IndyServiceAck)
 
+    async def register_http_connection(self, agent_id: str, config: dict = None) -> str:
+        """
+        Register an HTTP connection to a holder/prover service
+
+        Args:
+            agent_id: the registered issuer or verifier agent identifier
+            config: configuration parameters for the connection (must include 'api_url')
+        """
+        result = await self._fetch(
+            RegisterConnectionReq(ConnectionType.HTTP.value, agent_id, config or {}),
+            ConnectionStatus)
+        return result.connection_id
+
     async def register_orgbook_connection(self, agent_id: str, config: dict = None) -> str:
         """
         Register a connection to TheOrgBook as a holder/prover
@@ -247,8 +260,8 @@ class IndyClient:
             IssueCredentialReq(connection_id, schema_name, schema_version, origin_did, cred_data),
             StoredCredential)
 
-    async def create_credential_request(self, holder_id: str,
-                                        cred_offer: CredentialOffer) -> CredentialRequest:
+    async def create_credential_request(self, holder_id: str, cred_offer: dict,
+                                        cred_def_id: str) -> CredentialRequest:
         """
         Create a credential request for an issuer service
 
@@ -257,7 +270,7 @@ class IndyClient:
             cred_offer: the Indy credential offer received from the issuer
         """
         return await self._fetch(
-            GenerateCredentialRequestReq(holder_id, cred_offer),
+            GenerateCredentialRequestReq(holder_id, CredentialOffer(cred_offer, cred_def_id)),
             CredentialRequest)
 
     async def store_credential(self, holder_id: str,
@@ -287,8 +300,8 @@ class IndyClient:
             ResolveSchemaReq(name, version, origin_did),
             ResolvedSchema)
 
-    async def construct_proof(self, holder_id: str, proof_req: ProofRequest,
-                              cred_ids: set = None) -> ConstructedProof:
+    async def construct_proof(self, holder_id: str, proof_req: dict,
+                              wql_filters: dict = None, cred_ids: set = None) -> ConstructedProof:
         """
         Construct a proof from credentials in the holder's wallet given a proof request
 
@@ -298,7 +311,7 @@ class IndyClient:
             cred_ids: an optional set of credential IDs to use in the proof
         """
         return await self._fetch(
-            ConstructProofReq(holder_id, proof_req, cred_ids),
+            ConstructProofReq(holder_id, ProofRequest(proof_req, wql_filters), cred_ids),
             ConstructedProof)
 
     async def register_proof_spec(self, spec: dict) -> str:

@@ -26,17 +26,17 @@ import logging
 from typing import Mapping, Sequence
 import uuid
 
-from von_agent.agents import (
-    _BaseAgent,
+from von_anchor import (
     Issuer,
     HolderProver,
     Verifier,
 )
-from von_agent.nodepool import NodePool
-from von_agent.wallet import Wallet
-from von_agent.util import schema_id
+from von_anchor.anchor.base import _BaseAnchor
+from von_anchor.nodepool import NodePool
+from von_anchor.wallet import Wallet
+from von_anchor.util import schema_id
 
-from .connection import ConnectionBase, ConnectionType, HolderConnection
+from .connection import ConnectionBase, ConnectionType, HolderConnection, HttpConnection
 from .errors import IndyConfigError
 from .tob import TobConnection
 
@@ -99,7 +99,7 @@ class AgentCfg:
         return ret
 
     @property
-    def instance(self) -> _BaseAgent:
+    def instance(self) -> _BaseAnchor:
         """
         Accessor for the current agent instance
         """
@@ -132,23 +132,25 @@ class AgentCfg:
         """
         return self._instance and self._instance.verkey
 
-    async def create(self, wallet: 'WalletCfg') -> None:
+    async def create(self, wallet: 'WalletCfg', pool: NodePool) -> None:
         """
         Create the agent instance
 
         Args:
             wallet: the registered wallet configuration, previously created and opened
+            pool: the initialized :class:`NodePool` instance for the wallet
         """
         if not self._instance:
+            inst = None
             if self.agent_type == AgentType.issuer:
-                cls = Issuer
+                inst = Issuer(wallet.instance, pool)
             elif self.agent_type == AgentType.holder:
-                cls = HolderProver
+                inst = HolderProver(wallet.instance, pool, self.extended_config)
             elif self.agent_type == AgentType.verifier:
-                cls = Verifier
+                inst = Verifier(wallet.instance, pool, self.extended_config)
             else:
                 raise IndyConfigError("Unknown agent type")
-            self._instance = cls(wallet.instance, self.extended_config)
+            self._instance = inst
         await self.open()
 
     async def open(self) -> None:
@@ -247,8 +249,9 @@ class ConnectionCfg:
         self.synced = False
 
         if self.connection_type != ConnectionType.TheOrgBook and \
+                self.connection_type != ConnectionType.HTTP and \
                 self.connection_type != ConnectionType.holder:
-            raise IndyConfigError("Only TOB and Holder connections are currently supported")
+            raise IndyConfigError("Only HTTP and internal Holder connections are currently supported")
 
     @property
     def created(self) -> bool:
@@ -284,6 +287,8 @@ class ConnectionCfg:
         """
         if self.connection_type == ConnectionType.TheOrgBook:
             cls = TobConnection
+        elif self.connection_type == ConnectionType.HTTP:
+            cls = HttpConnection
         elif self.connection_type == ConnectionType.holder:
             cls = HolderConnection
         conn_params = self.connection_params.copy()
@@ -612,15 +617,11 @@ class WalletCfg:
             "opened": self.opened,
         }
 
-    async def create(self, pool: NodePool) -> None:
+    async def create(self) -> None:
         """
         Create the wallet instance
-
-        Args:
-            pool: the initialized :class:`NodePool` instance for the wallet
         """
         self._instance = Wallet(
-            pool,
             self.seed,
             self.name,
             self.type,

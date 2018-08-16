@@ -28,6 +28,7 @@ from aiohttp import web
 
 from ..common.exchange import RequestTarget
 from ..indy.client import IndyClient, IndyClientError
+from ..indy.messages import Credential
 from ..indy.manager import IndyManager
 
 LOGGER = logging.getLogger(__name__)
@@ -178,6 +179,156 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
             "proof": verified.proof.proof,
         }
         ret = {"success": True, "result": result}
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+
+async def generate_credential_request(request, holder_id: str = None):
+    """
+    Processes a credential definition and responds with a credential request
+    which can then be used to submit a credential.
+
+    Example request payload:
+    ```json
+    {
+        'credential_offer': <credential offer json>,
+        'credential_definition_id': <credential definition id>
+    }
+    ```
+
+    Returns:
+    ```
+    {
+        "credential_request": <credential request json>,
+        "credential_request_metadata": <credential request metadata json>
+    }
+    ```
+    """
+
+    try:
+        holder_id = get_handle_id(request, 'holder_id', holder_id)
+    except ValueError as e:
+        return web.Response(text=str(e), status=400)
+    params = await request.json()
+    if not isinstance(params, dict):
+        return web.Response(
+            text="Request body must contain the schema attributes as a JSON object",
+            status=400)
+    offer = params.get("credential_offer")
+    if not offer:
+        return web.Response(
+            text="Missing 'credential_offer'",
+            status=400)
+    cred_def = params.get("credential_definition")
+    if cred_def:
+        cred_def_id = cred_def.get("id")
+    else:
+        cred_def_id = params.get("credential_definition_id")
+    if not cred_def_id:
+        return web.Response(
+            text="Missing 'credential_definition_id'",
+            status=400)
+    try:
+        cred_request = await indy_client(request).create_credential_request(
+            holder_id, offer, cred_def_id)
+        ret = {
+            "success": True,
+            "result": {
+                "credential_request": cred_request.data,
+                "credential_request_metadata": cred_request.metadata,
+            }}
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+
+async def store_credential(request, holder_id: str = None):
+    """
+    Stores a verifiable credential in wallet.
+    The data in the credential is parsed and stored in the database
+    for search/display purposes based on the issuer's processor config.
+    The data is then made available through a REST API as well as a
+    search API.
+
+    Example request payload:
+    ```json
+    {
+        "credential_data": <credential data>,
+        "credential_request_metadata": <credential request metadata>
+    }
+    ```
+
+    Returns: created verified credential model
+    """
+    try:
+        holder_id = get_handle_id(request, 'holder_id', holder_id)
+    except ValueError as e:
+        return web.Response(text=str(e), status=400)
+    params = await request.json()
+    if not isinstance(params, dict):
+        return web.Response(
+            text="Request body must contain the schema attributes as a JSON object",
+            status=400)
+    data = params.get("credential_data")
+    if not data:
+        return web.Response(
+            text="Missing 'credential_data'",
+            status=400)
+    metadata = params.get("credential_request_metadata")
+    if not metadata:
+        return web.Response(
+            text="Missing 'credential_request_metadata'",
+            status=400)
+    revoc_id = params.get("credential_revocation_id")
+    try:
+        cred = Credential(
+            data,
+            metadata,
+            revoc_id,
+        )
+        stored = await indy_client(request).store_credential(holder_id, cred)
+        ret = {"success": True, "result": stored.cred_id}
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+
+async def construct_proof(request, holder_id: str = None):
+    """
+    Constructs a proof given a proof request and source_id
+   ```json
+    {
+        "proof_request": <HL Indy proof request>,
+        "source_id": <source if of subject>
+    }
+    ```
+
+    Returns: HL Indy proof data
+    """
+    try:
+        holder_id = get_handle_id(request, 'holder_id', holder_id)
+    except ValueError as e:
+        return web.Response(text=str(e), status=400)
+    params = await request.json()
+    if not isinstance(params, dict):
+        return web.Response(
+            text="Request body must contain the schema attributes as a JSON object",
+            status=400)
+    #source_id = params.get("source_id")
+    proof_request = params.get("proof_request")
+    wql_filters = None # params.get("wql_filters")
+    cred_ids = params.get("cred_ids")
+    if isinstance(cred_ids, list):
+        cred_ids = set(cred_ids)
+    elif isinstance(cred_ids, str):
+        cred_ids = set(cred_ids.split(","))
+    else:
+        cred_ids = None
+    try:
+        proof = await indy_client(request).construct_proof(
+            holder_id, proof_request, wql_filters, cred_ids)
+        ret = {"success": True, "result": proof.proof}
     except IndyClientError as e:
         ret = {"success": False, "result": str(e)}
     return web.json_response(ret)

@@ -8,7 +8,7 @@ from vonx.indy.manager import IndyManager
 LOGGER = logging.getLogger()
 
 
-class TestIndyManager(IndyManager):
+class TestIndyIssuer(IndyManager):
     """
     A test Indy service manager which creates sample wallets and issuers
     """
@@ -30,6 +30,7 @@ class TestIndyManager(IndyManager):
 
     async def add_test_services(self, client):
         LOGGER.info("setting up test indy issuer")
+        holder_url = os.environ.get("HOLDER_API") or "http://192.168.65.3:5001/holder"
 
         all = {}
 
@@ -69,22 +70,10 @@ class TestIndyManager(IndyManager):
             }
         )
 
-        #conn_id = await client.register_orgbook_connection(
-        #    issuer_id, {
-        #        "api_url": "http://192.168.65.3:8081/api/v2",
-        #    })
-
-        all["holder_wallet_id"] = await client.register_wallet({
-            "name": "holder-wallet",
-            "seed": "holder-wallet-000000000000000001",
-        })
-        all["holder_id"] = await client.register_holder(all["holder_wallet_id"], {
-            "name": "Test Holder",
-        })
-        all["holder_conn_id"] = await client.register_holder_connection(
+        all["holder_conn_id"] = await client.register_http_connection(
             all["issuer_id"], {
                 "id": "holder",
-                "holder_id": all["holder_id"],
+                "api_url": holder_url,
             }
         )
 
@@ -95,10 +84,10 @@ class TestIndyManager(IndyManager):
         all["verifier_id"] = await client.register_verifier(all["verifier_wallet_id"], {
             "name": "Test Verifier",
         })
-        all["verifier_conn_id"] = await client.register_holder_connection(
+        all["verifier_conn_id"] = await client.register_http_connection(
             all["verifier_id"], {
                 "id": "verifier",
-                "holder_id": all["holder_id"],
+                "api_url": holder_url,
             }
         )
         proof_spec = {
@@ -107,10 +96,17 @@ class TestIndyManager(IndyManager):
             "schemas": [
                 {
                     "key": {
-                        "did": "PXocv6sBRa7YefPvnHpsqp",
+                        # "did": "PXocv6sBRa7YefPvnHpsqp",
                         "name": self.schema_name,
                         "version": self.schema_version,
-                    }
+                    },
+                    #"predicates": [
+                    #    {
+                    #        "name": "attr1",
+                    #        "p_type": ">=",
+                    #        "p_value": 1,
+                    #    }
+                    #]
                 }
             ]
         }
@@ -133,13 +129,14 @@ class TestIndyManager(IndyManager):
     async def test_issue_cred(self, client, conn_id) -> str:
         stored = await client.issue_credential(
             conn_id, self.schema_name, self.schema_version, None,
-            {"attr1": "Test Name", "attr2": "Second Value"})
+            {"attr1": "Test", "attr2": "Second Value"})
         LOGGER.info("issued: %s", stored.cred_id)
         return stored.cred_id
 
 
     async def test_proof(self, client, conn_id, spec_id, cred_ids=None):
         proof_req = await client.generate_proof_request(spec_id)
+        #cred_ids = None
         result = await client.request_proof(conn_id, proof_req, cred_ids)
         LOGGER.info("test proof verified: %s, result: %s", result.verified, result.parsed_proof)
 
@@ -158,7 +155,7 @@ if __name__ == '__main__':
     CONSOLE.setLevel(os.environ.get("LOG_LEVEL", logging.INFO))
     LOGGER.addHandler(CONSOLE)
 
-    MGR = TestIndyManager()
+    MGR = TestIndyIssuer()
     MGR.start()
 
     TEST = sys.argv[1] if len(sys.argv) > 1 else "proof"

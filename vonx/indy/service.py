@@ -28,11 +28,11 @@ import random
 import string
 from typing import Mapping, Sequence
 
-from didauth.indy import seed_to_did
 from didauth.ext.aiohttp import SignedRequest, SignedRequestAuth
-from von_agent.error import AbsentSchema, AbsentCredDef
-from von_agent.nodepool import NodePool
-from von_agent.util import cred_def_id, revealed_attrs, schema_id, schema_key
+from von_anchor.error import AbsentCred, AbsentSchema, AbsentCredDef
+from von_anchor.nodepool import NodePool
+from von_anchor.util import cred_def_id, revealed_attrs, schema_id, schema_key, \
+    proof_req_infos2briefs, proof_req_briefs2req_creds
 
 from ..common.service import (
     Exchange,
@@ -93,14 +93,16 @@ def _make_id(pfx: str = '', length=12) -> str:
     return pfx + ''.join(random.choice(string.ascii_letters) for _ in range(length))
 
 
-def _prepare_proof_request(spec: ProofSpecCfg) -> ProofRequest:
+def _prepare_proof_request(spec: ProofSpecCfg, wql_filters: dict = None) -> ProofRequest:
     """
     Prepare the JSON payload for a proof request
 
     Args:
         spec: the proof request specification
+        wql_filters: a dict of WQL filters for the wallet
     """
     req_attrs = {}
+    req_preds = {}
     for schema in spec.schemas:
         s_id = schema["definition"].schema_id
         s_uniq = hashlib.sha1(s_id.encode('ascii')).hexdigest()
@@ -111,13 +113,46 @@ def _prepare_proof_request(spec: ProofSpecCfg) -> ProofRequest:
                     "schema_id": s_id,
                 }]
             }
+        for pred in schema.get("predicates") or []:
+            req_preds["{}_{}_uuid".format(s_uniq, pred["name"])] = {
+                "name": pred["name"],
+                "p_type": pred["p_type"],
+                "p_value": pred["p_value"],
+                "restrictions": [{
+                    "schema_id": s_id,
+                }]
+            }
     return ProofRequest({
         "name": spec.spec_id,
         "nonce": str(random.randint(10000000000, 100000000000)),  # FIXME - how best to generate?
         "version": spec.version,
         "requested_attributes": req_attrs,
-        "requested_predicates": {},
-    })
+        "requested_predicates": req_preds,
+    }, wql_filters)
+
+
+def _populate_cred_def_ids(proof_req: dict, creds: list):
+    """
+    Populate cred_def_id for each attribute in proof request if not defined
+    """
+    cdef_map = {}
+    for cred in creds:
+        # accept list of cred info or cred briefs
+        if "cred_info" in cred:
+            cred = cred["cred_info"]
+        cdef_map[cred["schema_id"]] = cred["cred_def_id"]
+    for attr in proof_req["requested_attributes"].values():
+        attr_cdef_id = None
+        attr_schema_id = None
+        for rest in attr["restrictions"]:
+            attr_cdef_id = rest.get("cred_def_id", attr_cdef_id)
+            attr_schema_id = rest.get("schema_id", attr_schema_id)
+        if not attr_cdef_id and attr_schema_id and attr_schema_id in cdef_map:
+            attr["restrictions"].append({
+                "cred_def_id": cdef_map[attr_schema_id],
+            })
+        if "non_revoked" not in attr:
+            attr["non_revoked"] = {}
 
 
 class IndyService(ServiceBase):
@@ -160,7 +195,7 @@ class IndyService(ServiceBase):
         synced = True
         for wallet in self._wallets.values():
             if not wallet.created:
-                await wallet.create(self._pool)
+                await wallet.create()
         for agent in self._agents.values():
             if not await self._sync_agent(agent):
                 synced = False
@@ -248,7 +283,8 @@ class IndyService(ServiceBase):
         """
         if agent_id not in self._agents:
             raise IndyConfigError("Agent ID not registered: {}".format(agent_id))
-        cfg = ConnectionCfg(connection_type, agent_id, self._agents[agent_id].agent_type.value, **params)
+        cfg = ConnectionCfg(
+            connection_type, agent_id, self._agents[agent_id].agent_type.value, **params)
         if not cfg.connection_id:
             cfg.connection_id = _make_id("connection-")
         if cfg.connection_id in self._connections:
@@ -314,7 +350,7 @@ class IndyService(ServiceBase):
                 wallet = self._wallets[agent.wallet_id]
                 if not wallet.created:
                     return False
-                await agent.create(wallet)
+                await agent.create(wallet, self._pool)
 
             await agent.open()
 
@@ -497,6 +533,7 @@ class IndyService(ServiceBase):
         if not cred_type or "definition" not in cred_type:
             raise IndyConfigError("Missing schema definition")
         definition = cred_type["definition"]
+        s_id = schema_id(issuer.did, definition.name, definition.version)
 
         if not cred_type.get("ledger_schema"):
             LOGGER.info(
@@ -507,9 +544,7 @@ class IndyService(ServiceBase):
             # Check if schema exists on ledger
 
             try:
-                s_key = schema_key(
-                    schema_id(issuer.did, definition.name, definition.version)
-                )
+                s_key = schema_key(s_id)
                 schema_json = await issuer.instance.get_schema(s_key)
                 ledger_schema = json.loads(schema_json)
                 log_json("Schema found on ledger:", ledger_schema, LOGGER)
@@ -557,7 +592,7 @@ class IndyService(ServiceBase):
                     definition.version,
                 )
                 cred_def_json = await issuer.instance.send_cred_def(
-                    schema_json, revocation=False
+                    s_id, revocation=False
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Published credential def:", cred_def, LOGGER)
@@ -638,10 +673,8 @@ class IndyService(ServiceBase):
             cred_type["ledger_schema"]["seqNo"]
         )
         return CredentialOffer(
-            schema.name,
-            schema.version,
             json.loads(cred_offer_json),
-            cred_type["cred_def"],
+            cred_type["cred_def"]["id"],
         )
 
     async def _create_cred(self, issuer: AgentCfg, request: CredentialRequest,
@@ -654,24 +687,19 @@ class IndyService(ServiceBase):
             request: a credential request returned from the holder service
             cred_data: the raw credential attributes
         """
-
-        cred_offer = request.cred_offer
-        (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
-            json.dumps(cred_offer.offer),
+        (cred_json, cred_revoc_id, _epoch_creation) = await issuer.instance.create_cred(
+            json.dumps(request.cred_offer.data),
             request.data,
             cred_data,
         )
         return Credential(
-            cred_offer.schema_name,
-            issuer.did,
             json.loads(cred_json),
-            cred_offer.cred_def,
             request.metadata,
             cred_revoc_id,
         )
 
-    async def _generate_credential_request(self, holder_id: str,
-                                           cred_offer: CredentialOffer) -> CredentialRequest:
+    async def _generate_credential_request(
+            self, holder_id: str, cred_offer: CredentialOffer) -> CredentialRequest:
         """
         Generate a credential request for a given holder agent from a credential offer
         """
@@ -681,8 +709,8 @@ class IndyService(ServiceBase):
         if not holder.synced:
             raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
-            json.dumps(cred_offer.offer),
-            json.dumps(cred_offer.cred_def),
+            json.dumps(cred_offer.data),
+            cred_offer.cred_def_id,
         )
         return CredentialRequest(
             cred_offer,
@@ -759,50 +787,53 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
         if not holder.synced:
             raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
-        log_json("Fetching credentials for request", proof_req.request, LOGGER)
+        log_json("Fetching credentials for request", proof_req.data, LOGGER)
 
         # TODO - use separate request to find credentials and allow manual filtering?
         if cred_ids:
             LOGGER.info("cred ids %s", cred_ids)
-            found_creds_json = await holder.instance.get_creds_by_id(
-                json.dumps(proof_req.request), cred_ids,
-            )
-        else:
-            _referents, found_creds_json = await holder.instance.get_creds(
-                json.dumps(proof_req.request), # + filters ..
-            )
-        found_creds = json.loads(found_creds_json)
-        log_json("Found credentials", found_creds, LOGGER)
+            found_creds = []
+            for cred_id in cred_ids:
+                try:
+                    found_cred_json = await holder.instance.get_cred_info_by_id(
+                        cred_id,
+                    )
+                    found_creds.append(json.loads(found_cred_json))
+                except AbsentCred:
+                    LOGGER.warning("Credential not found: %s", cred_id)
 
-        if not found_creds["attrs"]:
-            raise IndyError("No credentials found for proof")
+            _populate_cred_def_ids(proof_req.data, found_creds)
+            found_creds = proof_req_infos2briefs(proof_req.data, found_creds)
+        else:
+            # DEBUG
+            #proof_req.wql_filters = {
+            #    'eb8cce736d877a9a45bcc62303e62d25c0fe5da6_attr1_uuid': {
+            #        'attr::attr1::value': '5'
+            #    }
+            #}
+
+            _cred_ids, found_creds_json = await holder.instance.get_cred_briefs_by_proof_req_q(
+                json.dumps(proof_req.data),
+                json.dumps(proof_req.wql_filters) if proof_req.wql_filters else None,
+            )
+            found_creds = json.loads(found_creds_json)
+            _populate_cred_def_ids(proof_req.data, found_creds)
+
+        log_json("Found credentials", found_creds, LOGGER)
 
         missing = set()
         too_many = set()
-        for (claim_name, claim) in found_creds["attrs"].items():
-            if not claim:
-                missing.add(claim_name)
-            if len(claim) > 1:
-                too_many.add(claim_name)
-        if missing:
+        if not found_creds:
             raise IndyError("No credentials found for proof")
-        if too_many:
+        elif len(found_creds) > 1:
             raise IndyError("Too many credentials found for proof")
 
-        # Construct the required payload to create proof
-        request_params = {
-            "self_attested_attributes": {},
-            "requested_attributes": {
-                claim_name: {"revealed": True, "cred_id": claim[0]["cred_info"]["referent"]}
-                for (claim_name, claim) in found_creds["attrs"].items()
-            },
-            "requested_predicates": {},
-        }
+        request_params = proof_req_briefs2req_creds(proof_req.data, found_creds)
 
         # FIXME catch exception?
         log_json("Creating proof", request_params, LOGGER)
         proof_json = await holder.instance.create_proof(
-            proof_req.request,
+            proof_req.data,
             found_creds,
             request_params,
         )
@@ -855,7 +886,7 @@ class IndyService(ServiceBase):
             msg = IndyServiceFail("Unregistered proof spec: {}".format(spec_id))
         return msg
 
-    async def _generate_proof_request(self, spec_id: str) -> ProofRequest:
+    async def _generate_proof_request(self, spec_id: str, wql_filters: dict = None) -> ProofRequest:
         """
         Create a proof request from a previously registered proof specification
         """
@@ -864,7 +895,7 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Proof specification not defined: {}".format(spec_id))
         if not spec.synced:
             raise IndyConfigError("Proof specification not synced: {}".format(spec_id))
-        return _prepare_proof_request(spec)
+        return _prepare_proof_request(spec, wql_filters)
 
     async def _request_proof(self, connection_id: str, proof_req: ProofRequest,
                              cred_ids: set = None, params: dict = None) -> VerifiedProof:
@@ -892,7 +923,7 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Unknown verifier id: {}".format(verifier_id))
         if not verifier.synced:
             raise IndyConfigError("Verifier is not yet synchronized: {}".format(verifier.agent_id))
-        result = await verifier.instance.verify_proof(proof_req.request, proof.proof)
+        result = await verifier.instance.verify_proof(proof_req.data, proof.proof)
         parsed_proof = revealed_attrs(proof.proof)
         return VerifiedProof(result, parsed_proof, proof)
 
@@ -1052,7 +1083,7 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, GenerateProofRequestReq):
             try:
-                reply = await self._generate_proof_request(request.spec_id)
+                reply = await self._generate_proof_request(request.spec_id, request.wql_filters)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 

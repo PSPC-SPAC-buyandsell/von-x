@@ -1,4 +1,4 @@
-FROM bcgovimages/von-image:py35-1.0rc3
+FROM bcgovimages/von-image:py35-1.6-0
 
 ADD --chown=indy:indy requirements.txt .
 

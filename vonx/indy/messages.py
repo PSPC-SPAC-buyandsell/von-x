@@ -183,16 +183,11 @@ class CredentialOffer(IndyServiceRep):
     """
     A successful credential offer response
     Args:
-        schema_name (str): the schema used to create the credential offer
-        schema_version (str): the schema version used to create the credential offer
-        offer (dict): the resulting credential offer
-        cred_def (dict): the credential definition used
+        data (dict): the resulting credential offer
     """
     _fields = (
-        ("schema_name", str),
-        ("schema_version", str),
-        ("offer", dict),
-        ("cred_def", dict),
+        ("data", dict),
+        ("cred_def_id", str),
     )
 
 
@@ -201,7 +196,7 @@ class CredentialRequest(IndyServiceRep):
     A successful credential request response
     Args:
         cred_offer (CredentialOffer): the credential offer used as a basis
-        result (str): the resulting credential request
+        data (str): the resulting credential request
         metadata (dict): the credential request metadata
     """
     _fields = (
@@ -216,10 +211,7 @@ class Credential(IndyServiceRep):
     A successful credential creation
     """
     _fields = (
-        ("schema_name", str),
-        ("issuer_did", str),
         ("cred_data", dict),
-        ("cred_def", dict),
         ("cred_req_metadata", dict),
         ("cred_revoc_id", str),
     )
@@ -285,7 +277,8 @@ class ProofRequest(IndyServiceRep):
     A message representing an Indy proof request
     """
     _fields = (
-        ("request", dict),
+        ("data", dict),
+        ("wql_filters", dict, None),
     )
 
 
@@ -334,6 +327,7 @@ class GenerateProofRequestReq(IndyServiceReq):
     """
     _fields = (
         ("spec_id", str),
+        ("wql_filters", dict, None),
     )
 
 

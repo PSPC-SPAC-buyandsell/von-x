@@ -620,8 +620,8 @@ class MessageProcessor:
         try:
             if self._process_message(received) is False:
                 return False
-        except Exception as e:
-            LOGGER.error('Exception during message processing', e)
+        except Exception:
+            LOGGER.exception('Exception during message processing:')
             errmsg = ExchangeFail('Exception during message processing', True)
             self._reply_with_error(received, errmsg)
         return True

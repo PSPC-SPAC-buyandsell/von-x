@@ -21,6 +21,7 @@ Base implemention of Connections, to be managed by :class:`ConnectionCfg`.
 
 import asyncio
 from enum import Enum
+import logging
 
 import aiohttp
 
@@ -39,6 +40,8 @@ from .messages import (
     ConstructedProof,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 
 class ConnectionType(Enum):
     """
@@ -46,7 +49,7 @@ class ConnectionType(Enum):
     """
     TheOrgBook = "TheOrgBook"
     holder = "holder"
-    remote = "remote"
+    HTTP = "HTTP"
 
 
 class HttpSession:
@@ -137,6 +140,7 @@ class ConnectionBase:
 
         Args:
             indy_offer: the result of preparing a credential offer
+            creddef_id: the ID of the credential definition
         """
         pass
 
@@ -240,3 +244,150 @@ class HolderConnection(ConnectionBase):
         elif not isinstance(result, ConstructedProof):
             raise IndyConnectionError("Unexpected result: {}".format(result), 500)
         return result
+
+
+class HttpConnection(ConnectionBase):
+    """
+    A class for managing communication with an external agent over an HTTP connection
+    """
+
+    def __init__(self, agent_id: str, agent_type: str, agent_params: dict, conn_params: dict):
+        super(HttpConnection, self).__init__(agent_id, agent_type, agent_params, conn_params)
+        self._api_url = self.conn_params.get("api_url")
+        if not self._api_url:
+            raise IndyConfigError("Missing 'api_url' for HTTP connection")
+        self._http_client = None
+
+    async def open(self, service: "IndyService") -> None:
+        # TODO check DID is registered etc ..
+        self._http_client = service._connection_http_client(self.conn_params["id"])
+
+    async def close(self) -> None:
+        """
+        Shut down the connection
+        """
+        if self._http_client:
+            await self._http_client.close()
+            self._http_client = None
+
+    @property
+    def path_prefix(self):
+        return ''
+
+    async def generate_credential_request(
+            self, indy_offer: CredentialOffer) -> CredentialRequest:
+        """
+        Ask the API to generate a credential request from our credential offer
+
+        Args:
+            indy_offer: the result of preparing a credential offer
+        """
+        response = await self.post_json(
+            self.path_prefix + "generate-credential-request", {
+                "credential_offer": indy_offer.data,
+                "credential_definition_id": indy_offer.cred_def_id,
+            }
+        )
+        LOGGER.debug("Credential request response: %s", response)
+        result = response.get("result")
+        if not response.get("success"):
+            raise IndyConnectionError(
+                "Could not create credential request: {}".format(result),
+                400,
+                response,
+            )
+        return CredentialRequest(
+            indy_offer,
+            result["credential_request"],
+            result["credential_request_metadata"],
+        )
+
+    async def store_credential(
+            self, indy_cred: Credential) -> StoredCredential:
+        """
+        Ask the API to store a credential
+
+        Args:
+            indy_cred: the result of preparing a credential from a credential request
+        """
+        schema_id = indy_cred.cred_data["schema_id"]
+        cred_def_id = indy_cred.cred_data["cred_def_id"]
+        response = await self.post_json(
+            self.path_prefix + "store-credential", {
+                # "credential_type": schema_id.split(':')[2],
+                # "issuer_did": cred_def_id.split(':')[0],
+                # "credential_definition": indy_cred.cred_def,
+                "credential_data": indy_cred.cred_data,
+                "credential_request_metadata": indy_cred.cred_req_metadata,
+            }
+        )
+        LOGGER.debug("Store credential response: %s", response)
+        result = response.get("result")
+        if not response.get("success"):
+            raise IndyConnectionError(
+                "Credential was not stored: {}".format(result),
+                400,
+                response,
+            )
+        return StoredCredential(
+            indy_cred,
+            result,
+        )
+
+    async def construct_proof(self, request: ProofRequest,
+                              cred_ids: set = None, params: dict = None) -> ConstructedProof:
+        """
+        Ask the API to construct a proof from a proof request
+
+        Args:
+            proof_request: the prepared Indy proof request
+        """
+        response = await self.post_json(
+            self.path_prefix + "construct-proof", {
+                "source_id": params and params.get("source_id") or None,
+                "proof_request": request.data,
+                "cred_ids": list(cred_ids) if cred_ids else None,
+            }
+        )
+        result = response.get("result")
+        if not response.get("success"):
+            raise IndyConnectionError(
+                "Error constructing proof: {}".format(result),
+                400,
+                response,
+            )
+        return ConstructedProof(
+            result,
+        )
+
+    def get_api_url(self, path: str = None) -> str:
+        """
+        Construct the URL for an API request
+
+        Args:
+            path: an optional path to be appended to the URL
+        """
+        url = self._api_url
+        if not url.endswith("/"):
+            url += "/"
+        if path:
+            url = url + path
+        return url
+
+    async def post_json(self, path: str, data):
+        """
+        A standard POST request to an API method
+
+        Args:
+            path: The relative path to the API method
+            data: The body of the request, to be converted to JSON
+
+        Returns:
+            the decoded JSON response
+        """
+        url = self.get_api_url(path)
+        LOGGER.debug("post_json: %s", url)
+        async with HttpSession("post_json", self._http_client) as handler:
+            response = await handler.client.post(url, json=data)
+            await handler.check_status(response)
+            return await response.json()

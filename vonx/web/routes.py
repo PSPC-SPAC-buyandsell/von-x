@@ -44,6 +44,9 @@ def get_standard_routes(_app) -> list:
         web.post('/{connection_id}/issue-credential', views.issue_credential),
         web.post('/request-proof', views.request_proof),
         web.post('/{connection_id}/request-proof', views.request_proof),
+        web.post('/{holder_id}/generate-credential-request', views.generate_credential_request),
+        web.post('/{holder_id}/store-credential', views.store_credential),
+        web.post('/{holder_id}/construct-proof', views.construct_proof),
         #web.get('/hello', views.hello),
     ]
 
