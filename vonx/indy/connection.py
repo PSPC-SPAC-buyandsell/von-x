@@ -310,8 +310,8 @@ class HttpConnection(ConnectionBase):
         Args:
             indy_cred: the result of preparing a credential from a credential request
         """
-        schema_id = indy_cred.cred_data["schema_id"]
-        cred_def_id = indy_cred.cred_data["cred_def_id"]
+        #schema_id = indy_cred.cred_data["schema_id"]
+        #cred_def_id = indy_cred.cred_data["cred_def_id"]
         response = await self.post_json(
             self.path_prefix + "store-credential", {
                 # "credential_type": schema_id.split(':')[2],

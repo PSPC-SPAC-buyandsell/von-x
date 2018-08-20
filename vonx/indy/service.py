@@ -84,6 +84,9 @@ from .messages import (
     GenerateProofRequestReq,
     RequestProofReq,
     VerifiedProof,
+    VerifyProofReq,
+    ResolveNymReq,
+    ResolvedNym,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -136,21 +139,29 @@ def _populate_cred_def_ids(proof_req: dict, creds: list):
     Populate cred_def_id for each attribute in proof request if not defined
     """
     cdef_map = {}
+    default_cred_def_id = None
     for cred in creds:
         # accept list of cred info or cred briefs
         if "cred_info" in cred:
             cred = cred["cred_info"]
         cdef_map[cred["schema_id"]] = cred["cred_def_id"]
+        if len(creds) == 1:
+            default_cred_def_id = cred["cred_def_id"]
     for attr in proof_req["requested_attributes"].values():
         attr_cdef_id = None
         attr_schema_id = None
         for rest in attr["restrictions"]:
             attr_cdef_id = rest.get("cred_def_id", attr_cdef_id)
             attr_schema_id = rest.get("schema_id", attr_schema_id)
-        if not attr_cdef_id and attr_schema_id and attr_schema_id in cdef_map:
-            attr["restrictions"].append({
-                "cred_def_id": cdef_map[attr_schema_id],
-            })
+        if not attr_cdef_id:
+            if attr_schema_id and attr_schema_id in cdef_map:
+                attr["restrictions"].append({
+                    "cred_def_id": cdef_map[attr_schema_id],
+                })
+            elif default_cred_def_id:
+                attr["restrictions"].append({
+                    "cred_def_id": default_cred_def_id,
+                })
         if "non_revoked" not in attr:
             attr["non_revoked"] = {}
 
@@ -802,6 +813,8 @@ class IndyService(ServiceBase):
                 except AbsentCred:
                     LOGGER.warning("Credential not found: %s", cred_id)
 
+            if not found_creds:
+                raise IndyError("No credentials found for proof")
             _populate_cred_def_ids(proof_req.data, found_creds)
             found_creds = proof_req_infos2briefs(proof_req.data, found_creds)
         else:
@@ -821,8 +834,6 @@ class IndyService(ServiceBase):
 
         log_json("Found credentials", found_creds, LOGGER)
 
-        missing = set()
-        too_many = set()
         if not found_creds:
             raise IndyError("No credentials found for proof")
         elif len(found_creds) > 1:
@@ -856,6 +867,9 @@ class IndyService(ServiceBase):
         return cfg.spec_id
 
     async def _sync_proof_spec(self, spec: ProofSpecCfg) -> bool:
+        """
+        Resolve schema information for a proof specification
+        """
         missing = spec.get_incomplete_schemas()
         check = False
         for s_key in missing:
@@ -918,6 +932,14 @@ class IndyService(ServiceBase):
 
     async def _verify_proof(self, verifier_id: str, proof_req: ProofRequest,
                             proof: ConstructedProof) -> VerifiedProof:
+        """
+        Verify a constructed proof
+
+        Args:
+            verifier_id: the verifier agent to employ
+            proof_req: the proof request to verify against
+            proof: the constructed proof to verify
+        """
         verifier = self._agents.get(verifier_id)
         if not verifier:
             raise IndyConfigError("Unknown verifier id: {}".format(verifier_id))
@@ -926,6 +948,30 @@ class IndyService(ServiceBase):
         result = await verifier.instance.verify_proof(proof_req.data, proof.proof)
         parsed_proof = revealed_attrs(proof.proof)
         return VerifiedProof(result, parsed_proof, proof)
+
+    async def _resolve_nym(self, did: str, agent_id: str = None) -> ResolvedNym:
+        """
+        Resolve a DID on the ledger
+
+        Args:
+            did: the DID to resolve
+            agent_id: the agent instance to employ
+        """
+        if not agent_id:
+            for aid in self._agents:
+                if self._agents[aid].synced:
+                    agent_id = aid
+                    break
+        agent = self._agents.get(agent_id)
+        if not agent:
+            raise IndyConfigError("Unknown agent id: {}".format(agent_id))
+        if not agent.synced:
+            raise IndyConfigError("Agent is not yet synchronized: {}".format(agent.agent_id))
+        nym_json = await agent.instance.get_nym(did)
+        nym_info = json.loads(nym_json)
+        if not nym_info:
+            nym_info = None
+        return ResolvedNym(did, nym_info)
 
     async def _handle_ledger_status(self):
         """
@@ -1095,8 +1141,18 @@ class IndyService(ServiceBase):
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
-        #elif isinstance(request, VerifyProofReq):
-        #    reply = await self._handle_verify_proof(request)
+        elif isinstance(request, VerifyProofReq):
+            try:
+                reply = await self._verify_proof(
+                    request.verifier_id, request.proof_req, request.proof)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, ResolveNymReq):
+            try:
+                reply = await self._resolve_nym(request.did, request.agent_id)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
 
         else:
             reply = None

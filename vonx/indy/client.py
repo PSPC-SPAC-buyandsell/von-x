@@ -66,6 +66,9 @@ from .messages import (
     ProofSpecStatus,
     VerifiedProof,
     RequestProofReq,
+    VerifyProofReq,
+    ResolveNymReq,
+    ResolvedNym,
 )
 
 class IndyClient:
@@ -268,6 +271,7 @@ class IndyClient:
         Args:
             holder_id: the registered agent identifier of the holder service
             cred_offer: the Indy credential offer received from the issuer
+            cred_def_id: The identifier of the credential definition
         """
         return await self._fetch(
             GenerateCredentialRequestReq(holder_id, CredentialOffer(cred_offer, cred_def_id)),
@@ -353,6 +357,32 @@ class IndyClient:
         return await self._fetch(
             RequestProofReq(connection_id, proof_req, cred_ids, params),
             VerifiedProof)
+
+    async def verify_proof(self, verifier_id: str, proof_req: ProofRequest,
+                           proof: ConstructedProof) -> VerifiedProof:
+        """
+        Verify a previously constructed proof
+
+        Args:
+            verifier_id: the registered verifier agent
+            proof_req: the Indy proof request record
+            proof: the constructed proof
+        """
+        return await self._fetch(
+            VerifyProofReq(verifier_id, proof_req, proof),
+            VerifiedProof)
+
+    async def resolve_nym(self, did: str, agent_id: str = None):
+        """
+        Resolve a DID on the ledger
+
+        Args:
+            did: the DID to resolve
+            agent_id: the agent instance to use
+        """
+        return await self._fetch(
+            ResolveNymReq(did, agent_id),
+            ResolvedNym)
 
     async def sync(self, wait: bool = True) -> bool:
         """

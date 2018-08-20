@@ -348,6 +348,7 @@ class VerifyProofReq(IndyServiceReq):
     The message class representing a request to verify a proof
     """
     _fields = (
+        ("verifier_id", str),
         ("proof_req", ProofRequest),
         ("proof", ConstructedProof),
     )
@@ -361,4 +362,22 @@ class VerifiedProof(IndyServiceRep):
         ("verified", str),
         ("parsed_proof", dict),
         ("proof", ConstructedProof),
+    )
+
+class ResolveNymReq(IndyServiceReq):
+    """
+    The message class representing a request to resolve a DID
+    """
+    _fields = (
+        ("did", str),
+        ("agent_id", str, None),
+    )
+
+class ResolvedNym(IndyServiceRep):
+    """
+    The message class representing a DID resolution response
+    """
+    _fields = (
+        ("did", str),
+        ("data", dict),
     )
