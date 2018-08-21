@@ -32,6 +32,6 @@ setup(
         'aiohttp~=3.3.0',
         'aiohttp-jinja2~=1.0.0',
         'PyYAML',
-        'von-agent==1.1.2',
+        'von-anchor==1.6.15',
     ],
 )
