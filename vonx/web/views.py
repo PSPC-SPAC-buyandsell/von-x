@@ -107,7 +107,7 @@ async def hello(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
-def get_handle_id(request: web.Request, handle: str, override_val: str = None) -> str:
+def _get_handle_id(request: web.Request, handle: str, override_val: str = None) -> str:
     """
     Check the request for a handle ID (connection or holder ID depending on the request)
     which may be overridden depending on the path
@@ -129,7 +129,7 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
     Ask the Indy service to issue a credential to the Connection
     """
     try:
-        connection_id = get_handle_id(request, 'connection_id', connection_id)
+        connection_id = _get_handle_id(request, 'connection_id', connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     schema_name = request.query.get("schema")
@@ -155,7 +155,7 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
     Ask the Indy service to fetch a proof from the Connection
     """
     try:
-        connection_id = get_handle_id(request, 'connection_id', connection_id)
+        connection_id = _get_handle_id(request, 'connection_id', connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     proof_name = request.query.get('name')
@@ -207,7 +207,7 @@ async def generate_credential_request(request, holder_id: str = None):
     """
 
     try:
-        holder_id = get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, 'holder_id', holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
@@ -262,7 +262,7 @@ async def store_credential(request, holder_id: str = None):
     Returns: created verified credential model
     """
     try:
-        holder_id = get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, 'holder_id', holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
@@ -290,8 +290,11 @@ async def store_credential(request, holder_id: str = None):
         stored = await indy_client(request).store_credential(holder_id, cred)
         ret = {"success": True, "result": stored.cred_id}
     except IndyClientError as e:
+        stored = None
         ret = {"success": False, "result": str(e)}
-    return web.json_response(ret)
+    response = web.json_response(ret)
+    response["stored"] = stored
+    return response
 
 
 async def construct_proof(request, holder_id: str = None):
@@ -307,7 +310,7 @@ async def construct_proof(request, holder_id: str = None):
     Returns: HL Indy proof data
     """
     try:
-        holder_id = get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, 'holder_id', holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
