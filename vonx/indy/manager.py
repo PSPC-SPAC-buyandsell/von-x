@@ -184,7 +184,7 @@ class IndyManager(ConfigServiceManager):
         issuer_ids = []
         config_issuers = self.services_config("issuers")
         if not config_issuers:
-            LOGGER.warning("No issuers defined by configuration")
+            LOGGER.debug("No issuers defined by configuration")
         for issuer_key, issuer_cfg in config_issuers.items():
             if not issuer_cfg.get("id"):
                 issuer_cfg["id"] = issuer_key
@@ -236,8 +236,13 @@ class IndyManager(ConfigServiceManager):
         if connection_cfg:
             if not connection_cfg.get("id"):
                 connection_cfg["id"] = issuer_id
-            _conn_id = await client.register_orgbook_connection(
-                issuer_id, connection_cfg)
+            conn_type = connection_cfg.get("type", "TheOrgBook")
+            if conn_type == "TheOrgBook":
+                _conn_id = await client.register_orgbook_connection(
+                    issuer_id, connection_cfg)
+            else:
+                _conn_id = await client.register_http_connection(
+                    issuer_id, connection_cfg)
         return issuer_id
 
     async def _register_holders(self, client: IndyClient, limit_agents: set):
@@ -248,7 +253,7 @@ class IndyManager(ConfigServiceManager):
         holder_ids = []
         config_holders = self.services_config("holders")
         if not config_holders:
-            LOGGER.info("No holders defined by configuration")
+            LOGGER.debug("No holders defined by configuration")
         for holder_key, holder_cfg in config_holders.items():
             if not holder_cfg.get("id"):
                 holder_cfg["id"] = holder_key
@@ -286,7 +291,7 @@ class IndyManager(ConfigServiceManager):
         verifier_ids = []
         config_verifiers = self.services_config("verifiers")
         if not config_verifiers:
-            LOGGER.info("No verifiers defined by configuration")
+            LOGGER.debug("No verifiers defined by configuration")
         for verifier_key, verifier_cfg in config_verifiers.items():
             if not verifier_cfg.get("id"):
                 verifier_cfg["id"] = verifier_key
@@ -323,8 +328,13 @@ class IndyManager(ConfigServiceManager):
         if connection_cfg:
             if not connection_cfg.get("id"):
                 connection_cfg["id"] = verifier_id
-            _conn_id = await client.register_orgbook_connection(
-                verifier_id, connection_cfg)
+            conn_type = connection_cfg.get("type", "TheOrgBook")
+            if conn_type == "TheOrgBook":
+                _conn_id = await client.register_orgbook_connection(
+                    verifier_id, connection_cfg)
+            else:
+                _conn_id = await client.register_http_connection(
+                    verifier_id, connection_cfg)
         return verifier_id
 
     async def _register_proof_requests(self, client: IndyClient):
