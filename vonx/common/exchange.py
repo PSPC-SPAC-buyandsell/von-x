@@ -334,11 +334,12 @@ class Exchange:
             message = None
             if locked:
                 message = self._cmd('recv', to_pid)
-                while message is None and (blocking or timeout != None):
+                while message is None and (blocking or timeout is not None):
+                    #LOGGER.warning("Locked (%r), wait", locked)
                     locked = self._req_cond.wait(timeout)
                     if locked:
                         message = self._cmd('recv', to_pid)
-                    if not locked or message != None or timeout != None:
+                    if not locked or timeout is not None:
                         break
                 if locked:
                     self._req_cond.release()
@@ -496,7 +497,7 @@ class MessageTarget:
             True if the message was successfully added to the queue
         """
         return self._send_message(MessageWrapper(
-            from_pid if from_pid != None else self._from_pid,
+            from_pid if from_pid is not None else self._from_pid,
             ident,
             message,
             ref))
