@@ -60,3 +60,16 @@ def log_json(heading, data, logger=None):
 ============================================================================
 """
     logger.debug(msg, heading, JsonRepr(data))
+
+
+def normalize_credential_ids(cred_ids) -> set:
+    """
+    Clean up credential ID input
+    """
+    if isinstance(cred_ids, str):
+        cred_ids = [id.strip() for id in cred_ids.split(",")]
+    if isinstance(cred_ids, list):
+        cred_ids = set(filter(None, cred_ids))
+    elif not isinstance(cred_ids, set):
+        cred_ids = None
+    return cred_ids

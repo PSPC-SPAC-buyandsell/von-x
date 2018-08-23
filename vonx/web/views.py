@@ -27,6 +27,7 @@ import logging
 from aiohttp import web
 
 from ..common.exchange import RequestTarget
+from ..common.util import normalize_credential_ids
 from ..indy.client import IndyClient, IndyClientError
 from ..indy.messages import Credential
 from ..indy.manager import IndyManager
@@ -66,18 +67,6 @@ def indy_client(request: web.Request) -> IndyClient:
     Create an Indy client to perform requests against the ledger service
     """
     return get_manager(request).get_client()
-
-def load_cred_ids(cred_ids) -> set:
-    """
-    Clean up credential ID input
-    """
-    if isinstance(cred_ids, str):
-        cred_ids = [id.strip() for id in cred_ids.split(",")]
-    if isinstance(cred_ids, list):
-        cred_ids = set(filter(None, cred_ids))
-    elif not isinstance(cred_ids, set):
-        cred_ids = None
-    return cred_ids
 
 
 async def health(request: web.Request) -> web.Response:
@@ -208,7 +197,7 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
             return web.Response(
                 text="Parameter 'params' must be an object",
                 status=400)
-        cred_ids = load_cred_ids(inputs.get("credential_ids", cred_ids))
+        cred_ids = normalize_credential_ids(inputs.get("credential_ids", cred_ids))
     try:
         client = indy_client(request)
         proof_req = await client.generate_proof_request(proof_name)
@@ -364,7 +353,7 @@ async def construct_proof(request, holder_id: str = None):
     #source_id = params.get("source_id")
     proof_request = params.get("proof_request")
     wql_filters = None # params.get("wql_filters")
-    cred_ids = load_cred_ids(params.get("credential_ids"))
+    cred_ids = normalize_credential_ids(params.get("credential_ids"))
     try:
         proof = await indy_client(request).construct_proof(
             holder_id, proof_request, wql_filters, cred_ids)

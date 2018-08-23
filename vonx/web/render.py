@@ -25,6 +25,7 @@ import logging
 from aiohttp import web
 import aiohttp_jinja2
 
+from ..common.util import normalize_credential_ids
 from ..indy.errors import IndyClientError
 
 LOGGER = logging.getLogger(__name__)
@@ -66,8 +67,11 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                         if val is not None and val != '':
                             params[attr_name] = val
 
+            cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
+            cred_ids = normalize_credential_ids(cred_ids)
+
             verified = await client.request_proof(
-                proof_meta["connection_id"], proof_req, None, params)
+                proof_meta["connection_id"], proof_req, cred_ids, params)
             proof_response = {
                 "success": True,
                 "verified": verified.verified,
