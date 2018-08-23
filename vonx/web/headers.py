@@ -23,15 +23,17 @@ from didauth.headers import HeaderVerifier
 from didauth.utils import decode_string
 
 from vonx.indy.client import IndyClient
+from vonx.indy.errors import IndyError
 
 LOGGER = logging.getLogger(__name__)
 
 
-async def verify_headers(
-        headers, key_finder: KeyFinderBase,
-        method=None, path=None, use_key_cache: bool = True):
+async def verify_headers(headers, key_finder: KeyFinderBase, method=None, path=None):
     verifier = HeaderVerifier(key_finder)
-    return await verifier.verify(headers, method, path, use_key_cache)
+    try:
+        return await verifier.verify(headers, method, path)
+    except VerifierException as e:
+        raise IndyError("Could not verify request headers") from e
 
 
 class IndyKeyFinder(KeyFinderBase):
@@ -39,8 +41,8 @@ class IndyKeyFinder(KeyFinderBase):
     Look up the public key for an issuer
     """
 
-    def __init__(self, client: IndyClient, verifier_id: str, cache: KeyFinderBase = None):
-        super(IndyKeyFinder, self).__init__(cache)
+    def __init__(self, client: IndyClient, verifier_id: str, source: KeyFinderBase = None):
+        super(IndyKeyFinder, self).__init__(source)
         self._client = client
         self._verifier_id = verifier_id
 
