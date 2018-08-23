@@ -61,7 +61,7 @@ class IndyKeyFinder(KeyFinderBase):
         self._client = client
         self._verifier_id = verifier_id
 
-    async def lookup_key(self, key_id: str, key_type: str):
+    async def _lookup_key(self, key_id: str, key_type: str):
         if key_type != "ed25519":
             return None
         if key_id.startswith("did:sov:"):
