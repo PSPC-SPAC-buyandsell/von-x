@@ -67,6 +67,18 @@ def indy_client(request: web.Request) -> IndyClient:
     """
     return get_manager(request).get_client()
 
+def load_cred_ids(cred_ids) -> set:
+    """
+    Clean up credential ID input
+    """
+    if isinstance(cred_ids, str):
+        cred_ids = [id.strip() for id in cred_ids.split(",")]
+    if isinstance(cred_ids, list):
+        cred_ids = set(filter(None, cred_ids))
+    elif not isinstance(cred_ids, set):
+        cred_ids = None
+    return cred_ids
+
 
 async def health(request: web.Request) -> web.Response:
     """
@@ -129,7 +141,7 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
     Ask the Indy service to issue a credential to the Connection
     """
     try:
-        connection_id = _get_handle_id(request, 'connection_id', connection_id)
+        connection_id = _get_handle_id(request, "connection_id", connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     schema_name = request.query.get("schema")
@@ -155,24 +167,26 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
     Ask the Indy service to fetch a proof from the Connection
     """
     try:
-        connection_id = _get_handle_id(request, 'connection_id', connection_id)
+        connection_id = _get_handle_id(request, "connection_id", connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
-    proof_name = request.query.get('name')
+    proof_name = request.query.get("name")
     if not proof_name:
         return web.Response(text="Missing 'name' parameter", status=400)
     inputs = await request.json()
     params = {}
+    cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
     if isinstance(inputs, dict):
-        params = inputs.get('params', params)
+        params = inputs.get("params", params)
         if not isinstance(params, dict):
             return web.Response(
                 text="Parameter 'params' must be an object",
                 status=400)
+        cred_ids = load_cred_ids(inputs.get("credential_ids", cred_ids))
     try:
         client = indy_client(request)
         proof_req = await client.generate_proof_request(proof_name)
-        verified = await client.request_proof(connection_id, proof_req, None, params)
+        verified = await client.request_proof(connection_id, proof_req, cred_ids, params)
         result = {
             "verified": verified.verified,
             "parsed_proof": verified.parsed_proof,
@@ -207,7 +221,7 @@ async def generate_credential_request(request, holder_id: str = None):
     """
 
     try:
-        holder_id = _get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, "holder_id", holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
@@ -239,8 +253,11 @@ async def generate_credential_request(request, holder_id: str = None):
                 "credential_request_metadata": cred_request.metadata,
             }}
     except IndyClientError as e:
+        cred_request = None
         ret = {"success": False, "result": str(e)}
-    return web.json_response(ret)
+    response = web.json_response(ret)
+    response["cred_request"] = cred_request
+    return response
 
 
 async def store_credential(request, holder_id: str = None):
@@ -262,13 +279,13 @@ async def store_credential(request, holder_id: str = None):
     Returns: created verified credential model
     """
     try:
-        holder_id = _get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, "holder_id", holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
     if not isinstance(params, dict):
         return web.Response(
-            text="Request body must contain the schema attributes as a JSON object",
+            text="Request body must contain the request parameters as a JSON object",
             status=400)
     data = params.get("credential_data")
     if not data:
@@ -310,28 +327,25 @@ async def construct_proof(request, holder_id: str = None):
     Returns: HL Indy proof data
     """
     try:
-        holder_id = _get_handle_id(request, 'holder_id', holder_id)
+        holder_id = _get_handle_id(request, "holder_id", holder_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
     params = await request.json()
     if not isinstance(params, dict):
         return web.Response(
-            text="Request body must contain the schema attributes as a JSON object",
+            text="Request body must contain the request parameters as a JSON object",
             status=400)
     #source_id = params.get("source_id")
     proof_request = params.get("proof_request")
     wql_filters = None # params.get("wql_filters")
-    cred_ids = params.get("cred_ids")
-    if isinstance(cred_ids, list):
-        cred_ids = set(cred_ids)
-    elif isinstance(cred_ids, str):
-        cred_ids = set(cred_ids.split(","))
-    else:
-        cred_ids = None
+    cred_ids = load_cred_ids(params.get("credential_ids"))
     try:
         proof = await indy_client(request).construct_proof(
             holder_id, proof_request, wql_filters, cred_ids)
         ret = {"success": True, "result": proof.proof}
     except IndyClientError as e:
+        proof = None
         ret = {"success": False, "result": str(e)}
-    return web.json_response(ret)
+    response = web.json_response(ret)
+    response["proof"] = proof
+    return response

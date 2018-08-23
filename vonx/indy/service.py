@@ -802,7 +802,7 @@ class IndyService(ServiceBase):
 
         # TODO - use separate request to find credentials and allow manual filtering?
         if cred_ids:
-            LOGGER.info("cred ids %s", cred_ids)
+            LOGGER.debug("Construct proof from IDs: %s", cred_ids)
             found_creds = []
             for cred_id in cred_ids:
                 try:
