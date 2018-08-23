@@ -144,22 +144,48 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
         connection_id = _get_handle_id(request, "connection_id", connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
-    schema_name = request.query.get("schema")
-    schema_version = request.query.get("version") or None
-    if not schema_name:
-        return web.Response(text="Missing 'schema' parameter", status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text="Request body must contain the schema attributes as a JSON object",
-            status=400)
-    try:
-        stored = await indy_client(request).issue_credential(
-            connection_id, schema_name, schema_version, None, params)
-        ret = {"success": True, "result": stored.cred_id}
-    except IndyClientError as e:
-        ret = {"success": False, "result": str(e)}
-    return web.json_response(ret)
+
+    async def process_cred(schema_name, schema_version, attribs):
+        """Issue a single credential"""
+        try:
+            stored = await indy_client(request).issue_credential(
+                connection_id, schema_name, schema_version, None, attribs)
+            result = {"success": True, "result": stored.cred_id}
+        except IndyClientError as e:
+            stored = None
+            result = {"success": False, "result": str(e)}
+        return result, stored
+
+    creds = await request.json()
+    if isinstance(creds, list):
+        result_list = []
+        for cred in creds:
+            if not isinstance(cred, dict):
+                result = {"success": False, "result": "Expected JSON object"}
+            elif "schema" not in cred:
+                result = {"success": False, "result": "Missing 'schema' property"}
+            elif "attributes" not in cred:
+                result = {"success": False, "result": "Missing 'attributes' property"}
+            else:
+                result, _stored = await process_cred(
+                    cred["schema"], cred.get("version"), cred["attributes"])
+            result_list.append(result)
+        response = web.json_response(result_list)
+    else:
+        schema_name = request.query.get('schema')
+        schema_version = request.query.get('version')
+        if not schema_name:
+            response = web.Response(text="Missing 'schema' parameter", status=400)
+        elif not isinstance(creds, dict):
+            response = web.Response(
+                text="Request body must contain the credential attributes as a JSON object",
+                status=400)
+        else:
+            result, stored = await process_cred(schema_name, schema_version, creds)
+            response = web.json_response(result)
+            response["stored"] = stored
+
+    return response
 
 
 async def request_proof(request: web.Request, connection_id: str = None) -> web.Response:
