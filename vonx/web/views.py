@@ -132,21 +132,34 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
         connection_id = _get_handle_id(request, 'connection_id', connection_id)
     except ValueError as e:
         return web.Response(text=str(e), status=400)
-    schema_name = request.query.get("schema")
-    schema_version = request.query.get("version") or None
-    if not schema_name:
-        return web.Response(text="Missing 'schema' parameter", status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text="Request body must contain the schema attributes as a JSON object",
-            status=400)
-    try:
-        stored = await indy_client(request).issue_credential(
-            connection_id, schema_name, schema_version, None, params)
-        ret = {"success": True, "result": stored.cred_id}
-    except IndyClientError as e:
-        ret = {"success": False, "result": str(e)}
+
+    creds = await request.json()
+    if not isinstance(creds, list):
+        cred = {}
+        cred['schema'] = request.query.get('schema')
+        cred['version'] = request.query.get('version') or None
+        cred['attributes'] = creds
+        creds = [cred]
+
+    ret = list()
+    for cred in creds:
+        schema_name = cred.get('schema')
+        schema_version = cred.get('version')
+        if not schema_name:
+            return web.Response(text="Missing 'schema' parameter", status=400)
+
+        params = cred.get('attributes')
+        if not isinstance(params, dict):
+            return web.Response(
+                text="Request body must contain the schema attributes as a JSON object",
+                status=400)
+        try:
+            stored = await indy_client(request).issue_credential(
+                connection_id, schema_name, schema_version, None, params)
+            ret.append({'success': True, 'result': stored.cred_id})
+        except IndyClientError as e:
+            ret.append({"success": False, "result": str(e)})
+            
     return web.json_response(ret)
 
 
