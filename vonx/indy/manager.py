@@ -27,6 +27,7 @@ from ..common.manager import ConfigServiceManager
 from .client import IndyClient
 from .config import IndyConfigError, SchemaManager
 from .service import IndyService
+from .tob import CRED_TYPE_PARAMETERS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         "attributes": attributes,
         "params": {},
     }
-    for k in ("cardinality_fields", "description", "issuer_url", "mapping", "topic"):
+    for k in CRED_TYPE_PARAMETERS:
         if k in ctype:
             ret["params"][k] = ctype[k]
     return ret

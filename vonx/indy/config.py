@@ -38,7 +38,7 @@ from von_anchor.util import schema_id
 
 from .connection import ConnectionBase, ConnectionType, HolderConnection, HttpConnection
 from .errors import IndyConfigError
-from .tob import TobConnection
+from .tob import CRED_TYPE_PARAMETERS, TobConnection
 
 LOGGER = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ class AgentCfg:
                 type_spec = {
                     "schema": cred_type["definition"],
                 }
-                for k in ("cardinality_fields", "description", "issuer_url", "mapping", "topic"):
+                for k in CRED_TYPE_PARAMETERS:
                     if k in params:
                         type_spec[k] = params[k]
                 cred_specs.append(type_spec)

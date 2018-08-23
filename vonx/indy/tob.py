@@ -26,6 +26,14 @@ from .errors import IndyConfigError, IndyConnectionError
 
 LOGGER = logging.getLogger(__name__)
 
+CRED_TYPE_PARAMETERS = (
+    "cardinality_fields",
+    "credential",
+    "description",
+    "issuer_url",
+    "mapping",
+    "topic",
+)
 
 def assemble_issuer_spec(config: dict) -> dict:
     """
@@ -65,8 +73,8 @@ def assemble_issuer_spec(config: dict) -> dict:
             "version": schema.version,
             "topic": type_spec["topic"],
         }
-        for k in ("mapping", "cardinality_fields"):
-            if k in type_spec:
+        for k in CRED_TYPE_PARAMETERS:
+            if k in type_spec and k not in ctype:
                 ctype[k] = type_spec[k]
         ctypes.append(ctype)
     issuer_spec["credential_types"] = ctypes
