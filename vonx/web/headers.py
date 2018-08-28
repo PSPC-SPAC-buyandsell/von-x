@@ -84,15 +84,16 @@ class KeyCache(StaticKeyFinder):
         self._expiry = expiry
         self._updated = {}
 
-    async def _cache_key(self, key_id: str, key_type: str, key: bytes):
-        if self._caching:
-            self.add_key(key_id, key_type, key)
-        self._updated[key] = time.time()
+    def add_key(self, key_id: str, key_type: str, key: bytes):
+        super(KeyCache, self).add_key(key_id, key_type, key)
+        if key:
+            self._updated[key] = time.time()
 
     async def _lookup_key(self, key_id: str, key_type: str) -> bytes:
-        key = super(KeyCache, self)._lookup_key(key_id, key_type)
+        key = await super(KeyCache, self)._lookup_key(key_id, key_type)
         if key and self._expiry and key in self._updated and \
                 self._updated[key] + self._expiry < time.time():
+            LOGGER.debug("Ignoring expired cache key")
             return None
 
 
