@@ -47,7 +47,7 @@ class JsonRepr:
         return json.dumps(self.value, indent=self.indent, cls=MessageEncoder)
 
 
-def log_json(heading, data, logger=None):
+def log_json(heading, data, logger=None, level=logging.DEBUG):
     """
     Utility method to log JSON data for debugging
     """
@@ -59,7 +59,7 @@ def log_json(heading, data, logger=None):
 %s
 ============================================================================
 """
-    logger.debug(msg, heading, JsonRepr(data))
+    logger.log(level, msg, heading, JsonRepr(data))
 
 
 def normalize_credential_ids(cred_ids) -> set:
