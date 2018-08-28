@@ -346,7 +346,7 @@ class HttpConnection(ConnectionBase):
             self.path_prefix + "construct-proof", {
                 "source_id": params and params.get("source_id") or None,
                 "proof_request": request.data,
-                "cred_ids": list(cred_ids) if cred_ids else None,
+                "credential_ids": list(cred_ids) if cred_ids else None,
             }
         )
         result = response.get("result")
