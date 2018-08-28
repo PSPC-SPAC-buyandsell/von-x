@@ -20,6 +20,7 @@ Abstractions to remove direct client dependency on didauth library
 """
 
 import logging
+import time
 from typing import Mapping
 
 from didauth.base import KeyFinderBase, StaticKeyFinder
@@ -72,14 +73,27 @@ class IndyKeyFinder(KeyFinderBase):
 
         LOGGER.debug("Fetching verkey for DID '%s' from ledger", key_id)
         nym_info = await self._client.resolve_nym(short_key_id, self._verifier_id)
-        if nym_info.data:
+        if nym_info.data and nym_info.data.get("verkey"):
             return decode_string(nym_info.data["verkey"], "base58")
         return None
 
 
 class KeyCache(StaticKeyFinder):
-    def __init__(self, source: KeyFinderBase):
+    def __init__(self, source: KeyFinderBase, expiry=600):
         super(KeyCache, self).__init__(source, True)
+        self._expiry = expiry
+        self._updated = {}
+
+    async def _cache_key(self, key_id: str, key_type: str, key: bytes):
+        if self._caching:
+            self.add_key(key_id, key_type, key)
+        self._updated[key] = time.time()
+
+    async def _lookup_key(self, key_id: str, key_type: str) -> bytes:
+        key = super(KeyCache, self)._lookup_key(key_id, key_type)
+        if key and self._expiry and key in self._updated and \
+                self._updated[key] + self._expiry < time.time():
+            return None
 
 
 __all__ = ('IndyKeyFinder', 'KeyCache', 'KeyFinderBase', 'verify_signature')
