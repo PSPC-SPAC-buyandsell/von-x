@@ -27,7 +27,7 @@ import logging
 from aiohttp import web
 
 from ..common.exchange import RequestTarget
-from ..common.util import normalize_credential_ids
+from ..common.util import log_json, normalize_credential_ids
 from ..indy.client import IndyClient, IndyClientError
 from ..indy.messages import Credential
 from ..indy.manager import IndyManager
@@ -350,17 +350,18 @@ async def construct_proof(request, holder_id: str = None):
         return web.Response(
             text="Request body must contain the request parameters as a JSON object",
             status=400)
-    #source_id = params.get("source_id")
     proof_request = params.get("proof_request")
     wql_filters = None # params.get("wql_filters")
     cred_ids = normalize_credential_ids(params.get("credential_ids"))
     try:
+        LOGGER.debug("Performing proof request with cred IDs: %s", cred_ids)
         proof = await indy_client(request).construct_proof(
             holder_id, proof_request, wql_filters, cred_ids)
         ret = {"success": True, "result": proof.proof}
     except IndyClientError as e:
         proof = None
         ret = {"success": False, "result": str(e)}
+    log_json("Proof response:", ret, LOGGER)
     response = web.json_response(ret)
     response["proof"] = proof
     return response
