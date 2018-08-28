@@ -25,7 +25,7 @@ import logging
 from aiohttp import web
 import aiohttp_jinja2
 
-from ..common.util import normalize_credential_ids
+from ..common.util import log_json, normalize_credential_ids
 from ..indy.errors import IndyClientError
 
 LOGGER = logging.getLogger(__name__)
@@ -74,12 +74,13 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                 proof_meta["connection_id"], proof_req, cred_ids, params)
             proof_response = {
                 "success": True,
-                "verified": verified.verified,
+                "verified": verified.verified == "true",
                 "parsed_proof": verified.parsed_proof,
                 "proof": verified.proof.proof,
             }
         except IndyClientError as e:
             proof_response = {"success": False, "result": str(e)}
+    log_json("Proof response:", proof_response, LOGGER, logging.INFO)
 
     tpl_name = form.get("template", "index.html")
     tpl_vars = {
@@ -98,7 +99,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
 
         if "inputs" in proof_req:
             for input_name, claim_name in proof_req["inputs"].items():
-                tpl_vars["inputs"][input_name] = proof_attrs.get(claim_name)
+                tpl_vars["inputs"][input_name] = proof_attrs.get(claim_name, "")
         else:
             tpl_vars["inputs"].update(proof_attrs)
     tpl_vars.update(form)
@@ -106,7 +107,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         tpl_vars["hidden"] = []
     if "connection_id" not in tpl_vars["hidden"]:
         tpl_vars["hidden"].append("connection_id")
-    tpl_vars["inputs"]["connection_id"] = form.get("connection_id")
+    tpl_vars["inputs"]["connection_id"] = form.get("connection_id", "")
     tpl_vars["path"] = request.rel_url
 
     return aiohttp_jinja2.render_template(tpl_name, request, tpl_vars)
