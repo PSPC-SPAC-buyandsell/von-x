@@ -20,6 +20,7 @@ The Indy service implements handlers for all the ledger-related messages, sychro
 agents and connections, and handles the core logic for working with credentials and proofs.
 """
 
+import base64
 import json
 import hashlib
 import logging
@@ -1015,7 +1016,10 @@ class IndyService(ServiceBase):
             key_id = "did:sov:{}".format(agent.did)
             secret = wallet.seed
             if isinstance(secret, str):
-                secret = secret.encode("ascii")
+                if secret[-1:] == "=":
+                    secret = base64.b64decode(secret)
+                else:
+                    secret = bytes(secret, "ascii")
             ret = SignedRequestAuth(key_id, "ed25519", secret, header_list)
             if not conn.sign_target and hasattr(ret, "sign_target"):
                 ret.sign_target = False

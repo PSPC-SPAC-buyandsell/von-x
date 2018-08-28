@@ -20,6 +20,8 @@ Classes for managing the active :class:`IndyService` configuration - agents, con
 schemas, proof requests, and wallets.
 """
 
+import base64
+import binascii
 from distutils.version import LooseVersion
 from enum import Enum
 import logging
@@ -575,9 +577,19 @@ class WalletCfg:
         self.seed = params.get("seed")
         if not self.seed:
             raise IndyConfigError("Missing seed for wallet '{}'".format(self.name))
-        if len(self.seed) != 32:
+        if len(self.seed) == 32:
+            valid = True
+        elif self.seed[-1:] == "=":
+            valid = False
+            try:
+                decoded = base64.b64decode(bytes(self.seed, 'ascii'))
+                if len(decoded) == 32:
+                    valid = True
+            except binascii.Error:
+                pass
+        if not valid:
             raise IndyConfigError(
-                "Wallet seed length is not 32 characters: {}".format(self.seed)
+                "Wallet seed length is not 32 characters and/or not valid base64: {}".format(self.seed)
             )
         self.type = params.get("type")  # default to virtual?
         self.params = params.get("params") or {}
