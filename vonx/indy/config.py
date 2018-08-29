@@ -75,6 +75,7 @@ class AgentCfg:
         self.endpoint = params.get("endpoint")
         self.name = params.get("name")
         self.url = params.get("url")
+        self.link_secret_name = params.get("link_secret_name", "master-secret")
 
     @property
     def created(self) -> bool:
@@ -162,9 +163,7 @@ class AgentCfg:
         if not self.opened:
             self.opened = await self._instance.open()
             if isinstance(self._instance, HolderProver):
-                # NOTE: should only create this once,
-                # and only in the root wallet (virtual_wallet == None)
-                await self._instance.create_link_secret(str(uuid.uuid4()))
+                await self._instance.create_link_secret(self.link_secret_name)
 
     async def close(self) -> None:
         """
