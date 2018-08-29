@@ -94,7 +94,8 @@ class KeyCache(StaticKeyFinder):
         if key and self._expiry and key in self._updated and \
                 self._updated[key] + self._expiry < time.time():
             LOGGER.debug("Ignoring expired cache key")
-            return None
+            key = None
+        return key
 
 
 __all__ = ('IndyKeyFinder', 'KeyCache', 'KeyFinderBase', 'verify_signature')
