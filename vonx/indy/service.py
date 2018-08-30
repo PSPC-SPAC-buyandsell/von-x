@@ -20,6 +20,7 @@ The Indy service implements handlers for all the ledger-related messages, sychro
 agents and connections, and handles the core logic for working with credentials and proofs.
 """
 
+import asyncio
 import base64
 import json
 import hashlib
@@ -643,17 +644,20 @@ class IndyService(ServiceBase):
         fixed_data = self._fix_cred_data(cred_type["definition"], cred_data)
 
         cred_request_cache = cred_type.get("cred_request_cache")
-        if cred_request_cache and cred_request_cache["expiry"] > time.time():
-            cred_request = cred_request_cache["request"]
-            LOGGER.debug("Fetched credential request from cache")
-        else:
-            cred_offer = await self._create_cred_offer(issuer, cred_type)
-            log_json("Created cred offer:", cred_offer, LOGGER)
-            cred_request = await conn.instance.generate_credential_request(cred_offer)
-            cred_type["cred_request_cache"] = {
-                "request": cred_request,
-                "expiry": time.time() + 600,
-            }
+        if not cred_request_cache:
+            cred_request_cache = cred_type["cred_request_cache"] = \
+                {"request": None, "lock": asyncio.Lock()}
+        async with cred_request_cache["lock"]:
+            if cred_request_cache["request"] and cred_request_cache["expiry"] > time.time():
+                cred_request = cred_request_cache["request"]
+                LOGGER.debug("Fetched credential request from cache")
+            else:
+                cred_offer = await self._create_cred_offer(issuer, cred_type)
+                log_json("Created cred offer:", cred_offer, LOGGER)
+                cred_request = await conn.instance.generate_credential_request(cred_offer)
+                cred_request_cache["request"] = cred_request
+                cred_request_cache["expiry"] = time.time() + 600
+                LOGGER.debug("Saved cred request cache")
         log_json("Got cred request:", cred_request, LOGGER)
 
         cred = await self._create_cred(issuer, cred_request, fixed_data)
