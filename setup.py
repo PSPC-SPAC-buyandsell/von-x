@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 
 pkg_name = 'vonx'
-version = '1.3.1'
+version = '1.3.2'
 
 setup(
     name=pkg_name,
