@@ -29,6 +29,7 @@ from .exchange import (
     ExchangeMessage,
     MessageWrapper,
     RequestExecutor)
+from .util import Stats
 
 LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ class ServiceBase(RequestExecutor):
             "syncing": False,
             "started": False,
         }
+        self._stats = Stats()
         self._sync_again = False
         self._sync_lock = None
 
@@ -202,7 +204,9 @@ class ServiceBase(RequestExecutor):
         """
         Return the current status of the service
         """
-        return ServiceStatus(self._status.copy())
+        result = self._status.copy()
+        result["stats"] = self._stats.results()
+        return ServiceStatus(result)
 
     async def _handle_message(self, received: MessageWrapper) -> bool:
         """
@@ -279,3 +283,9 @@ class ServiceBase(RequestExecutor):
         Handle a response from another service
         """
         pass
+
+    def _timer(self, *tasks, log_as=None):
+        """
+        Start a new timer for a set of tasks
+        """
+        return self._stats.timer(*tasks, log_as=log_as)

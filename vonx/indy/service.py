@@ -1049,8 +1049,9 @@ class IndyService(ServiceBase):
             request: the message to be processed
         """
         if isinstance(request, LedgerStatusReq):
-            text = await self._handle_ledger_status()
-            reply = LedgerStatus(text)
+            with self._timer("ledger_status"):
+                text = await self._handle_ledger_status()
+                reply = LedgerStatus(text)
 
         elif isinstance(request, RegisterAgentReq):
             try:
@@ -1101,40 +1102,45 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, IssueCredentialReq):
             try:
-                reply = await self._issue_credential(
-                    request.connection_id,
-                    request.schema_name,
-                    request.schema_version,
-                    request.origin_did,
-                    request.cred_data)
+                with self._timer("issue_credential"):
+                    reply = await self._issue_credential(
+                        request.connection_id,
+                        request.schema_name,
+                        request.schema_version,
+                        request.origin_did,
+                        request.cred_data)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, GenerateCredentialRequestReq):
             try:
-                reply = await self._generate_credential_request(
-                    request.holder_id, request.cred_offer)
+                with self._timer("generate_credential_request"):
+                    reply = await self._generate_credential_request(
+                        request.holder_id, request.cred_offer)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, StoreCredentialReq):
             try:
-                reply = await self._store_credential(
-                    request.holder_id, request.credential)
+                with self._timer("store_credential"):
+                    reply = await self._store_credential(
+                        request.holder_id, request.credential)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ResolveSchemaReq):
             try:
-                reply = await self._resolve_schema(
-                    request.schema_name, request.schema_version, request.origin_did)
+                with self._timer("resolve_schema"):
+                    reply = await self._resolve_schema(
+                        request.schema_name, request.schema_version, request.origin_did)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ConstructProofReq):
             try:
-                reply = await self._construct_proof(
-                    request.holder_id, request.proof_req, request.cred_ids)
+                with self._timer("construct_proof"):
+                    reply = await self._construct_proof(
+                        request.holder_id, request.proof_req, request.cred_ids)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -1154,22 +1160,25 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, RequestProofReq):
             try:
-                reply = await self._request_proof(
-                    request.connection_id, request.proof_req,
-                    request.cred_ids, request.params)
+                with self._timer("request_proof"):
+                    reply = await self._request_proof(
+                        request.connection_id, request.proof_req,
+                        request.cred_ids, request.params)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, VerifyProofReq):
             try:
-                reply = await self._verify_proof(
-                    request.verifier_id, request.proof_req, request.proof)
+                with self._timer("verify_proof"):
+                    reply = await self._verify_proof(
+                        request.verifier_id, request.proof_req, request.proof)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ResolveNymReq):
             try:
-                reply = await self._resolve_nym(request.did, request.agent_id)
+                with self._timer("resolve_nym"):
+                    reply = await self._resolve_nym(request.did, request.agent_id)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
