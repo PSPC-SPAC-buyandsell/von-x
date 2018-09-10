@@ -75,6 +75,8 @@ class AgentCfg:
         self.endpoint = params.get("endpoint")
         self.name = params.get("name")
         self.url = params.get("url")
+        self.logo_b64 = params.get("logo_b64")
+        self.logo_path = params.get("logo_path")
         self.link_secret_name = params.get("link_secret_name", "master-secret")
 
     @property
@@ -226,6 +228,8 @@ class AgentCfg:
                 "email": self.email,
                 "name": self.name,
                 "url": self.url,
+                "logo_b64": self.logo_b64,
+                "logo_path": self.logo_path,
             }
         return None
 

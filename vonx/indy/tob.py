@@ -19,7 +19,9 @@
 Connection handling specific to using TheOrgBook as a holder/prover
 """
 
+import base64
 import logging
+import pathlib
 
 from .connection import HttpConnection, HttpSession
 from .errors import IndyConfigError, IndyConnectionError
@@ -33,7 +35,23 @@ CRED_TYPE_PARAMETERS = (
     "issuer_url",
     "mapping",
     "topic",
+    "logo_b64",
+    "logo_path",
 )
+
+
+def encode_logo_image(config: dict, path_root: str) -> str:
+    if config.get("logo_b64"):
+        return config["logo_b64"]
+    elif "logo_path" in config:
+        path = pathlib.Path(path_root, config["logo_path"])
+        if path.is_file():
+            content = path.read_bytes()
+            if content:
+                return base64.b64encode(content).decode("ascii")
+        else:
+            LOGGER.warning("No file found at logo path: %s", path)
+
 
 def assemble_issuer_spec(config: dict) -> dict:
     """
@@ -47,16 +65,19 @@ def assemble_issuer_spec(config: dict) -> dict:
     if not issuer_did:
         raise IndyConfigError("Missing issuer DID")
 
+    config_root = config.get("config_root", ".")
     issuer_spec["issuer"] = {
         "did": issuer_did,
         "name": config.get("name") or "",
         "abbreviation": config.get("abbreviation") or "",
         "email": issuer_email,
         "url": config.get("url") or "",
+        "logo_b64": encode_logo_image(config, config_root),
     }
 
     if not issuer_spec["issuer"]["name"]:
         raise IndyConfigError("Missing issuer name")
+    LOGGER.debug("Issuer spec: %s", issuer_spec)
 
     cred_type_specs = config.get("credential_types")
     if not cred_type_specs:
@@ -76,6 +97,9 @@ def assemble_issuer_spec(config: dict) -> dict:
         for k in CRED_TYPE_PARAMETERS:
             if k in type_spec and k not in ctype:
                 ctype[k] = type_spec[k]
+        ctype["logo_b64"] = encode_logo_image(type_spec, config_root)
+        if "logo_path" in ctype:
+            del ctype["logo_path"]
         ctypes.append(ctype)
     issuer_spec["credential_types"] = ctypes
     return issuer_spec

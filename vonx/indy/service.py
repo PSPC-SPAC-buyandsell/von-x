@@ -406,6 +406,9 @@ class IndyService(ServiceBase):
                 if not agent.synced:
                     return False
                 agent_cfg = agent.get_connection_params(connection)
+                if not agent_cfg:
+                    agent_cfg = {}
+                agent_cfg["config_root"] = self._env.get("CONFIG_ROOT")
                 await connection.create(agent_cfg)
 
             try:
