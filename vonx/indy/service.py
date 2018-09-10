@@ -575,6 +575,10 @@ class IndyService(ServiceBase):
                 schema_json = await issuer.instance.get_schema(s_key)
                 ledger_schema = json.loads(schema_json)
                 log_json("Schema found on ledger:", ledger_schema, LOGGER)
+                if sorted(ledger_schema["attrNames"]) != sorted(definition.attr_names):
+                    raise IndyConfigError(
+                        "Ledger schema attributes do not match definition, found: %s",
+                        ledger_schema["attrNames"])
             except AbsentSchema:
                 # If not found, send the schema to the ledger
                 LOGGER.info(
