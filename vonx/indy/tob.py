@@ -25,6 +25,7 @@ import pathlib
 
 from .connection import HttpConnection, HttpSession
 from .errors import IndyConfigError, IndyConnectionError
+from ..common.util import log_json
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ CRED_TYPE_PARAMETERS = (
     "topic",
     "logo_b64",
     "logo_path",
+    "visible_fields",
 )
 
 
@@ -77,7 +79,6 @@ def assemble_issuer_spec(config: dict) -> dict:
 
     if not issuer_spec["issuer"]["name"]:
         raise IndyConfigError("Missing issuer name")
-    LOGGER.debug("Issuer spec: %s", issuer_spec)
 
     cred_type_specs = config.get("credential_types")
     if not cred_type_specs:
@@ -93,6 +94,7 @@ def assemble_issuer_spec(config: dict) -> dict:
             "schema": schema.name,
             "version": schema.version,
             "topic": type_spec["topic"],
+            "credential_def_id": type_spec["cred_def"]["id"],
         }
         for k in CRED_TYPE_PARAMETERS:
             if k in type_spec and k not in ctype:
@@ -117,6 +119,7 @@ class TobConnection(HttpConnection):
         """
         if self.agent_type == "issuer":
             spec = assemble_issuer_spec(self.agent_params)
+            log_json("Issuer spec:", spec, LOGGER)
             response = await self.post_json(
                 "indy/register-issuer", spec
             )

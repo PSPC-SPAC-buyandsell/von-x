@@ -216,6 +216,7 @@ class AgentCfg:
                 params = cred_type["params"]
                 type_spec = {
                     "schema": cred_type["definition"],
+                    "cred_def": cred_type["cred_def"],
                 }
                 for k in CRED_TYPE_PARAMETERS:
                     if k in params:
