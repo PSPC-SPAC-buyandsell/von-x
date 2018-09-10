@@ -1,9 +1,9 @@
-FROM bcgovimages/von-image:py35-1.6-0
+FROM bcgovimages/von-image:py35-1.6-2
 
 ADD --chown=indy:indy requirements.txt .
 
 RUN pip --no-cache-dir install -r requirements.txt && \
-    pip --no-cache-dir install gunicorn
+    pip --no-cache-dir install gunicorn PyYaml
 
 ADD --chown=indy:indy . .
 

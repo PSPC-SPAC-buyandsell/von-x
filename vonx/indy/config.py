@@ -590,7 +590,7 @@ class WalletCfg:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(self.seed)
             )
-        self.type = params.get("type")  # default to virtual?
+        self.type = params.get("type")
         self.params = params.get("params") or {}
         if "freshness_time" not in self.params:
             self.params["freshness_time"] = 0

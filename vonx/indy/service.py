@@ -181,10 +181,12 @@ class IndyService(ServiceBase):
         self._agents = {}
         self._connections = {}
         self._ledger_url = None
+        self._max_concurrent_storage = env.get("MAX_CONCURRENT_STORAGE", 20)
         self._name = pid
         self._opened = False
         self._pool = None
         self._proof_specs = {}
+        self._storage_lock = None
         self._wallets = {}
         self._verifier = None
         self._update_config(spec)
@@ -199,6 +201,14 @@ class IndyService(ServiceBase):
             self._name = spec["name"]
         if "ledger_url" in spec:
             self._ledger_url = spec["ledger_url"]
+
+    async def _service_start(self) -> bool:
+        """
+        Initial service startup sequence
+        """
+        self._storage_lock = asyncio.Semaphore(self._max_concurrent_storage)
+        LOGGER.info("Max concurrent: %s", self._max_concurrent_storage)
+        return await super(IndyService, self)._service_start()
 
     async def _service_sync(self) -> bool:
         """
@@ -733,12 +743,13 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
-        if not holder.synced:
-            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
-        (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
-            json.dumps(cred_offer.data),
-            cred_offer.cred_def_id,
-        )
+        async with self._storage_lock:
+            if not holder.synced:
+                raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
+            (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
+                json.dumps(cred_offer.data),
+                cred_offer.cred_def_id,
+            )
         return CredentialRequest(
             cred_offer,
             cred_req,
@@ -753,12 +764,13 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
-        if not holder.synced:
-            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
-        cred_id = await holder.instance.store_cred(
-            json.dumps(credential.cred_data),
-            json.dumps(credential.cred_req_metadata),
-        )
+        async with self._storage_lock:
+            if not holder.synced:
+                raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
+            cred_id = await holder.instance.store_cred(
+                json.dumps(credential.cred_data),
+                json.dumps(credential.cred_req_metadata),
+            )
         return StoredCredential(
             credential,
             cred_id,

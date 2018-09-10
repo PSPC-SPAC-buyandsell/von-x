@@ -153,9 +153,9 @@ class Stats:
                 self.max[task] = diff
                 self.min[task] = diff
                 self.total[task] = diff
-        return diff
         if log_as and self.logger:
             self.logger.log(self.log_level, "<<< %s (%0.5f)", log_as, diff)
+        return diff
 
     def timer(self, *tasks, log_as=None):
         """
