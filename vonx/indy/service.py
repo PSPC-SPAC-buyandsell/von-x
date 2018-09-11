@@ -222,12 +222,15 @@ class IndyService(ServiceBase):
                 await wallet.create()
         for agent in self._agents.values():
             if not await self._sync_agent(agent):
+                LOGGER.debug("Agent not yet synced: %s", agent.agent_id)
                 synced = False
         for connection in self._connections.values():
             if not await self._sync_connection(connection):
+                LOGGER.debug("Connection not yet synced: %s", connection.connection_id)
                 synced = False
         for spec in self._proof_specs.values():
             if not await self._sync_proof_spec(spec):
+                LOGGER.debug("Proof spec not synced: %s", spec.spec_id)
                 synced = False
         return synced
 
