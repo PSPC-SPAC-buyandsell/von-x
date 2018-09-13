@@ -97,15 +97,17 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
         for attrs in proof_response["parsed_proof"].values():
             proof_attrs.update(attrs)
 
-        LOGGER.info('-=-=-=')
-        LOGGER.info(proof_attrs)
-        LOGGER.info('-=-=-=')
-
         if "inputs" in proof_req:
             for input_name, claim_name in proof_req["inputs"].items():
                 tpl_vars["inputs"][input_name] = proof_attrs.get(claim_name, "")
         else:
+            LOGGER.info('-=-=-=')
+            LOGGER.info(tpl_vars)
+            LOGGER.info('-=-=-=')
             tpl_vars["inputs"].update(proof_attrs)
+            LOGGER.info('-=-=-=')
+            LOGGER.info(tpl_vars)
+            LOGGER.info('-=-=-=')
     tpl_vars.update(form)
     if "hidden" not in tpl_vars:
         tpl_vars["hidden"] = []
