@@ -94,6 +94,9 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
     if proof_response and proof_response["success"]:
         # currently flattening attributes from different schemas
         proof_attrs = {}
+        LOGGER.info('--==--==--')
+        LOGGER.info(proof_response)
+        LOGGER.info('--==--==--')
         for attrs in proof_response["parsed_proof"].values():
             proof_attrs.update(attrs)
 
