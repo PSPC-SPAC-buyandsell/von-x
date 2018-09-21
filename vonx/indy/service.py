@@ -182,6 +182,7 @@ class IndyService(ServiceBase):
         self._connections = {}
         self._ledger_url = None
         self._genesis_url = None
+        self._protocol_version = None
         self._max_concurrent_storage = env.get("MAX_CONCURRENT_STORAGE", 20)
         self._name = pid
         self._opened = False
@@ -204,6 +205,8 @@ class IndyService(ServiceBase):
             self._ledger_url = spec["ledger_url"]
         if "genesis_url" in spec:
             self._genesis_url = spec["genesis_url"]
+        if "protocol_version" in spec:
+            self._protocol_version = spec["protocol_version"]
 
     async def _service_start(self) -> bool:
         """
@@ -433,7 +436,11 @@ class IndyService(ServiceBase):
         """
         if not self._opened:
             await self._check_genesis_path()
-            self._pool = NodePool(self._name, self._genesis_path)
+            if self._protocol_version is not None:
+                pool_cfg = {'protocol': self._protocol_version}
+            else:
+                pool_cfg = None
+            self._pool = NodePool(self._name, self._genesis_path, pool_cfg)
             await self._pool.open()
             self._opened = True
 

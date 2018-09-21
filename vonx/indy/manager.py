@@ -114,11 +114,13 @@ class IndyManager(ConfigServiceManager):
         if not ledger_url:
             raise IndyConfigError("INDY_LEDGER_URL not defined")
         genesis_url = self._env.get("INDY_GENESIS_URL")
+        protocol_version = self._env.get("LEDGER_PROTOCOL_VERSION")
         return {
             "auto_register": self._env.get("AUTO_REGISTER_DID", 1),
             "genesis_path": genesis_path,
             "ledger_url": ledger_url,
             "genesis_url": genesis_url,
+            "protocol_version": protocol_version,
         }
 
     def init_indy_service(self, pid: str = "indy") -> IndyService:
