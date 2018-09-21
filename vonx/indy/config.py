@@ -75,6 +75,8 @@ class AgentCfg:
         self.endpoint = params.get("endpoint")
         self.name = params.get("name")
         self.url = params.get("url")
+        self.logo_b64 = params.get("logo_b64")
+        self.logo_path = params.get("logo_path")
         self.link_secret_name = params.get("link_secret_name", "master-secret")
 
     @property
@@ -214,6 +216,7 @@ class AgentCfg:
                 params = cred_type["params"]
                 type_spec = {
                     "schema": cred_type["definition"],
+                    "cred_def": cred_type["cred_def"],
                 }
                 for k in CRED_TYPE_PARAMETERS:
                     if k in params:
@@ -226,6 +229,8 @@ class AgentCfg:
                 "email": self.email,
                 "name": self.name,
                 "url": self.url,
+                "logo_b64": self.logo_b64,
+                "logo_path": self.logo_path,
             }
         return None
 
@@ -590,7 +595,7 @@ class WalletCfg:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(self.seed)
             )
-        self.type = params.get("type")  # default to virtual?
+        self.type = params.get("type")
         self.params = params.get("params") or {}
         if "freshness_time" not in self.params:
             self.params["freshness_time"] = 0

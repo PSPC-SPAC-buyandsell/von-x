@@ -21,6 +21,7 @@ Utility functions and classes
 
 import json
 import logging
+import time
 
 from .exchange import ExchangeMessage
 
@@ -73,3 +74,101 @@ def normalize_credential_ids(cred_ids) -> set:
     elif not isinstance(cred_ids, set):
         cred_ids = None
     return cred_ids
+
+
+
+class Stats:
+    """
+    Measure combined statistics for various named tasks
+    """
+
+    class Timer:
+        """
+        An instance of a timer that can be used in a with statement
+        """
+        def __init__(self, stats, tasks, log_as=None):
+            self.duration = None
+            self.handle = None
+            self.log_as = log_as
+            self.stats = stats
+            self.tasks = tasks
+
+        def start(self):
+            """
+            Start the timer
+            """
+            self.handle = self.stats.start(*self.tasks, log_as=self.log_as)
+            return self
+
+        def end(self):
+            """
+            End the timer
+            """
+            if self.duration is None:
+                self.duration = self.stats.end(self.handle)
+            return self.duration
+
+        def __enter__(self):
+            return self.start()
+
+        def __exit__(self, exception_type, exception_value, traceback):
+            self.end()
+
+    def __init__(self, logger=None, log_level=logging.DEBUG):
+        self.count = {}
+        self.current = {}
+        self.logger = logger
+        self.log_level = log_level
+        self.max = {}
+        self.min = {}
+        self.total = {}
+
+    def start(self, *tasks, log_as=None):
+        """
+        Start a new set of tasks
+        """
+        if tasks and not log_as:
+            log_as = tasks[0]
+        if log_as and self.logger:
+            self.logger.log(self.log_level, ">>> %s", log_as)
+        for task in tasks:
+            self.current[task] = self.current.get(task, 0) + 1
+        return (time.perf_counter(), tasks, log_as)
+
+    def end(self, handle):
+        """
+        End a previously started set of tasks
+        """
+        (start, tasks, log_as) = handle
+        diff = time.perf_counter() - start
+        for task in tasks:
+            self.current[task] -= 1
+            if task in self.count:
+                self.count[task] += 1
+                self.max[task] = max(self.max[task], diff)
+                self.min[task] = min(self.min[task], diff)
+                self.total[task] += diff
+            else:
+                self.count[task] = 1
+                self.max[task] = diff
+                self.min[task] = diff
+                self.total[task] = diff
+        if log_as and self.logger:
+            self.logger.log(self.log_level, "<<< %s (%0.5f)", log_as, diff)
+        return diff
+
+    def timer(self, *tasks, log_as=None):
+        """
+        Create a new timer for a set of tasks
+        """
+        return self.Timer(self, tasks, log_as=log_as)
+
+    def results(self):
+        return {
+            "avg": {task: self.total[task] / self.count[task] for task in self.count},
+            "count": self.count.copy(),
+            "current": self.current.copy(),
+            "max": self.max.copy(),
+            "min": self.min.copy(),
+            "total": self.total.copy(),
+        }

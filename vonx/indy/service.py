@@ -182,10 +182,12 @@ class IndyService(ServiceBase):
         self._connections = {}
         self._ledger_url = None
         self._genesis_url = None
+        self._max_concurrent_storage = env.get("MAX_CONCURRENT_STORAGE", 20)
         self._name = pid
         self._opened = False
         self._pool = None
         self._proof_specs = {}
+        self._storage_lock = None
         self._wallets = {}
         self._verifier = None
         self._update_config(spec)
@@ -203,6 +205,14 @@ class IndyService(ServiceBase):
         if "genesis_url" in spec:
             self._genesis_url = spec["genesis_url"]
 
+    async def _service_start(self) -> bool:
+        """
+        Initial service startup sequence
+        """
+        self._storage_lock = asyncio.Semaphore(self._max_concurrent_storage)
+        LOGGER.info("Max concurrent: %s", self._max_concurrent_storage)
+        return await super(IndyService, self)._service_start()
+
     async def _service_sync(self) -> bool:
         """
         Perform the initial setup of the ledger connection, including downloading the
@@ -215,12 +225,15 @@ class IndyService(ServiceBase):
                 await wallet.create()
         for agent in self._agents.values():
             if not await self._sync_agent(agent):
+                LOGGER.debug("Agent not yet synced: %s", agent.agent_id)
                 synced = False
         for connection in self._connections.values():
             if not await self._sync_connection(connection):
+                LOGGER.debug("Connection not yet synced: %s", connection.connection_id)
                 synced = False
         for spec in self._proof_specs.values():
             if not await self._sync_proof_spec(spec):
+                LOGGER.debug("Proof spec not synced: %s", spec.spec_id)
                 synced = False
         return synced
 
@@ -399,6 +412,9 @@ class IndyService(ServiceBase):
                 if not agent.synced:
                     return False
                 agent_cfg = agent.get_connection_params(connection)
+                if not agent_cfg:
+                    agent_cfg = {}
+                agent_cfg["config_root"] = self._env.get("CONFIG_ROOT")
                 await connection.create(agent_cfg)
 
             try:
@@ -568,6 +584,10 @@ class IndyService(ServiceBase):
                 schema_json = await issuer.instance.get_schema(s_key)
                 ledger_schema = json.loads(schema_json)
                 log_json("Schema found on ledger:", ledger_schema, LOGGER)
+                if sorted(ledger_schema["attrNames"]) != sorted(definition.attr_names):
+                    raise IndyConfigError(
+                        "Ledger schema attributes do not match definition, found: %s",
+                        ledger_schema["attrNames"])
             except AbsentSchema:
                 # If not found, send the schema to the ledger
                 LOGGER.info(
@@ -739,12 +759,13 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
-        if not holder.synced:
-            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
-        (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
-            json.dumps(cred_offer.data),
-            cred_offer.cred_def_id,
-        )
+        async with self._storage_lock:
+            if not holder.synced:
+                raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
+            (cred_req, req_metadata_json) = await holder.instance.create_cred_req(
+                json.dumps(cred_offer.data),
+                cred_offer.cred_def_id,
+            )
         return CredentialRequest(
             cred_offer,
             cred_req,
@@ -759,12 +780,13 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
-        if not holder.synced:
-            raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
-        cred_id = await holder.instance.store_cred(
-            json.dumps(credential.cred_data),
-            json.dumps(credential.cred_req_metadata),
-        )
+        async with self._storage_lock:
+            if not holder.synced:
+                raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
+            cred_id = await holder.instance.store_cred(
+                json.dumps(credential.cred_data),
+                json.dumps(credential.cred_req_metadata),
+            )
         return StoredCredential(
             credential,
             cred_id,
@@ -1055,8 +1077,9 @@ class IndyService(ServiceBase):
             request: the message to be processed
         """
         if isinstance(request, LedgerStatusReq):
-            text = await self._handle_ledger_status()
-            reply = LedgerStatus(text)
+            with self._timer("ledger_status"):
+                text = await self._handle_ledger_status()
+                reply = LedgerStatus(text)
 
         elif isinstance(request, RegisterAgentReq):
             try:
@@ -1107,40 +1130,45 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, IssueCredentialReq):
             try:
-                reply = await self._issue_credential(
-                    request.connection_id,
-                    request.schema_name,
-                    request.schema_version,
-                    request.origin_did,
-                    request.cred_data)
+                with self._timer("issue_credential"):
+                    reply = await self._issue_credential(
+                        request.connection_id,
+                        request.schema_name,
+                        request.schema_version,
+                        request.origin_did,
+                        request.cred_data)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, GenerateCredentialRequestReq):
             try:
-                reply = await self._generate_credential_request(
-                    request.holder_id, request.cred_offer)
+                with self._timer("generate_credential_request"):
+                    reply = await self._generate_credential_request(
+                        request.holder_id, request.cred_offer)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, StoreCredentialReq):
             try:
-                reply = await self._store_credential(
-                    request.holder_id, request.credential)
+                with self._timer("store_credential"):
+                    reply = await self._store_credential(
+                        request.holder_id, request.credential)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ResolveSchemaReq):
             try:
-                reply = await self._resolve_schema(
-                    request.schema_name, request.schema_version, request.origin_did)
+                with self._timer("resolve_schema"):
+                    reply = await self._resolve_schema(
+                        request.schema_name, request.schema_version, request.origin_did)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ConstructProofReq):
             try:
-                reply = await self._construct_proof(
-                    request.holder_id, request.proof_req, request.cred_ids)
+                with self._timer("construct_proof"):
+                    reply = await self._construct_proof(
+                        request.holder_id, request.proof_req, request.cred_ids)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
@@ -1160,22 +1188,25 @@ class IndyService(ServiceBase):
 
         elif isinstance(request, RequestProofReq):
             try:
-                reply = await self._request_proof(
-                    request.connection_id, request.proof_req,
-                    request.cred_ids, request.params)
+                with self._timer("request_proof"):
+                    reply = await self._request_proof(
+                        request.connection_id, request.proof_req,
+                        request.cred_ids, request.params)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, VerifyProofReq):
             try:
-                reply = await self._verify_proof(
-                    request.verifier_id, request.proof_req, request.proof)
+                with self._timer("verify_proof"):
+                    reply = await self._verify_proof(
+                        request.verifier_id, request.proof_req, request.proof)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
         elif isinstance(request, ResolveNymReq):
             try:
-                reply = await self._resolve_nym(request.did, request.agent_id)
+                with self._timer("resolve_nym"):
+                    reply = await self._resolve_nym(request.did, request.agent_id)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 
