@@ -45,7 +45,7 @@ CRED_TYPE_PARAMETERS = (
 def encode_logo_image(config: dict, path_root: str) -> str:
     if config.get("logo_b64"):
         return config["logo_b64"]
-    elif "logo_path" in config and isinstance(config["logo_path"], str):
+    elif config.get("logo_path"):
         path = pathlib.Path(path_root, config["logo_path"])
         if path.is_file():
             content = path.read_bytes()
