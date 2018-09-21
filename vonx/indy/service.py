@@ -181,6 +181,7 @@ class IndyService(ServiceBase):
         self._agents = {}
         self._connections = {}
         self._ledger_url = None
+        self._genesis_url = None
         self._name = pid
         self._opened = False
         self._pool = None
@@ -199,6 +200,8 @@ class IndyService(ServiceBase):
             self._name = spec["name"]
         if "ledger_url" in spec:
             self._ledger_url = spec["ledger_url"]
+        if "genesis_url" in spec:
+            self._genesis_url = spec["genesis_url"]
 
     async def _service_sync(self) -> bool:
         """
@@ -428,34 +431,37 @@ class IndyService(ServiceBase):
                 raise IndyConfigError("Missing genesis_path")
             genesis_path = pathlib.Path(path)
             if not genesis_path.exists():
-                ledger_url = self._ledger_url
-                if not ledger_url:
-                    raise IndyConfigError(
-                        "Cannot retrieve genesis transaction without ledger_url"
-                    )
+                genesis_url = self._genesis_url
+                if not genesis_url:
+                    ledger_url = self._ledger_url
+                    if not ledger_url:
+                        raise IndyConfigError(
+                            "Cannot retrieve genesis transaction without ledger_url or genesis_url"
+                        )
+                    genesis_url = "{}/genesis".format(ledger_url)
                 parent_path = pathlib.Path(genesis_path.parent)
                 if not parent_path.exists():
                     parent_path.mkdir(parents=True)
-                await self._fetch_genesis_txn(ledger_url, genesis_path)
+                await self._fetch_genesis_txn(genesis_url, genesis_path)
             elif genesis_path.is_dir():
                 raise IndyConfigError("genesis_path must not point to a directory")
             self._genesis_path = path
 
-    async def _fetch_genesis_txn(self, ledger_url: str, target_path: str) -> bool:
+    async def _fetch_genesis_txn(self, genesis_url: str, target_path: str) -> bool:
         """
         Download the genesis transaction file from the ledger server
 
         Args:
-            ledger_url: the root address of the von-network ledger
+            genesis_url: the root address of genesis file
             target_path: the filesystem path of the genesis transaction file once downloaded
         """
         LOGGER.info(
-            "Fetching genesis transaction file from %s/genesis", ledger_url
+            "Fetching genesis transaction file from %s", genesis_url
         )
 
         try:
             async with HttpSession('fetching genesis transaction', timeout=15) as handler:
-                response = await handler.client.get("{}/genesis".format(ledger_url))
+                response = await handler.client.get(genesis_url)
                 await handler.check_status(response, (200,))
                 data = await response.text()
         except IndyConnectionError as e:
