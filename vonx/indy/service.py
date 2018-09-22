@@ -628,6 +628,7 @@ class IndyService(ServiceBase):
             try:
                 print(issuer.did)
                 print(cred_type)
+                print(cred_type["ledger_schema"]["seqNo"])
                 cred_def_json = await issuer.instance.get_cred_def(
                     cred_def_id(issuer.did, cred_type["ledger_schema"]["seqNo"])
                 )
