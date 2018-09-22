@@ -48,7 +48,7 @@ class JsonRepr:
         return json.dumps(self.value, indent=self.indent, cls=MessageEncoder)
 
 
-def log_json(heading, data, logger=None, level=logging.DEBUG):
+def log_json(heading, data, logger=None, level=logging.INFO):
     """
     Utility method to log JSON data for debugging
     """
