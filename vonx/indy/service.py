@@ -630,7 +630,7 @@ class IndyService(ServiceBase):
                 print(cred_type)
                 print(cred_type["ledger_schema"]["seqNo"])
                 cred_def_json = await issuer.instance.get_cred_def(
-                    cred_def_id(issuer.did, cred_type["ledger_schema"]["seqNo"], self._pool.protocol())
+                    cred_def_id(issuer.did, cred_type["ledger_schema"]["seqNo"], self._pool.protocol
                 )
                 cred_def = json.loads(cred_def_json)
                 log_json("Credential def found on ledger:", cred_def, LOGGER)
