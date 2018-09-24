@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 
 pkg_name = 'vonx'
-version = '1.3.3'
+version = '1.3.4'
 
 setup(
     name=pkg_name,
@@ -32,6 +32,6 @@ setup(
         'aiohttp~=3.3.0',
         'aiohttp-jinja2~=1.0.0',
         'PyYAML',
-        'von-anchor==1.6.20',
+        'von-anchor==1.6.25',
     ],
 )
