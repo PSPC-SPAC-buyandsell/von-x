@@ -436,7 +436,7 @@ class IndyService(ServiceBase):
         """
         if not self._opened:
             await self._check_genesis_path()
-            if self._protocol_version is not None:
+            if self._protocol_version is not None and 0 < len(self._protocol_version):
                 pool_cfg = {'protocol': self._protocol_version}
             else:
                 pool_cfg = None
@@ -626,9 +626,6 @@ class IndyService(ServiceBase):
             )
 
             try:
-                print(issuer.did)
-                print(cred_type)
-                print(cred_type["ledger_schema"]["seqNo"])
                 cred_def_json = await issuer.instance.get_cred_def(
                     cred_def_id(issuer.did, cred_type["ledger_schema"]["seqNo"], self._pool.protocol)
                 )
