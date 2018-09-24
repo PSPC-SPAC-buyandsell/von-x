@@ -72,9 +72,18 @@ class IndyKeyFinder(KeyFinderBase):
             key_id = "did:sov:" + short_key_id
 
         LOGGER.debug("Fetching verkey for DID '%s' from ledger", key_id)
+        print("Fetching verkey for DID '%s' from ledger", key_id)
         nym_info = await self._client.resolve_nym(short_key_id, self._verifier_id)
+        print("nym_info", nym_info)
         if nym_info.data and nym_info.data.get("verkey"):
-            return decode_string(nym_info.data["verkey"], "base58")
+            try:
+                return decode_string(nym_info.data["verkey"], "base58")
+            except ValueError e:
+                print(e)
+                return decode_string(nym_info.data["verkey"], "base64")
+            except ValueError e:
+                print(e)
+                return decode_string(nym_info.data["verkey"], "hex")
         return None
 
 
