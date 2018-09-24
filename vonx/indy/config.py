@@ -599,7 +599,7 @@ class WalletCfg:
         self.params = params.get("params") or {}
         if "freshness_time" not in self.params:
             self.params["freshness_time"] = 0
-        self.access_creds = params.get("access_creds") or {"key": ""}
+        self.access_creds = params.get("access_creds")
         self._instance = None
 
     @property
