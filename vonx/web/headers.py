@@ -78,10 +78,10 @@ class IndyKeyFinder(KeyFinderBase):
         if nym_info.data and nym_info.data.get("verkey"):
             try:
                 return decode_string(nym_info.data["verkey"], "base58")
-            except ValueError e:
+            except ValueError as e:
                 print(e)
                 return decode_string(nym_info.data["verkey"], "base64")
-            except ValueError e:
+            except ValueError as e:
                 print(e)
                 return decode_string(nym_info.data["verkey"], "hex")
         return None
