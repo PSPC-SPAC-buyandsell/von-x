@@ -702,12 +702,19 @@ class MessageProcessor:
         pass
 
 
+class LoggingTCPConnector(aiohttp.TCPConnector):
+    def _release(self, key, protocol, *, should_close=False):
+        close = should_close or self._force_close or protocol.should_close
+        LOGGER.debug("Connection released: %s", close and "Closing" or "Leaving open")
+        super(LoggingTCPConnector, self)._release(key, protocol, should_close=should_close)
+
+
 class RequestExecutor(MessageProcessor):
     """
     An subclass of :class:`MessageProcessor` which starts a thread for each outgoing request
     to wait for responses. One of these should live in each process which wants to perform
-    async requests via the :class:`Exchange` (like a webserver process). It normally assumes that
-    all incoming messages are simply responses to earlier requests.
+    async requests via the :class:`Exchange` (like a webserver process). It normally assumes
+    that all incoming messages are simply responses to earlier requests.
     Processing should not block the main thread (much) to avoid breaking asyncio.
     """
 
@@ -765,7 +772,7 @@ class RequestExecutor(MessageProcessor):
         # stop sending messages
         self._out_queue.put_nowait(None)
         self._out_queue.join()
-        # close http connector
+        # close TCP connector
         if self._connector:
             self._connector.close()
         # shut down event loop
@@ -935,17 +942,22 @@ class RequestExecutor(MessageProcessor):
     @property
     def tcp_connector(self) -> aiohttp.TCPConnector:
         """
-        Return a connection pool associated with this event loop which allows HTTP session reuse
+        Return a connection pool associated with this event loop, which allows HTTP
+        connection reuse
         """
         if not self._connector:
-            self._connector = aiohttp.TCPConnector()
+            force_close = os.getenv('HTTP_FORCE_CLOSE_CONNECTIONS')
+            force_close = bool(force_close) and force_close != 'false'
+            self._connector = LoggingTCPConnector(force_close=force_close)
         return self._connector
 
     def http_client(self, *args, **kwargs) -> aiohttp.ClientSession:
         """
         Construct an HTTP client using the shared connection pool
         """
-        if 'connector' not in kwargs:
+        no_reuse = os.getenv('HTTP_NO_CONNECTOR_REUSE')
+        no_reuse = bool(no_reuse) and no_reuse != 'false'
+        if 'connector' not in kwargs and not no_reuse:
             kwargs['connector'] = self.tcp_connector
             kwargs['connector_owner'] = False
         return aiohttp.ClientSession(*args, **kwargs)
