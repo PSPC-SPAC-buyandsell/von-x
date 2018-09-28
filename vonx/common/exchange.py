@@ -963,7 +963,7 @@ class RequestExecutor(MessageProcessor):
         keep_cookies = os.getenv('HTTP_PRESERVE_COOKIES')
         keep_cookies = bool(keep_cookies) and keep_cookies != 'false'
         if 'cookie_jar' not in kwargs and not keep_cookies:
-            args['cookie_jar'] = aiohttp.DummyCookieJar()
+            kwargs['cookie_jar'] = aiohttp.DummyCookieJar()
         return aiohttp.ClientSession(*args, **kwargs)
 
     @property
