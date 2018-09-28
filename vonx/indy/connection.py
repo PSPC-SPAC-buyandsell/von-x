@@ -257,6 +257,7 @@ class HttpConnection(ConnectionBase):
         if not self._api_url:
             raise IndyConfigError("Missing 'api_url' for HTTP connection")
         self._http_client = None
+        self._response_headers = None
 
     async def open(self, service: "IndyService") -> None:
         # TODO check DID is registered etc ..
@@ -310,13 +311,8 @@ class HttpConnection(ConnectionBase):
         Args:
             indy_cred: the result of preparing a credential from a credential request
         """
-        #schema_id = indy_cred.cred_data["schema_id"]
-        #cred_def_id = indy_cred.cred_data["cred_def_id"]
         response = await self.post_json(
             self.path_prefix + "store-credential", {
-                # "credential_type": schema_id.split(':')[2],
-                # "issuer_did": cred_def_id.split(':')[0],
-                # "credential_definition": indy_cred.cred_def,
                 "credential_data": indy_cred.cred_data,
                 "credential_request_metadata": indy_cred.cred_req_metadata,
             }
@@ -329,9 +325,11 @@ class HttpConnection(ConnectionBase):
                 400,
                 response,
             )
+        served_by = self._response_headers and self._response_headers.get('X-Served-By')
         return StoredCredential(
             indy_cred,
             result,
+            served_by,
         )
 
     async def construct_proof(self, request: ProofRequest,
@@ -389,5 +387,6 @@ class HttpConnection(ConnectionBase):
         LOGGER.debug("post_json: %s", url)
         async with HttpSession("post_json", self._http_client) as handler:
             response = await handler.client.post(url, json=data)
+            self._response_headers = response.headers
             await handler.check_status(response)
             return await response.json()

@@ -140,6 +140,8 @@ async def issue_credential(request: web.Request, connection_id: str = None) -> w
             stored = await indy_client(request).issue_credential(
                 connection_id, schema_name, schema_version, None, attribs)
             result = {"success": True, "result": stored.cred_id}
+            if stored.served_by:
+                result["served_by"] = stored.served_by
         except IndyClientError as e:
             stored = None
             result = {"success": False, "result": str(e)}

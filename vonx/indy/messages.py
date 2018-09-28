@@ -224,6 +224,7 @@ class StoredCredential(IndyServiceRep):
     _fields = (
         ("cred", Credential),
         ("cred_id", str),
+        ("served_by", str, None),
     )
 
 
