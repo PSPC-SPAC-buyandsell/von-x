@@ -960,6 +960,10 @@ class RequestExecutor(MessageProcessor):
         if 'connector' not in kwargs and not no_reuse:
             kwargs['connector'] = self.tcp_connector
             kwargs['connector_owner'] = False
+        keep_cookies = os.getenv('HTTP_PRESERVE_COOKIES')
+        keep_cookies = bool(keep_cookies) and keep_cookies != 'false'
+        if 'cookie_jar' not in kwargs and not keep_cookies:
+            args['cookie_jar'] = aiohttp.DummyCookieJar()
         return aiohttp.ClientSession(*args, **kwargs)
 
     @property
