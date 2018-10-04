@@ -19,4 +19,4 @@
 vonx module initialization
 """
 
-__version__ = '1.3.6'
+__version__ = '1.4.0'
