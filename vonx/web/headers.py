@@ -80,8 +80,7 @@ class IndyKeyFinder(KeyFinderBase):
                     did = decode_string(nym_info.data["dest"], "base58")
                     suffix = decode_string(verkey[1:], "base58")
                     return did + suffix
-                else:
-                    return decode_string(verkey, "base58")
+                return decode_string(verkey, "base58")
             except ValueError:
                 raise IndyError("Cannot decode verkey from ledger as base58: {}".format(nym_info.data["verkey"]))
         return None

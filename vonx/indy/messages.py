@@ -179,6 +179,19 @@ class IssueCredentialReq(IndyServiceReq):
     )
 
 
+class IssueCredentialBatchReq(IndyServiceReq):
+    """
+    Issue a credential via a previously-registered connection
+    """
+    _fields = (
+        ("connection_id", str),
+        ("schema_name", str),
+        ("schema_version", str),
+        ("origin_did", str),
+        ("cred_data", Sequence),
+    )
+
+
 class CredentialOffer(IndyServiceRep):
     """
     A successful credential offer response
@@ -225,6 +238,16 @@ class StoredCredential(IndyServiceRep):
         ("cred", Credential),
         ("cred_id", str),
         ("served_by", str, None),
+    )
+
+
+class StoredCredentialBatch(IndyServiceRep):
+    """
+    A successful response to storing a credential batch
+    """
+    _fields = (
+        ("results", Sequence), # Sequence[StoredCredential]
+        ("errors", Sequence), # Sequence[str]
     )
 
 

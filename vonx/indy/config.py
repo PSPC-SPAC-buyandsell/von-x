@@ -257,7 +257,8 @@ class ConnectionCfg:
         if self.connection_type != ConnectionType.TheOrgBook and \
                 self.connection_type != ConnectionType.HTTP and \
                 self.connection_type != ConnectionType.holder:
-            raise IndyConfigError("Only HTTP and internal Holder connections are currently supported")
+            raise IndyConfigError(
+                "Only HTTP and internal Holder connections are currently supported")
 
     @property
     def created(self) -> bool:
@@ -593,7 +594,8 @@ class WalletCfg:
                 pass
         if not valid:
             raise IndyConfigError(
-                "Wallet seed length is not 32 characters and/or not valid base64: {}".format(self.seed)
+                "Wallet seed length is not 32 characters and/or not valid base64: {}".format(
+                self.seed)
             )
         self.type = params.get("type")
         self.params = params.get("params") or {}

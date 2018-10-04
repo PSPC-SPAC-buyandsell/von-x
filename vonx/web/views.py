@@ -20,53 +20,26 @@
 View classes for handling AJAX requests as an issuer or holder service
 """
 
-from concurrent.futures import Future
 import json
 import logging
 
 from aiohttp import web
 
-from ..common.exchange import RequestTarget
 from ..common.util import log_json, normalize_credential_ids
-from ..indy.client import IndyClient, IndyClientError
-from ..indy.messages import Credential
-from ..indy.manager import IndyManager
+from ..indy.client import IndyClientError
+
+from .view_helpers import (
+    IndyRequestError,
+    get_handle_id,
+    get_manager,
+    get_request_json,
+    indy_client,
+    perform_issue_credential,
+    perform_store_credential,
+    service_request,
+)
 
 LOGGER = logging.getLogger(__name__)
-
-
-def get_manager(request: web.Request) -> IndyManager:
-    """
-    Fetch the service manager for the current application
-    """
-    return request.app['manager']
-
-def get_request_target(request: web.Request, service_name: str) -> RequestTarget:
-    """
-    Create a :class:`RequestTarget` to process requests to a specific service
-
-    Args:
-        request: the incoming HTTP request
-        service_name: the name of the service registered with the service manager
-    """
-    return get_manager(request).get_service_request_target(service_name)
-
-def service_request(request: web.Request, service_name: str, message) -> Future:
-    """
-    Handle a single request to a running service and await the result in a thread
-
-    Args:
-        request: the incoming HTTP request
-        service_name: the name of the service registered with the service manager
-        message: the body of the message to be sent
-    """
-    return get_request_target(request, service_name).request(message)
-
-def indy_client(request: web.Request) -> IndyClient:
-    """
-    Create an Indy client to perform requests against the ledger service
-    """
-    return get_manager(request).get_client()
 
 
 async def health(request: web.Request) -> web.Response:
@@ -74,9 +47,10 @@ async def health(request: web.Request) -> web.Response:
     Respond with HTTP code 200 if services are ready to accept new credentials, 451 otherwise
     """
     result = await get_manager(request).get_service_status('manager')
+    ok = result and result.get("services", {}).get("indy", {}).get("synced")
     return web.Response(
-        text='ok' if result else '',
-        status=200 if result else 451)
+        text='ok' if ok else '',
+        status=200 if ok else 451)
 
 
 async def status(request: web.Request) -> web.Response:
@@ -108,74 +82,23 @@ async def hello(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
-def _get_handle_id(request: web.Request, handle: str, override_val: str = None) -> str:
-    """
-    Check the request for a handle ID (connection or holder ID depending on the request)
-    which may be overridden depending on the path
-    """
-    query_val = request.query.get(handle)
-    match_val = override_val or request.match_info.get(handle)
-    if query_val:
-        if match_val and match_val != query_val:
-            raise ValueError("{} must be unspecified or equal to '{}'".format(handle, match_val))
-    else:
-        if not match_val:
-            raise ValueError("{} must be specified".format(handle))
-        query_val = match_val
-    return query_val
-
-
 async def issue_credential(request: web.Request, connection_id: str = None) -> web.Response:
     """
     Ask the Indy service to issue a credential to the Connection
     """
     try:
-        connection_id = _get_handle_id(request, "connection_id", connection_id)
-    except ValueError as e:
-        return web.Response(text=str(e), status=400)
+        connection_id = get_handle_id(request, "connection_id", connection_id)
+        client = indy_client(request)
+        params = await get_request_json(request)
+        schema_name = request.query.get("schema")
+        schema_version = request.query.get("version")
+        stored, ret = await perform_issue_credential(
+            client, connection_id, params, schema_name, schema_version)
+    except IndyRequestError as e:
+        return e.response
 
-    async def process_cred(schema_name, schema_version, attribs):
-        """Issue a single credential"""
-        try:
-            stored = await indy_client(request).issue_credential(
-                connection_id, schema_name, schema_version, None, attribs)
-            result = {"success": True, "result": stored.cred_id}
-            if stored.served_by:
-                result["served_by"] = stored.served_by
-        except IndyClientError as e:
-            stored = None
-            result = {"success": False, "result": str(e)}
-        return result, stored
-
-    creds = await request.json()
-    if isinstance(creds, list):
-        result_list = []
-        for cred in creds:
-            if not isinstance(cred, dict):
-                result = {"success": False, "result": "Expected JSON object"}
-            elif "schema" not in cred:
-                result = {"success": False, "result": "Missing 'schema' property"}
-            elif "attributes" not in cred:
-                result = {"success": False, "result": "Missing 'attributes' property"}
-            else:
-                result, _stored = await process_cred(
-                    cred["schema"], cred.get("version"), cred["attributes"])
-            result_list.append(result)
-        response = web.json_response(result_list)
-    else:
-        schema_name = request.query.get('schema')
-        schema_version = request.query.get('version')
-        if not schema_name:
-            response = web.Response(text="Missing 'schema' parameter", status=400)
-        elif not isinstance(creds, dict):
-            response = web.Response(
-                text="Request body must contain the credential attributes as a JSON object",
-                status=400)
-        else:
-            result, stored = await process_cred(schema_name, schema_version, creds)
-            response = web.json_response(result)
-            response["stored"] = stored
-
+    response = web.json_response(ret)
+    response["stored"] = stored
     return response
 
 
@@ -184,22 +107,21 @@ async def request_proof(request: web.Request, connection_id: str = None) -> web.
     Ask the Indy service to fetch a proof from the Connection
     """
     try:
-        connection_id = _get_handle_id(request, "connection_id", connection_id)
-    except ValueError as e:
-        return web.Response(text=str(e), status=400)
-    proof_name = request.query.get("name")
-    if not proof_name:
-        return web.Response(text="Missing 'name' parameter", status=400)
-    inputs = await request.json()
-    params = {}
-    cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
-    if isinstance(inputs, dict):
-        params = inputs.get("params", params)
-        if not isinstance(params, dict):
-            return web.Response(
-                text="Parameter 'params' must be an object",
-                status=400)
-        cred_ids = normalize_credential_ids(inputs.get("credential_ids", cred_ids))
+        connection_id = get_handle_id(request, "connection_id", connection_id)
+        inputs = await get_request_json(request)
+        proof_name = request.query.get("name")
+        if not proof_name:
+            raise IndyRequestError("Missing 'name' parameter")
+        params = {}
+        cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
+        if isinstance(inputs, dict):
+            params = inputs.get("params", params)
+            if not isinstance(params, dict):
+                raise IndyRequestError("Parameter 'params' must be an object")
+            cred_ids = normalize_credential_ids(inputs.get("credential_ids", cred_ids))
+    except IndyRequestError as e:
+        return e.response
+
     try:
         client = indy_client(request)
         proof_req = await client.generate_proof_request(proof_name)
@@ -238,28 +160,21 @@ async def generate_credential_request(request, holder_id: str = None):
     """
 
     try:
-        holder_id = _get_handle_id(request, "holder_id", holder_id)
-    except ValueError as e:
-        return web.Response(text=str(e), status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text="Request body must contain the schema attributes as a JSON object",
-            status=400)
-    offer = params.get("credential_offer")
-    if not offer:
-        return web.Response(
-            text="Missing 'credential_offer'",
-            status=400)
-    cred_def = params.get("credential_definition")
-    if cred_def:
-        cred_def_id = cred_def.get("id")
-    else:
-        cred_def_id = params.get("credential_definition_id")
-    if not cred_def_id:
-        return web.Response(
-            text="Missing 'credential_definition_id'",
-            status=400)
+        holder_id = get_handle_id(request, "holder_id", holder_id)
+        params = await get_request_json(request)
+        offer = params.get("credential_offer")
+        if not offer:
+            raise IndyRequestError("Missing 'credential_offer'")
+        cred_def = params.get("credential_definition")
+        if cred_def:
+            cred_def_id = cred_def.get("id")
+        else:
+            cred_def_id = params.get("credential_definition_id")
+        if not cred_def_id:
+            raise IndyRequestError("Missing 'credential_definition_id'")
+    except IndyRequestError as e:
+        return e.response
+
     try:
         cred_request = await indy_client(request).create_credential_request(
             holder_id, offer, cred_def_id)
@@ -296,36 +211,13 @@ async def store_credential(request, holder_id: str = None):
     Returns: created verified credential model
     """
     try:
-        holder_id = _get_handle_id(request, "holder_id", holder_id)
-    except ValueError as e:
-        return web.Response(text=str(e), status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text="Request body must contain the request parameters as a JSON object",
-            status=400)
-    data = params.get("credential_data")
-    if not data:
-        return web.Response(
-            text="Missing 'credential_data'",
-            status=400)
-    metadata = params.get("credential_request_metadata")
-    if not metadata:
-        return web.Response(
-            text="Missing 'credential_request_metadata'",
-            status=400)
-    revoc_id = params.get("credential_revocation_id")
-    try:
-        cred = Credential(
-            data,
-            metadata,
-            revoc_id,
-        )
-        stored = await indy_client(request).store_credential(holder_id, cred)
-        ret = {"success": True, "result": stored.cred_id}
-    except IndyClientError as e:
-        stored = None
-        ret = {"success": False, "result": str(e)}
+        holder_id = get_handle_id(request, "holder_id", holder_id)
+        client = indy_client(request)
+        params = await get_request_json(request)
+        stored, ret = await perform_store_credential(client, holder_id, params)
+    except IndyRequestError as e:
+        return e.response
+
     response = web.json_response(ret)
     response["stored"] = stored
     return response
@@ -344,15 +236,14 @@ async def construct_proof(request, holder_id: str = None):
     Returns: HL Indy proof data
     """
     try:
-        holder_id = _get_handle_id(request, "holder_id", holder_id)
-    except ValueError as e:
-        return web.Response(text=str(e), status=400)
-    params = await request.json()
-    if not isinstance(params, dict):
-        return web.Response(
-            text="Request body must contain the request parameters as a JSON object",
-            status=400)
-    proof_request = params.get("proof_request")
+        holder_id = get_handle_id(request, "holder_id", holder_id)
+        params = await get_request_json(request)
+        proof_request = params.get("proof_request")
+        if not proof_request:
+            raise IndyRequestError("Missing 'proof_request'")
+    except IndyRequestError as e:
+        return e.response
+
     wql_filters = None # params.get("wql_filters")
     cred_ids = normalize_credential_ids(params.get("credential_ids"))
     try:

@@ -22,6 +22,7 @@ Base implemention of Connections, to be managed by :class:`ConnectionCfg`.
 import asyncio
 from enum import Enum
 import logging
+from typing import Sequence
 
 import aiohttp
 
@@ -35,6 +36,7 @@ from .messages import (
     CredentialRequest,
     StoreCredentialReq,
     StoredCredential,
+    StoredCredentialBatch,
     ProofRequest,
     ConstructProofReq,
     ConstructedProof,
@@ -153,6 +155,29 @@ class ConnectionBase:
             indy_cred: the result of preparing a credential from a credential request
         """
         pass
+
+    async def store_credential_batch(
+            self, indy_creds: Sequence[Credential]) -> StoredCredentialBatch:
+        """
+        Ask the target to store a credential
+
+        Args:
+            indy_creds: the prepared list of credentials
+        """
+        results = []
+        errors = []
+        for cred in indy_creds:
+            try:
+                row = await self.store_credential(cred)
+                if not row:
+                    raise IndyConnectionError("not implemented")
+                results.append(row)
+            except IndyConnectionError as e:
+                row = StoredCredential(
+                    cred, None,
+                )
+                errors.append(str(e))
+        return StoredCredentialBatch(results, errors)
 
     async def construct_proof(self, request: ProofRequest,
                               cred_ids: set = None, params: dict = None) -> ConstructedProof:
@@ -330,6 +355,40 @@ class HttpConnection(ConnectionBase):
             indy_cred,
             result,
             served_by,
+        )
+
+    async def store_credential_batch(
+            self, indy_creds: Sequence[Credential]) -> StoredCredentialBatch:
+        """
+        Ask the API to store a list of credentials
+
+        Args:
+            indy_creds: the prepared list of credentials
+        """
+        data = [
+            {
+                "credential_data": cred.cred_data,
+                "credential_request_metadata": cred.cred_req_metadata,
+            } for cred in indy_creds
+        ]
+        response = await self.post_json(self.path_prefix + "store-credential", data)
+        LOGGER.debug("Store credential batch response: %s", response)
+
+        served_by = self._response_headers and self._response_headers.get('X-Served-By')
+        stored = []
+        errors = []
+        for idx, row in enumerate(response):
+            result = row.get("result")
+            success = row.get("success")
+            stored.append(StoredCredential(
+                indy_creds[idx],
+                success and result or None,
+                served_by,
+            ))
+            if not success:
+                errors.append("Credential was not stored: {}".format(result))
+        return StoredCredentialBatch(
+            stored, errors,
         )
 
     async def construct_proof(self, request: ProofRequest,

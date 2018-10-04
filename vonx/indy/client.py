@@ -50,10 +50,12 @@ from .messages import (
     ConnectionStatusReq,
     ConnectionStatus,
     IssueCredentialReq,
+    IssueCredentialBatchReq,
     Credential,
     CredentialOffer,
     CredentialRequest,
     StoredCredential,
+    StoredCredentialBatch,
     GenerateCredentialRequestReq,
     StoreCredentialReq,
     ResolveSchemaReq,
@@ -260,8 +262,27 @@ class IndyClient:
             cred_data: the new credential's raw claim attribute values
         """
         return await self._fetch(
-            IssueCredentialReq(connection_id, schema_name, schema_version, origin_did, cred_data),
+            IssueCredentialReq(
+                connection_id, schema_name, schema_version, origin_did, cred_data),
             StoredCredential)
+
+    async def issue_credential_batch(
+            self, connection_id: str, schema_name: str, schema_version: str,
+            origin_did: str, cred_data: Sequence[dict]) -> StoredCredentialBatch:
+        """
+        Issue a list of credentials to a previously-registered connection
+
+        Args:
+            connection_id: the registered connection identifier
+            schema_name: the name of the schema, used to identify the credential type
+            schema_version: the version of the schema
+            origin_did: the origin DID of the schema, if external
+            cred_data: the list of new credential's raw claim attribute values
+        """
+        return await self._fetch(
+            IssueCredentialBatchReq(
+                connection_id, schema_name, schema_version, origin_did, cred_data),
+            StoredCredentialBatch)
 
     async def create_credential_request(self, holder_id: str, cred_offer: dict,
                                         cred_def_id: str) -> CredentialRequest:
