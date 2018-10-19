@@ -43,6 +43,9 @@ CRED_TYPE_PARAMETERS = (
 
 
 def encode_logo_image(config: dict, path_root: str) -> str:
+    """
+    Encode logo image as base64 for transmission
+    """
     if config.get("logo_b64"):
         return config["logo_b64"]
     elif config.get("logo_path"):
@@ -53,6 +56,7 @@ def encode_logo_image(config: dict, path_root: str) -> str:
                 return base64.b64encode(content).decode("ascii")
         else:
             LOGGER.warning("No file found at logo path: %s", path)
+    return None
 
 
 def assemble_issuer_spec(config: dict) -> dict:

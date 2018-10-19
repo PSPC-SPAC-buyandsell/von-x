@@ -110,11 +110,11 @@ class IndyManager(ConfigServiceManager):
             raise IndyConfigError(
                 "Indy genesis transaction path (INDY_GENESIS_PATH) not defined"
             )
-        ledger_url = self._env.get("INDY_LEDGER_URL")
-        if not ledger_url:
-            raise IndyConfigError("INDY_LEDGER_URL not defined")
         genesis_url = self._env.get("INDY_GENESIS_URL")
-        protocol_version = self._env.get("LEDGER_PROTOCOL_VERSION")
+        ledger_url = self._env.get("INDY_LEDGER_URL")
+        if not genesis_url and not ledger_url:
+            raise IndyConfigError("Neither INDY_GENESIS_URL nor INDY_LEDGER_URL are defined")
+        protocol_version = self._env.get("LEDGER_PROTOCOL_VERSION") or None
         return {
             "auto_register": self._env.get("AUTO_REGISTER_DID", 1),
             "genesis_path": genesis_path,

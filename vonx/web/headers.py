@@ -74,17 +74,15 @@ class IndyKeyFinder(KeyFinderBase):
         LOGGER.debug("Fetching verkey for DID '%s' from ledger", key_id)
         nym_info = await self._client.resolve_nym(short_key_id, self._verifier_id)
         if nym_info.data and nym_info.data.get("verkey"):
+            verkey = nym_info.data["verkey"]
             try:
-                verkey = nym_info.data["verkey"]
-                if verkey[0] == '~':
-                    did = nym_info.data["dest"]
-                    verkey = did + verkey[1:]
+                if verkey[0] == "~":
+                    did = decode_string(nym_info.data["dest"], "base58")
+                    suffix = decode_string(verkey[1:], "base58")
+                    return did + suffix
                 return decode_string(verkey, "base58")
             except ValueError:
-                try:
-                    return decode_string(verkey, "base64")
-                except ValueError:
-                    raise IndyError("Cannot decode verkey from ledger as base58 or base64: {}".format(nym_info.data["verkey"]))
+                raise IndyError("Cannot decode verkey from ledger as base58: {}".format(nym_info.data["verkey"]))
         return None
 
 

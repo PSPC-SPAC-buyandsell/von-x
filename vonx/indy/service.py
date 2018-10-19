@@ -71,6 +71,7 @@ from .messages import (
     ConnectionStatusReq,
     ConnectionStatus,
     IssueCredentialReq,
+    IssueCredentialBatchReq,
     Credential,
     CredentialOffer,
     CredentialRequest,
@@ -436,7 +437,7 @@ class IndyService(ServiceBase):
         """
         if not self._opened:
             await self._check_genesis_path()
-            if self._protocol_version is not None and 0 < len(self._protocol_version):
+            if self._protocol_version:
                 pool_cfg = {'protocol': self._protocol_version}
             else:
                 pool_cfg = None
@@ -593,8 +594,8 @@ class IndyService(ServiceBase):
                 log_json("Schema found on ledger:", ledger_schema, LOGGER)
                 if sorted(ledger_schema["attrNames"]) != sorted(definition.attr_names):
                     raise IndyConfigError(
-                        "Ledger schema attributes do not match definition, found: %s",
-                        ledger_schema["attrNames"])
+                        "Ledger schema attributes do not match definition, found: {}".format(
+                            ledger_schema["attrNames"]))
             except AbsentSchema:
                 # If not found, send the schema to the ledger
                 LOGGER.info(
@@ -647,7 +648,8 @@ class IndyService(ServiceBase):
 
     async def _issue_credential(self, connection_id: str, schema_name: str,
                                 schema_version: str, origin_did: str,
-                                cred_data: Mapping) -> ServiceResponse:
+                                cred_data: Mapping,
+                                batch: bool = False) -> ServiceResponse:
         """
         Issue a credential to the connection target
 
@@ -674,8 +676,6 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Could not locate credential type: {}/{} {}".format(
                 schema_name, schema_version, origin_did))
 
-        fixed_data = self._fix_cred_data(cred_type["definition"], cred_data)
-
         cred_request_cache = cred_type.get("cred_request_cache")
         if not cred_request_cache:
             cred_request_cache = cred_type["cred_request_cache"] = \
@@ -693,10 +693,24 @@ class IndyService(ServiceBase):
                 LOGGER.debug("Saved cred request cache")
         log_json("Got cred request:", cred_request, LOGGER)
 
-        cred = await self._create_cred(issuer, cred_request, fixed_data)
-        log_json("Created cred:", cred, LOGGER)
-        stored = await conn.instance.store_credential(cred)
-        log_json("Stored credential:", stored, LOGGER)
+        async def make_cred(cred_data):
+            fixed_data = self._fix_cred_data(cred_type["definition"], cred_data)
+            cred = await self._create_cred(issuer, cred_request, fixed_data)
+            log_json("Created cred:", cred, LOGGER)
+            return cred
+
+        if batch:
+            creds = []
+            for data in cred_data:
+                creds.append(asyncio.ensure_future(make_cred(data)))
+            creds = await asyncio.gather(*creds)
+            stored = await conn.instance.store_credential_batch(creds)
+            log_json("Stored credentials:", stored, LOGGER)
+        else:
+            cred = await make_cred(cred_data)
+            stored = await conn.instance.store_credential(cred)
+            log_json("Stored credential:", stored, LOGGER)
+
         return stored
 
     def _fix_cred_data(self, schema, cred_data: dict):
@@ -747,11 +761,12 @@ class IndyService(ServiceBase):
             request: a credential request returned from the holder service
             cred_data: the raw credential attributes
         """
-        (cred_json, cred_revoc_id, _epoch_creation) = await issuer.instance.create_cred(
-            json.dumps(request.cred_offer.data),
-            request.data,
-            cred_data,
-        )
+        async with self._storage_lock:
+            (cred_json, cred_revoc_id, _epoch_creation) = await issuer.instance.create_cred(
+                json.dumps(request.cred_offer.data),
+                request.data,
+                cred_data,
+            )
         return Credential(
             json.loads(cred_json),
             request.metadata,
@@ -1144,6 +1159,19 @@ class IndyService(ServiceBase):
                         request.schema_version,
                         request.origin_did,
                         request.cred_data)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, IssueCredentialBatchReq):
+            try:
+                with self._timer("issue_credential"):
+                    reply = await self._issue_credential(
+                        request.connection_id,
+                        request.schema_name,
+                        request.schema_version,
+                        request.origin_did,
+                        request.cred_data,
+                        True)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 

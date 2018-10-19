@@ -114,7 +114,7 @@ class ServiceBase(RequestExecutor):
 
     def start(self, wait: bool = True) -> None:
         """
-        Start the IssuerManager processing thread and related services
+        Start the processing thread and any related services
         """
         super(ServiceBase, self).start(True)
         self._sync_lock = asyncio.Lock(loop=self._runner.loop)
