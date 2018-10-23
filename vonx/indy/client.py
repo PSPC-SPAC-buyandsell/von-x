@@ -134,8 +134,11 @@ class IndyClient:
         Returns:
             the registered identifier of the issuer service
         """
+        agent_type = AgentType.issuer.value
+        if config and config.get("holder_verifier"):
+            agent_type = AgentType.combined.value
         result = await self._fetch(
-            RegisterAgentReq(AgentType.issuer.value, wallet_id, config),
+            RegisterAgentReq(agent_type, wallet_id, config),
             AgentStatus)
         return result.agent_id
 
