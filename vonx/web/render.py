@@ -80,7 +80,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
             }
         except IndyClientError as e:
             proof_response = {"success": False, "result": str(e)}
-    log_json("Proof response:", proof_response, LOGGER, logging.INFO)
+        log_json("Proof response:", proof_response, LOGGER, logging.INFO)
 
     tpl_name = form.get("template", "index.html")
     tpl_vars = {
