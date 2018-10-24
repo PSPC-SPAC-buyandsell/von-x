@@ -38,6 +38,8 @@ from von_anchor.nodepool import NodePool
 from von_anchor.wallet import Wallet, register_wallet_storage_library
 from von_anchor.util import schema_id
 
+from indy.error import IndyError, ErrorCode
+
 from .connection import ConnectionBase, ConnectionType, HolderConnection, HttpConnection
 from .errors import IndyConfigError
 from .tob import CRED_TYPE_PARAMETERS, TobConnection
