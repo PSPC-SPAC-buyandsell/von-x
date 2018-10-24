@@ -640,9 +640,13 @@ class WalletCfg:
         if storage_type == "postgres":
             try:
                 await register_wallet_storage_library(storage_type,"libindystrgpostgres.so","postgreswallet_fn_")
-            except:
-                # ignore errors, the error will occur on creating or opening the wallet
-                LOGGER.error('Wallet.register <!< indy error on load of wallet storage')
+            except IndyError as x_indy:
+                if x_indy.error_code == ErrorCode.WalletTypeAlreadyRegisteredError:
+                    LOGGER.info('Wallet already exists: %s', self.name)
+                else:
+                    # ignore errors, the error will occur on creating or opening the wallet
+                    LOGGER.error('Wallet.register <!< indy error on load of wallet storage')
+                    raise
 
     async def create(self) -> None:
         """
