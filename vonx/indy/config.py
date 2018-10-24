@@ -36,8 +36,10 @@ from von_anchor import (
 from von_anchor.anchor.base import _BaseAnchor
 from von_anchor.anchor.demo import OrgHubAnchor
 from von_anchor.nodepool import NodePool
-from von_anchor.wallet import Wallet
+from von_anchor.wallet import Wallet, register_wallet_storage_library
 from von_anchor.util import schema_id
+
+from indy.error import IndyError, ErrorCode
 
 from .connection import ConnectionBase, ConnectionType, HolderConnection, HttpConnection
 from .errors import IndyConfigError
@@ -651,10 +653,24 @@ class WalletCfg:
             "opened": self.opened,
         }
 
+    async def load_storage_library(self, storage_type):
+        # load storage library for postgres
+        if storage_type == "postgres":
+            try:
+                await register_wallet_storage_library(storage_type,"libindystrgpostgres.so","postgreswallet_fn_")
+            except IndyError as x_indy:
+                if x_indy.error_code == ErrorCode.WalletTypeAlreadyRegisteredError:
+                    LOGGER.info('Wallet already exists: %s', self.name)
+                else:
+                    # ignore errors, the error will occur on creating or opening the wallet
+                    LOGGER.error('Wallet.register <!< indy error on load of wallet storage')
+                    raise
+
     async def create(self) -> None:
         """
         Create the wallet instance
         """
+        await self.load_storage_library(self.type)
         self._instance = Wallet(
             self.seed,
             self.name,
