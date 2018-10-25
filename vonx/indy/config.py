@@ -200,8 +200,8 @@ class AgentCfg:
         Args:
             schema: the :class:`SchemaCfg` to be added
         """
-        if self.is_issuer:
-            raise IndyConfigError("Only agent of type 'issuer' may publish schemas")
+        if not self.is_issuer:
+            raise IndyConfigError("Only issuer agent may publish schemas")
         self.cred_types.append({
             "definition": schema,
             "ledger_schema": None,
