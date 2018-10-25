@@ -34,9 +34,12 @@ from von_anchor import (
     Verifier,
 )
 from von_anchor.anchor.base import _BaseAnchor
+from von_anchor.anchor.demo import OrgHubAnchor
 from von_anchor.nodepool import NodePool
-from von_anchor.wallet import Wallet
+from von_anchor.wallet import Wallet, register_wallet_storage_library
 from von_anchor.util import schema_id
+
+from indy.error import IndyError, ErrorCode
 
 from .connection import ConnectionBase, ConnectionType, HolderConnection, HttpConnection
 from .errors import IndyConfigError
@@ -52,6 +55,7 @@ class AgentType(Enum):
     issuer = "issuer"
     holder = "holder"
     verifier = "verifier"
+    combined = "combined"
 
 
 class AgentCfg:
@@ -115,7 +119,7 @@ class AgentCfg:
         """
         Accessor for the role of the agent to be registered on the ledger
         """
-        return "TRUST_ANCHOR" if self.agent_type == AgentType.issuer else ""
+        return "TRUST_ANCHOR" if self.is_issuer else ""
 
     @property
     def status(self) -> dict:
@@ -153,6 +157,8 @@ class AgentCfg:
                 inst = HolderProver(wallet.instance, pool, self.extended_config)
             elif self.agent_type == AgentType.verifier:
                 inst = Verifier(wallet.instance, pool, self.extended_config)
+            elif self.agent_type == AgentType.combined:
+                inst = OrgHubAnchor(wallet.instance, pool, self.extended_config)
             else:
                 raise IndyConfigError("Unknown agent type")
             self._instance = inst
@@ -175,6 +181,18 @@ class AgentCfg:
             await self._instance.close()
             self.opened = False
 
+    @property
+    def is_holder(self):
+        return self.agent_type == AgentType.holder or self.agent_type == AgentType.combined
+
+    @property
+    def is_issuer(self):
+        return self.agent_type == AgentType.issuer or self.agent_type == AgentType.combined
+
+    @property
+    def is_verifier(self):
+        return self.agent_type == AgentType.verifier or self.agent_type == AgentType.combined
+
     def add_credential_type(self, schema: 'SchemaCfg', **params) -> None:
         """
         Add a credential type to the Agent configuration
@@ -182,8 +200,8 @@ class AgentCfg:
         Args:
             schema: the :class:`SchemaCfg` to be added
         """
-        if self.agent_type != AgentType.issuer:
-            raise IndyConfigError("Only agent of type 'issuer' may publish schemas")
+        if not self.is_issuer:
+            raise IndyConfigError("Only issuer agent may publish schemas")
         self.cred_types.append({
             "definition": schema,
             "ledger_schema": None,
@@ -210,7 +228,7 @@ class AgentCfg:
         """
         Get parameters required for initializing the connection
         """
-        if self.agent_type == AgentType.issuer:
+        if self.is_issuer:
             cred_specs = []
             for cred_type in self.cred_types:
                 params = cred_type["params"]
@@ -635,10 +653,24 @@ class WalletCfg:
             "opened": self.opened,
         }
 
+    async def load_storage_library(self, storage_type):
+        # load storage library for postgres
+        if storage_type == "postgres":
+            try:
+                await register_wallet_storage_library(storage_type,"libindystrgpostgres.so","postgreswallet_fn_")
+            except IndyError as x_indy:
+                if x_indy.error_code == ErrorCode.WalletTypeAlreadyRegisteredError:
+                    LOGGER.info('Wallet already exists: %s', self.name)
+                else:
+                    # ignore errors, the error will occur on creating or opening the wallet
+                    LOGGER.error('Wallet.register <!< indy error on load of wallet storage')
+                    raise
+
     async def create(self) -> None:
         """
         Create the wallet instance
         """
+        await self.load_storage_library(self.type)
         self._instance = Wallet(
             self.seed,
             self.name,
