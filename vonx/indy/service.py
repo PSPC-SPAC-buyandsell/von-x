@@ -666,7 +666,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         issuer = self._agents[conn.agent_id]
-        if issuer.agent_type != AgentType.issuer:
+        if not issuer.is_issuer:
             raise IndyConfigError(
                 "Cannot issue credential from non-issuer agent: {}".format(issuer.agent_id))
         if not issuer.synced:
@@ -781,6 +781,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot generate credential request from non-holder agent: {}".format(holder.agent_id))
         async with self._storage_lock:
             if not holder.synced:
                 raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
@@ -802,6 +805,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot store credential using non-holder agent: {}".format(holder.agent_id))
         async with self._storage_lock:
             if not holder.synced:
                 raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
@@ -862,6 +868,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot construct proof from non-holder agent: {}".format(holder.agent_id))
         if not holder.synced:
             raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         log_json("Fetching credentials for request", proof_req.data, LOGGER)
@@ -988,7 +997,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         verifier = self._agents[conn.agent_id]
-        if verifier.agent_type != AgentType.verifier:
+        if not verifier.is_verifier:
             raise IndyConfigError(
                 "Cannot verify proof from non-verifier agent: {}".format(verifier.agent_id))
         if not verifier.synced:
