@@ -600,17 +600,17 @@ class WalletCfg:
         self.seed = params.get("seed")
         if not self.seed:
             raise IndyConfigError("Missing seed for wallet '{}'".format(self.name))
+        seed_valid = False
         if len(self.seed) == 32:
-            valid = True
+            seed_valid = True
         elif self.seed[-1:] == "=":
-            valid = False
             try:
                 decoded = base64.b64decode(bytes(self.seed, 'ascii'))
                 if len(decoded) == 32:
-                    valid = True
+                    seed_valid = True
             except binascii.Error:
                 pass
-        if not valid:
+        if not seed_valid:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(
                 self.seed)
