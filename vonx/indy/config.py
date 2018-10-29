@@ -181,6 +181,20 @@ class AgentCfg:
             await self._instance.close()
             self.opened = False
 
+    async def get_endpoint(self, did: str) -> str:
+        """
+        Resolve a did to an endpoint
+        """
+        return await self._instance.get_endpoint(did)
+
+    async def send_endpoint(self) -> None:
+        """
+        Write the agent's endpoint to the ledger
+        """
+        if self.endpoint:
+            await self._instance.send_endpoint(self.endpoint)
+        
+
     @property
     def is_holder(self):
         return self.agent_type == AgentType.holder or self.agent_type == AgentType.combined
