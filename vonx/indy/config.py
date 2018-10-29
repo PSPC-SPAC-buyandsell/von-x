@@ -181,6 +181,20 @@ class AgentCfg:
             await self._instance.close()
             self.opened = False
 
+    async def get_endpoint(self, did: str) -> str:
+        """
+        Resolve a did to an endpoint
+        """
+        return await self._instance.get_endpoint(did)
+
+    async def send_endpoint(self) -> None:
+        """
+        Write the agent's endpoint to the ledger
+        """
+        if self.endpoint:
+            await self._instance.send_endpoint(self.endpoint)
+        
+
     @property
     def is_holder(self):
         return self.agent_type == AgentType.holder or self.agent_type == AgentType.combined
@@ -600,17 +614,17 @@ class WalletCfg:
         self.seed = params.get("seed")
         if not self.seed:
             raise IndyConfigError("Missing seed for wallet '{}'".format(self.name))
+        seed_valid = False
         if len(self.seed) == 32:
-            valid = True
+            seed_valid = True
         elif self.seed[-1:] == "=":
-            valid = False
             try:
                 decoded = base64.b64decode(bytes(self.seed, 'ascii'))
                 if len(decoded) == 32:
-                    valid = True
+                    seed_valid = True
             except binascii.Error:
                 pass
-        if not valid:
+        if not seed_valid:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(
                 self.seed)
