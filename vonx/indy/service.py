@@ -560,17 +560,8 @@ class IndyService(ServiceBase):
             agent: the initialized and opened agent to be checked
             endpoint: the endpoint to be added to the ledger, if not defined
         """
-        if not agent.endpoint:
-            return None
-        did = agent.did
-        LOGGER.info("Checking endpoint registration %s", agent.endpoint)
-        
-        endpoint = await agent.get_endpoint(did)
-        LOGGER.info("get_endpoint result for %s: %s", did, endpoint)
-
-        if not endpoint:
-            await agent.send_endpoint()
-            LOGGER.info("Endpoint stored: %s", agent.endpoint)
+        await agent.send_endpoint()
+        LOGGER.info("Endpoint stored: %s", agent.endpoint)
 
     async def _publish_schema(self, issuer: AgentCfg, cred_type: dict) -> None:
         """
