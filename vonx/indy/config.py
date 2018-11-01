@@ -189,10 +189,11 @@ class AgentCfg:
 
     async def send_endpoint(self) -> None:
         """
-        Write the agent's endpoint to the ledger
+        Write the agent's endpoint to the ledger.
+
+        If end point is None, endpoint will be removed from ledger.
         """
-        if self.endpoint:
-            await self._instance.send_endpoint(self.endpoint)
+        await self._instance.send_endpoint(self.endpoint)
         
 
     @property
