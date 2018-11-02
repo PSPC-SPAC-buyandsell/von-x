@@ -16,7 +16,7 @@
 #
 
 """
-vonx module initialization
+library version information
 """
 
-from .version import __version__
+__version__ = '1.4.3'

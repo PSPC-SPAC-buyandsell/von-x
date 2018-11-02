@@ -1,9 +1,10 @@
 import os
+import runpy
 from setuptools import setup, find_packages
 
-
 pkg_name = 'vonx'
-version = '1.4.2'
+meta = runpy.run_path("./{}/version.py".format(pkg_name))
+version = meta['__version__']
 
 setup(
     name=pkg_name,
