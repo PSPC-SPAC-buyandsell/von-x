@@ -20,7 +20,7 @@ setup(
     download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/v{}.tar.gz'.format(version),
     keywords=['verified-organizations-network', 'VON', 'TheOrgBook', 'Hyperledger', 'Indy', 'HTTP'],
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Software Development :: Libraries :: Python Modules',
