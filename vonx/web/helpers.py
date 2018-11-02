@@ -30,6 +30,12 @@ def now():
         datetime.datetime.now().timetuple()
     ))
 
+def now_iso():
+    """
+    Get the current time, formatted as ISO-8601 string
+    """
+    return datetime.datetime.now().isoformat()
+
 
 def one_year():
     """
@@ -38,3 +44,12 @@ def one_year():
     return int(time.mktime(
         (datetime.datetime.now() + datetime.timedelta(days=365)).timetuple()
     ))
+
+def one_year_iso():
+    """
+    Get the time for a year from now, formatted as ISO-8601 string
+    """
+    return (
+          datetime.datetime.now() +
+          datetime.timedelta(days=365)
+        ).isoformat()
