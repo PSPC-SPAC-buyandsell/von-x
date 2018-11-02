@@ -17,7 +17,7 @@ setup(
     author='PSPC-SPAC',
     author_email='',
     url='https://github.com/PSPC-SPAC-buyandsell/von-x/',
-    download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/{}.tar.gz'.format(version),
+    download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/v{}.tar.gz'.format(version),
     keywords=['verified-organizations-network', 'VON', 'TheOrgBook', 'Hyperledger', 'Indy', 'HTTP'],
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -33,6 +33,6 @@ setup(
         'aiohttp~=3.3.0',
         'aiohttp-jinja2~=1.0.0',
         'PyYAML',
-        'von-anchor==1.6.33',
+        'von-anchor==1.6.34',
     ],
 )
