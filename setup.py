@@ -15,7 +15,7 @@ setup(
     description='VON-X Connector',
     license='Apache Software License',
     author='PSPC-SPAC',
-    author_email='',
+    author_email='andrew@1crm.com',
     url='https://github.com/PSPC-SPAC-buyandsell/von-x/',
     download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/v{}.tar.gz'.format(version),
     keywords=['verified-organizations-network', 'VON', 'TheOrgBook', 'Hyperledger', 'Indy', 'HTTP'],
@@ -31,7 +31,7 @@ setup(
     python_requires='>=3.5.3',
     install_requires=[
         'aiohttp~=3.3.0',
-        'aiohttp-jinja2~=1.0.0',
+        'aiohttp-jinja2~=1.1.0',
         'PyYAML',
         'von-anchor==1.6.34',
     ],
