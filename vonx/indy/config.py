@@ -34,7 +34,7 @@ from von_anchor import (
     Verifier,
 )
 from von_anchor.anchor.base import _BaseAnchor
-from von_anchor.anchor.demo import OrgHubAnchor
+from von_anchor.anchor.demo import BCRegistrarAnchor, OrgHubAnchor
 from von_anchor.nodepool import NodePool
 from von_anchor.wallet import Wallet, register_wallet_storage_library
 from von_anchor.util import schema_id
@@ -150,18 +150,19 @@ class AgentCfg:
             pool: the initialized :class:`NodePool` instance for the wallet
         """
         if not self._instance:
-            inst = None
+            cls = None
+            params = {"cfg": self.extended_config}
             if self.agent_type == AgentType.issuer:
-                inst = Issuer(wallet.instance, pool)
+                cls = BCRegistrarAnchor # combines Origin and Issuer
             elif self.agent_type == AgentType.holder:
-                inst = HolderProver(wallet.instance, pool, self.extended_config)
+                cls = HolderProver
             elif self.agent_type == AgentType.verifier:
-                inst = Verifier(wallet.instance, pool, self.extended_config)
+                cls = Verifier
             elif self.agent_type == AgentType.combined:
-                inst = OrgHubAnchor(wallet.instance, pool, self.extended_config)
+                cls = OrgHubAnchor
             else:
                 raise IndyConfigError("Unknown agent type")
-            self._instance = inst
+            self._instance = cls(wallet.instance, pool, **params)
         await self.open()
 
     async def open(self) -> None:
@@ -194,7 +195,7 @@ class AgentCfg:
         If end point is None, endpoint will be removed from ledger.
         """
         await self._instance.send_endpoint(self.endpoint)
-        
+
 
     @property
     def is_holder(self):

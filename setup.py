@@ -33,6 +33,6 @@ setup(
         'aiohttp~=3.3.0',
         'aiohttp-jinja2~=1.1.0',
         'PyYAML',
-        'von-anchor==1.6.34',
+        'von-anchor==1.6.36',
     ],
 )
