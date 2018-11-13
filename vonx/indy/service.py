@@ -379,26 +379,34 @@ class IndyService(ServiceBase):
         Args:
             agent: the Indy agent configuration
         """
+        LOGGER.debug('Checking if agent synced...')
         if not agent.synced:
+            LOGGER.debug('Syncing agent...')
             if not agent.created:
+                LOGGER.debug('Creating agent...')
                 wallet = self._wallets[agent.wallet_id]
                 if not wallet.created:
                     return False
                 await agent.create(wallet, self._pool)
 
+            LOGGER.debug('Opening agent...')
             await agent.open()
 
+            LOGGER.debug('Checking if agent is registered...')
             if not agent.registered:
                 # check DID is registered
+                LOGGER.debug('Registering agent...')
                 auto_register = self._config.get("auto_register", True)
                 await self._check_registration(agent, auto_register, agent.role)
 
                 # check endpoint is registered (if any)
-                # await self._check_endpoint(agent.instance, agent.endpoint)
+                LOGGER.debug('Checking agent endpoint...')
+                await self._check_endpoint(agent)
                 agent.registered = True
 
             # publish schemas
             for cred_type in agent.cred_types:
+                LOGGER.debug('Publishing agent schemas...')
                 await self._publish_schema(agent, cred_type)
 
             agent.synced = True
@@ -544,7 +552,7 @@ class IndyService(ServiceBase):
                     "DID registration failed: {}".format(nym_info)
                 )
 
-    async def _check_endpoint(self, agent: AgentCfg, endpoint: str) -> None:
+    async def _check_endpoint(self, agent: AgentCfg) -> None:
         """
         Look up our endpoint on the ledger and register it if not present
 
@@ -552,17 +560,8 @@ class IndyService(ServiceBase):
             agent: the initialized and opened agent to be checked
             endpoint: the endpoint to be added to the ledger, if not defined
         """
-        if not endpoint:
-            return None
-        did = agent.did
-        LOGGER.debug("Checking endpoint registration %s", endpoint)
-        endp_json = await agent.instance.get_endpoint(did)
-        LOGGER.debug("get_endpoint result for %s: %s", did, endp_json)
-
-        endp_info = json.loads(endp_json)
-        if not endp_info:
-            endp_info = await agent.instance.send_endpoint()
-            LOGGER.debug("Endpoint stored: %s", endp_info)
+        await agent.send_endpoint()
+        LOGGER.info("Endpoint stored: %s", agent.endpoint)
 
     async def _publish_schema(self, issuer: AgentCfg, cred_type: dict) -> None:
         """
@@ -666,7 +665,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         issuer = self._agents[conn.agent_id]
-        if issuer.agent_type != AgentType.issuer:
+        if not issuer.is_issuer:
             raise IndyConfigError(
                 "Cannot issue credential from non-issuer agent: {}".format(issuer.agent_id))
         if not issuer.synced:
@@ -781,6 +780,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot generate credential request from non-holder agent: {}".format(holder.agent_id))
         async with self._storage_lock:
             if not holder.synced:
                 raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
@@ -802,6 +804,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot store credential using non-holder agent: {}".format(holder.agent_id))
         async with self._storage_lock:
             if not holder.synced:
                 raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
@@ -862,6 +867,9 @@ class IndyService(ServiceBase):
         holder = self._agents.get(holder_id)
         if not holder:
             raise IndyConfigError("Unknown holder id: {}".format(holder_id))
+        if not holder.is_holder:
+            raise IndyConfigError(
+                "Cannot construct proof from non-holder agent: {}".format(holder.agent_id))
         if not holder.synced:
             raise IndyConfigError("Holder is not yet synchronized: {}".format(holder_id))
         log_json("Fetching credentials for request", proof_req.data, LOGGER)
@@ -988,7 +996,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
         verifier = self._agents[conn.agent_id]
-        if verifier.agent_type != AgentType.verifier:
+        if not verifier.is_verifier:
             raise IndyConfigError(
                 "Cannot verify proof from non-verifier agent: {}".format(verifier.agent_id))
         if not verifier.synced:

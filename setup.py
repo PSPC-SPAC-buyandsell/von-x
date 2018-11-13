@@ -1,9 +1,10 @@
 import os
+import runpy
 from setuptools import setup, find_packages
 
-
 pkg_name = 'vonx'
-version = '1.4.0'
+meta = runpy.run_path("./{}/version.py".format(pkg_name))
+version = meta['__version__']
 
 setup(
     name=pkg_name,
@@ -14,12 +15,12 @@ setup(
     description='VON-X Connector',
     license='Apache Software License',
     author='PSPC-SPAC',
-    author_email='',
+    author_email='andrew@1crm.com',
     url='https://github.com/PSPC-SPAC-buyandsell/von-x/',
-    download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/{}.tar.gz'.format(version),
+    download_url='https://github.com/PSPC-SPAC-buyandsell/von-x/archive/v{}.tar.gz'.format(version),
     keywords=['verified-organizations-network', 'VON', 'TheOrgBook', 'Hyperledger', 'Indy', 'HTTP'],
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Developers',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Software Development :: Libraries :: Python Modules',
@@ -30,8 +31,8 @@ setup(
     python_requires='>=3.5.3',
     install_requires=[
         'aiohttp~=3.3.0',
-        'aiohttp-jinja2~=1.0.0',
+        'aiohttp-jinja2~=1.1.0',
         'PyYAML',
-        'von-anchor==1.6.25',
+        'von-anchor==1.6.36',
     ],
 )

@@ -34,6 +34,7 @@ from von_anchor import (
     Verifier,
 )
 from von_anchor.anchor.base import _BaseAnchor
+from von_anchor.anchor.demo import BCRegistrarAnchor, OrgHubAnchor
 from von_anchor.nodepool import NodePool
 from von_anchor.wallet import Wallet, register_wallet_storage_library
 from von_anchor.util import schema_id
@@ -54,6 +55,7 @@ class AgentType(Enum):
     issuer = "issuer"
     holder = "holder"
     verifier = "verifier"
+    combined = "combined"
 
 
 class AgentCfg:
@@ -117,7 +119,7 @@ class AgentCfg:
         """
         Accessor for the role of the agent to be registered on the ledger
         """
-        return "TRUST_ANCHOR" if self.agent_type == AgentType.issuer else ""
+        return "TRUST_ANCHOR" if self.is_issuer else ""
 
     @property
     def status(self) -> dict:
@@ -148,16 +150,19 @@ class AgentCfg:
             pool: the initialized :class:`NodePool` instance for the wallet
         """
         if not self._instance:
-            inst = None
+            cls = None
+            params = {"cfg": self.extended_config}
             if self.agent_type == AgentType.issuer:
-                inst = Issuer(wallet.instance, pool)
+                cls = BCRegistrarAnchor # combines Origin and Issuer
             elif self.agent_type == AgentType.holder:
-                inst = HolderProver(wallet.instance, pool, self.extended_config)
+                cls = HolderProver
             elif self.agent_type == AgentType.verifier:
-                inst = Verifier(wallet.instance, pool, self.extended_config)
+                cls = Verifier
+            elif self.agent_type == AgentType.combined:
+                cls = OrgHubAnchor
             else:
                 raise IndyConfigError("Unknown agent type")
-            self._instance = inst
+            self._instance = cls(wallet.instance, pool, **params)
         await self.open()
 
     async def open(self) -> None:
@@ -177,6 +182,33 @@ class AgentCfg:
             await self._instance.close()
             self.opened = False
 
+    async def get_endpoint(self, did: str) -> str:
+        """
+        Resolve a did to an endpoint
+        """
+        return await self._instance.get_endpoint(did)
+
+    async def send_endpoint(self) -> None:
+        """
+        Write the agent's endpoint to the ledger.
+
+        If end point is None, endpoint will be removed from ledger.
+        """
+        await self._instance.send_endpoint(self.endpoint)
+
+
+    @property
+    def is_holder(self):
+        return self.agent_type == AgentType.holder or self.agent_type == AgentType.combined
+
+    @property
+    def is_issuer(self):
+        return self.agent_type == AgentType.issuer or self.agent_type == AgentType.combined
+
+    @property
+    def is_verifier(self):
+        return self.agent_type == AgentType.verifier or self.agent_type == AgentType.combined
+
     def add_credential_type(self, schema: 'SchemaCfg', **params) -> None:
         """
         Add a credential type to the Agent configuration
@@ -184,8 +216,8 @@ class AgentCfg:
         Args:
             schema: the :class:`SchemaCfg` to be added
         """
-        if self.agent_type != AgentType.issuer:
-            raise IndyConfigError("Only agent of type 'issuer' may publish schemas")
+        if not self.is_issuer:
+            raise IndyConfigError("Only issuer agent may publish schemas")
         self.cred_types.append({
             "definition": schema,
             "ledger_schema": None,
@@ -212,7 +244,7 @@ class AgentCfg:
         """
         Get parameters required for initializing the connection
         """
-        if self.agent_type == AgentType.issuer:
+        if self.is_issuer:
             cred_specs = []
             for cred_type in self.cred_types:
                 params = cred_type["params"]
@@ -584,17 +616,17 @@ class WalletCfg:
         self.seed = params.get("seed")
         if not self.seed:
             raise IndyConfigError("Missing seed for wallet '{}'".format(self.name))
+        seed_valid = False
         if len(self.seed) == 32:
-            valid = True
+            seed_valid = True
         elif self.seed[-1:] == "=":
-            valid = False
             try:
                 decoded = base64.b64decode(bytes(self.seed, 'ascii'))
                 if len(decoded) == 32:
-                    valid = True
+                    seed_valid = True
             except binascii.Error:
                 pass
-        if not valid:
+        if not seed_valid:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(
                 self.seed)
