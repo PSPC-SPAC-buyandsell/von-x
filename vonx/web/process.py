@@ -85,6 +85,7 @@ async def process_form(form, request: web.Request) -> web.Response:
         schema_version = form.get("schema_version")
         if not schema_name:
             # FIXME should be an internal error
+            LOGGER.error("Error no schema_name provided")
             return web.Response(reason="Form definition missing 'schema_name'", status=400)
 
         LOGGER.debug("request %s", request)
@@ -99,6 +100,7 @@ async def process_form(form, request: web.Request) -> web.Response:
             result = await client.resolve_schema(schema_name, schema_version)
         except IndyClientError:
             msg = "Issuer for schema '{}' is not defined or not loaded".format(schema_name)
+            LOGGER.error("Error {}".format(msg))
             return web.Response(reason=msg, status=400)
 
         params = load_cred_request(form, result.attr_names, inputs)
