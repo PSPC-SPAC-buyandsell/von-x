@@ -399,6 +399,12 @@ class HttpConnection(ConnectionBase):
         Args:
             proof_request: the prepared Indy proof request
         """
+        print('--------------------')
+        print("proof request url", self.path_prefix + "construct-proof")
+        print("source_id", params and params.get("source_id") or None)
+        print("proof", request.data)
+        print("credential_ids", list(cred_ids) if cred_ids else None)
+        print('--------------------')
         response = await self.post_json(
             self.path_prefix + "construct-proof", {
                 "source_id": params and params.get("source_id") or None,
