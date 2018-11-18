@@ -875,8 +875,10 @@ class IndyService(ServiceBase):
         log_json("Fetching credentials for request", proof_req.data, LOGGER)
 
         # TODO - use separate request to find credentials and allow manual filtering?
+        print('--------------------')
         if cred_ids:
             LOGGER.debug("Construct proof from IDs: %s", cred_ids)
+            print("Construct proof from IDs:", cred_ids)
             found_creds = []
             for cred_id in cred_ids:
                 try:
@@ -886,11 +888,15 @@ class IndyService(ServiceBase):
                     found_creds.append(json.loads(found_cred_json))
                 except AbsentCred:
                     LOGGER.warning("Credential not found: %s", cred_id)
+                    print("Credential not found:", cred_id)
 
             if not found_creds:
                 raise IndyError("No credentials found for proof")
+            print("found_creds", found_creds)
             _populate_cred_def_ids(proof_req.data, found_creds)
+            print("proof_req.data", proof_req.data)
             found_creds = proof_req_infos2briefs(proof_req.data, found_creds)
+            print("found_creds", found_creds)
         else:
             # DEBUG
             #proof_req.wql_filters = {
@@ -904,9 +910,13 @@ class IndyService(ServiceBase):
                 json.dumps(proof_req.wql_filters) if proof_req.wql_filters else None,
             )
             found_creds = json.loads(found_creds_json)
+            print("found_creds", found_creds)
             _populate_cred_def_ids(proof_req.data, found_creds)
+            print("proof_req.data", proof_req.data)
 
         log_json("Found credentials", found_creds, LOGGER)
+        print("Found credentials:", found_creds)
+        print('--------------------')
 
         if not found_creds:
             raise IndyError("No credentials found for proof")
