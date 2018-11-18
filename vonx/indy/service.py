@@ -920,8 +920,8 @@ class IndyService(ServiceBase):
 
         if not found_creds:
             raise IndyError("No credentials found for proof")
-        elif len(found_creds) > 1:
-            raise IndyError("Too many credentials found for proof")
+        #elif len(found_creds) > 1:
+        #    raise IndyError("Too many credentials found for proof")
 
         request_params = proof_req_briefs2req_creds(proof_req.data, found_creds)
 
