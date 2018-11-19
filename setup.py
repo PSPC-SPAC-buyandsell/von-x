@@ -32,7 +32,9 @@ setup(
     install_requires=[
         'aiohttp~=3.3.0',
         'aiohttp-jinja2~=1.1.0',
+        'didauth==1.2.3',
         'PyYAML',
-        'von-anchor==1.6.36',
+        'networkx>=2.2,<3'
+        'von-anchor==1.6.37',
     ],
 )

@@ -50,7 +50,7 @@ class IndyCredentialProcessor:
         pass
 
     def process_credential(
-            self, stored: StoredCredential, origin_did: str = None, batch_info=None) -> Future:
+            self, _stored: StoredCredential, _origin_did: str = None, _batch_info=None) -> Future:
         """
         Perform post-processing (DB indexing, etc)
         """
@@ -101,7 +101,8 @@ async def get_request_json(request):
     try:
         return await request.json()
     except json.JSONDecodeError:
-        raise IndyRequestError("Request body must contain an application/json payload")
+        raise IndyRequestError(
+            "Request body must contain an application/json payload")
 
 def indy_client(request: web.Request) -> IndyClient:
     """
@@ -118,10 +119,12 @@ def get_handle_id(request: web.Request, handle: str, override_val: str = None) -
     match_val = override_val or request.match_info.get(handle)
     if query_val:
         if match_val and match_val != query_val:
-            raise IndyRequestError("{} must be unspecified or equal to '{}'".format(handle, match_val))
+            raise IndyRequestError(
+                "{} must be unspecified or equal to '{}'".format(handle, match_val))
     else:
         if not match_val:
-            raise IndyRequestError("{} must be specified".format(handle))
+            raise IndyRequestError(
+                "{} must be specified".format(handle))
         query_val = match_val
     return query_val
 
@@ -280,7 +283,7 @@ async def perform_store_credential(
 
     if isinstance(params, list) and params:
         procs = []
-        batch_info = processor and processor.start_batch() or None
+        batch_info = processor.start_batch() if processor else None
         for cred in map(_assemble_cred_from_input, params):
             procs.append(asyncio.ensure_future(
                 _store_credential(client, holder_id, cred, processor, origin_did, batch_info)))
