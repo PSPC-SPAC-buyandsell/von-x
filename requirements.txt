@@ -5,9 +5,6 @@ networkx>=2.2,<3
 
 
 # part of von-image
-#python3-indy==1.6.2-dev-711
-#von-agent==1.6.25
-#git+https://github.com/cywolf/didauth.git@v1.2.1
-
-#von-anchor==1.6.36
-#didauth==1.2.2
+#python3-indy==1.6.7
+#didauth==1.2.3
+#von-anchor==1.6.37
