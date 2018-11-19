@@ -26,13 +26,8 @@ from distutils.version import LooseVersion
 from enum import Enum
 import logging
 from typing import Mapping, Sequence
-import uuid
 
-from von_anchor import (
-    Issuer,
-    HolderProver,
-    Verifier,
-)
+from von_anchor import HolderProver, Verifier
 from von_anchor.anchor.base import _BaseAnchor
 from von_anchor.anchor.demo import BCRegistrarAnchor, OrgHubAnchor
 from von_anchor.nodepool import NodePool
@@ -422,15 +417,17 @@ class SchemaCfg:
             version: str = None,
             attributes=None,
             origin_did: str = None,
-            dependencies: list = []
-        ):        
+            dependencies: list = None
+        ):
         self.name = name
         self.version = version
         self._attributes = []
         if attributes:
+            # call setter
             self.attributes = attributes
         self.origin_did = origin_did
-        self.dependencies = dependencies
+        self.dependencies = dependencies or []
+
     @property
     def schema_id(self) -> str:
         """
@@ -497,7 +494,12 @@ class SchemaCfg:
         """
         Create a copy of this :class:`SchemaCfg` instance
         """
-        return SchemaCfg(self.name, self.version, self._attributes, self.origin_did, self.dependencies)
+        return SchemaCfg(
+            self.name,
+            self.version,
+            self._attributes,
+            self.origin_did,
+            self.dependencies)
 
     def validate(self, value) -> None:
         """
@@ -636,7 +638,7 @@ class WalletCfg:
         if not seed_valid:
             raise IndyConfigError(
                 "Wallet seed length is not 32 characters and/or not valid base64: {}".format(
-                self.seed)
+                    self.seed)
             )
         self.type = params.get("type")
         self.params = params.get("params") or {}
@@ -680,7 +682,10 @@ class WalletCfg:
         # load storage library for postgres
         if storage_type == "postgres":
             try:
-                await register_wallet_storage_library(storage_type,"libindystrgpostgres.so","postgreswallet_fn_")
+                await register_wallet_storage_library(
+                    storage_type,
+                    "libindystrgpostgres.so",
+                    "postgreswallet_fn_")
             except IndyError as x_indy:
                 if x_indy.error_code == ErrorCode.WalletTypeAlreadyRegisteredError:
                     LOGGER.info('Wallet already exists: %s', self.name)

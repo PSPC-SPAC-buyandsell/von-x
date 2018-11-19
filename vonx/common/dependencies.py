@@ -20,8 +20,6 @@ This module provides a dependency graph data structure and related utility funct
 for managing credential dependencies.
 """
 
-import json
-
 from networkx import DiGraph
 from networkx.readwrite import json_graph
 from networkx.algorithms.cycles import find_cycle
@@ -91,9 +89,9 @@ class CredentialDependencyGraph(DiGraph):
             current_graph.add_edge(node_a, node_b, False)
             try:
                 cycle = find_cycle(current_graph)
-                cycle_strs = [f"{link[0]} -> {link[1]}" for link in cycle]
+                cycle_strs = ["{} -> {}".format(link[0], link[1]) for link in cycle]
                 raise CircularDependencyError(
-                    f'Circular dependency detected: {", ".join(cycle_strs)}'
+                    "Circular dependency detected: {}".format(", ".join(cycle_strs))
                 )
             except NetworkXNoCycle:
                 pass
@@ -108,17 +106,17 @@ class CredentialDependencyGraph(DiGraph):
         extra meta data to each node
         """
 
-        for kw, arg in kwargs.items():
-            self.edges[(node_a.id, node_b.id)][kw] = arg
+        for argname, argval in kwargs.items():
+            self.edges[(node_a.id, node_b.id)][argname] = argval
 
     def serialize(self):
         """
         Returns a json representation of the graph
         """
         data = json_graph.node_link_data(self)
-        del (data["directed"])
-        del (data["multigraph"])
-        del (data["graph"])
+        del data["directed"]
+        del data["multigraph"]
+        del data["graph"]
         return data
 
     def deserialize(self, graph_data):
@@ -155,7 +153,7 @@ class CredentialDependencyGraph(DiGraph):
         for node_id in self.nodes:
             node = self.nodes[node_id]
             try:
-                if node["root"] == True:
+                if node["root"] is True:
                     return CredentialDependency(
                         node["schema_name"], node["schema_version"], node["origin_did"]
                     )
@@ -180,7 +178,8 @@ class CredentialDependency:
         if graph_data and self.id not in self.graph:
             raise CredentialDependencyError(
                 "Existing graph provided but the credential dependency represented by"
-                + f"{schema_name}, {schema_version}, {origin_did} is not in graph."
+                "{}, {}, {} is not in graph.".format(
+                    schema_name, schema_version, origin_did)
             )
 
         self.graph.add_node(self.id, **self.node_data)
@@ -244,4 +243,4 @@ class CredentialDependency:
         self.graph.add_edge(self, dependency)
 
     def __str__(self):
-        return f"{self.__class__.__name__}({self.__dict__})"
+        return "{}({})".format(self.__class__.__name__, self.__dict__)

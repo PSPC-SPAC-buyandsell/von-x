@@ -23,7 +23,7 @@ View classes for handling AJAX requests as an issuer or holder service
 import json
 import logging
 
-from aiohttp import ClientSession, web
+from aiohttp import web
 
 from ..common.util import log_json, normalize_credential_ids
 from ..indy.client import IndyClientError
@@ -277,14 +277,14 @@ async def get_credential_dependencies(request):
     schema_version = request.query.get("schema_version")
     origin_did = request.query.get("origin_did")
 
-    dependency_graph = None 
+    dependency_graph = None
     visited_dids = None
 
     try:
         request_body = await get_request_json(request)
         dependency_graph = request_body["dependency_graph"]
         visited_dids = request_body["visited_dids"]
-    except IndyRequestError: 
+    except IndyRequestError:
         pass
 
     try:

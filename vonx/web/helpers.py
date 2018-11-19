@@ -50,6 +50,5 @@ def one_year_iso():
     Get the time for a year from now, formatted as ISO-8601 string
     """
     return (
-          datetime.datetime.now() +
-          datetime.timedelta(days=365)
-        ).isoformat()
+        datetime.datetime.now() + datetime.timedelta(days=365)
+    ).isoformat()
