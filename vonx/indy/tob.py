@@ -30,6 +30,7 @@ from ..common.util import log_json
 LOGGER = logging.getLogger(__name__)
 
 CRED_TYPE_PARAMETERS = (
+    "depends_on",
     "cardinality_fields",
     "credential",
     "description",

@@ -20,10 +20,12 @@
 a more natural interface for working with the ledger.
 """
 
+import logging
 from typing import Sequence
 
 from ..common.exchange import RequestTarget
 from ..common.service import (
+    ServiceFail,
     ServiceAck,
     ServiceRequest,
     ServiceSyncReq,
@@ -33,45 +35,10 @@ from ..common.service import (
 
 from .config import AgentType, ConnectionType
 from .errors import IndyClientError
+from . import messages
 
-from .messages import (
-    IndyServiceAck,
-    IndyServiceFail,
-    LedgerStatusReq,
-    LedgerStatus,
-    RegisterWalletReq,
-    WalletStatusReq,
-    WalletStatus,
-    RegisterAgentReq,
-    AgentStatusReq,
-    AgentStatus,
-    RegisterCredentialTypeReq,
-    RegisterConnectionReq,
-    ConnectionStatusReq,
-    ConnectionStatus,
-    IssueCredentialReq,
-    IssueCredentialBatchReq,
-    Credential,
-    CredentialOffer,
-    CredentialRequest,
-    StoredCredential,
-    StoredCredentialBatch,
-    GenerateCredentialRequestReq,
-    StoreCredentialReq,
-    ResolveSchemaReq,
-    ResolvedSchema,
-    ProofRequest,
-    ConstructProofReq,
-    ConstructedProof,
-    GenerateProofRequestReq,
-    RegisterProofSpecReq,
-    ProofSpecStatus,
-    VerifiedProof,
-    RequestProofReq,
-    VerifyProofReq,
-    ResolveNymReq,
-    ResolvedNym,
-)
+LOGGER = logging.getLogger(__name__)
+
 
 class IndyClient:
     """
@@ -89,7 +56,8 @@ class IndyClient:
             expect: the type or types expected in response
         """
         result = await self._target.request(request)
-        if isinstance(result, IndyServiceFail):
+
+        if isinstance(result, (messages.IndyServiceFail, ServiceFail)):
             raise IndyClientError(result.value)
         elif expect and not isinstance(result, expect):
             raise IndyClientError("Unexpected result: {}".format(result))
@@ -99,7 +67,7 @@ class IndyClient:
         """
         Get the status of the remote ledger (for von-network)
         """
-        result = await self._fetch(LedgerStatusReq(), LedgerStatus)
+        result = await self._fetch(messages.LedgerStatusReq(), messages.LedgerStatus)
         return result.status
 
     async def register_wallet(self, config: dict) -> str:
@@ -111,7 +79,7 @@ class IndyClient:
         Returns:
             the registered identifier of the wallet
         """
-        result = await self._fetch(RegisterWalletReq(config), WalletStatus)
+        result = await self._fetch(messages.RegisterWalletReq(config), messages.WalletStatus)
         return result.wallet_id
 
     async def get_wallet_status(self, wallet_id: str) -> dict:
@@ -121,7 +89,7 @@ class IndyClient:
         Args:
             wallet_id: the registered wallet identifier
         """
-        result = await self._fetch(WalletStatusReq(wallet_id), WalletStatus)
+        result = await self._fetch(messages.WalletStatusReq(wallet_id), messages.WalletStatus)
         return result.status
 
     async def register_issuer(self, wallet_id: str, config: dict) -> str:
@@ -138,8 +106,8 @@ class IndyClient:
         if config and config.get("holder_verifier"):
             agent_type = AgentType.combined.value
         result = await self._fetch(
-            RegisterAgentReq(agent_type, wallet_id, config),
-            AgentStatus)
+            messages.RegisterAgentReq(agent_type, wallet_id, config),
+            messages.AgentStatus)
         return result.agent_id
 
     async def register_holder(self, wallet_id: str, config: dict) -> str:
@@ -153,8 +121,8 @@ class IndyClient:
             the registered identifier of the holder service
         """
         result = await self._fetch(
-            RegisterAgentReq(AgentType.holder.value, wallet_id, config),
-            AgentStatus)
+            messages.RegisterAgentReq(AgentType.holder.value, wallet_id, config),
+            messages.AgentStatus)
         return result.agent_id
 
     async def register_verifier(self, wallet_id: str, config: dict) -> str:
@@ -168,8 +136,8 @@ class IndyClient:
             the registered identifier of the verifier service
         """
         result = await self._fetch(
-            RegisterAgentReq(AgentType.verifier.value, wallet_id, config),
-            AgentStatus)
+            messages.RegisterAgentReq(AgentType.verifier.value, wallet_id, config),
+            messages.AgentStatus)
         return result.agent_id
 
     async def get_agent_status(self, agent_id: str) -> dict:
@@ -179,13 +147,14 @@ class IndyClient:
         Args:
             agent_id: the registered agent identifier
         """
-        result = await self._fetch(AgentStatusReq(agent_id), AgentStatus)
+        result = await self._fetch(messages.AgentStatusReq(agent_id), messages.AgentStatus)
         return result.status
 
     async def register_credential_type(self, issuer_id: str,
                                        schema_name: str, schema_version: str,
                                        origin_did: str, attr_names: Sequence,
-                                       config: dict = None) -> None:
+                                       config: dict = None,
+                                       dependencies: list = None) -> None:
         """
         Register a credential type for a previously-registered issuer
 
@@ -195,13 +164,15 @@ class IndyClient:
             schema_version: the version of the schema
             origin_did: for schemas published by other issuers, otherwise None
             attr_names: the list of attribute names, required for a schema to be published
+            dependencies: list of dependencies - must be names of valid defined proof requests
             config: extra configuration parameters for the credential type
         """
+
         await self._fetch(
-            RegisterCredentialTypeReq(
+            messages.RegisterCredentialTypeReq(
                 issuer_id, schema_name, schema_version,
-                origin_did, attr_names, config),
-            IndyServiceAck)
+                origin_did, attr_names, config, dependencies or []),
+            messages.IndyServiceAck)
 
     async def register_http_connection(self, agent_id: str, config: dict = None) -> str:
         """
@@ -212,8 +183,8 @@ class IndyClient:
             config: configuration parameters for the connection (must include 'api_url')
         """
         result = await self._fetch(
-            RegisterConnectionReq(ConnectionType.HTTP.value, agent_id, config or {}),
-            ConnectionStatus)
+            messages.RegisterConnectionReq(ConnectionType.HTTP.value, agent_id, config or {}),
+            messages.ConnectionStatus)
         return result.connection_id
 
     async def register_orgbook_connection(self, agent_id: str, config: dict = None) -> str:
@@ -225,8 +196,8 @@ class IndyClient:
             config: configuration parameters for the connection (must include 'api_url')
         """
         result = await self._fetch(
-            RegisterConnectionReq(ConnectionType.TheOrgBook.value, agent_id, config or {}),
-            ConnectionStatus)
+            messages.RegisterConnectionReq(ConnectionType.TheOrgBook.value, agent_id, config or {}),
+            messages.ConnectionStatus)
         return result.connection_id
 
     async def register_holder_connection(self, agent_id: str, config: dict = None) -> str:
@@ -238,8 +209,8 @@ class IndyClient:
             config: extra configuration parameters for the connection (must include 'holder_id')
         """
         result = await self._fetch(
-            RegisterConnectionReq(ConnectionType.holder.value, agent_id, config or {}),
-            ConnectionStatus)
+            messages.RegisterConnectionReq(ConnectionType.holder.value, agent_id, config or {}),
+            messages.ConnectionStatus)
         return result.connection_id
 
     async def get_connection_status(self, connection_id: str) -> dict:
@@ -249,11 +220,13 @@ class IndyClient:
         Args:
             connection_id: the registered connection identifier
         """
-        result = await self._fetch(ConnectionStatusReq(connection_id), ConnectionStatus)
+        result = await self._fetch(
+            messages.ConnectionStatusReq(connection_id),
+            messages.ConnectionStatus)
         return result.status
 
     async def issue_credential(self, connection_id: str, schema_name: str, schema_version: str,
-                               origin_did: str, cred_data: dict) -> StoredCredential:
+                               origin_did: str, cred_data: dict) -> messages.StoredCredential:
         """
         Issue a credential to a previously-registered connection
 
@@ -265,13 +238,13 @@ class IndyClient:
             cred_data: the new credential's raw claim attribute values
         """
         return await self._fetch(
-            IssueCredentialReq(
+            messages.IssueCredentialReq(
                 connection_id, schema_name, schema_version, origin_did, cred_data),
-            StoredCredential)
+            messages.StoredCredential)
 
     async def issue_credential_batch(
             self, connection_id: str, schema_name: str, schema_version: str,
-            origin_did: str, cred_data: Sequence[dict]) -> StoredCredentialBatch:
+            origin_did: str, cred_data: Sequence[dict]) -> messages.StoredCredentialBatch:
         """
         Issue a list of credentials to a previously-registered connection
 
@@ -283,12 +256,12 @@ class IndyClient:
             cred_data: the list of new credential's raw claim attribute values
         """
         return await self._fetch(
-            IssueCredentialBatchReq(
+            messages.IssueCredentialBatchReq(
                 connection_id, schema_name, schema_version, origin_did, cred_data),
-            StoredCredentialBatch)
+            messages.StoredCredentialBatch)
 
     async def create_credential_request(self, holder_id: str, cred_offer: dict,
-                                        cred_def_id: str) -> CredentialRequest:
+                                        cred_def_id: str) -> messages.CredentialRequest:
         """
         Create a credential request for an issuer service
 
@@ -298,11 +271,13 @@ class IndyClient:
             cred_def_id: The identifier of the credential definition
         """
         return await self._fetch(
-            GenerateCredentialRequestReq(holder_id, CredentialOffer(cred_offer, cred_def_id)),
-            CredentialRequest)
+            messages.GenerateCredentialRequestReq(
+                holder_id,
+                messages.CredentialOffer(cred_offer, cred_def_id)),
+            messages.CredentialRequest)
 
     async def store_credential(self, holder_id: str,
-                               credential: Credential) -> StoredCredential:
+                               credential: messages.Credential) -> messages.StoredCredential:
         """
         Store a credential in a holder's wallet
 
@@ -311,11 +286,11 @@ class IndyClient:
             credential: the Indy credential record
         """
         return await self._fetch(
-            StoreCredentialReq(holder_id, credential),
-            StoredCredential)
+            messages.StoreCredentialReq(holder_id, credential),
+            messages.StoredCredential)
 
     async def resolve_schema(self, name: str, version: str = None,
-                             origin_did: str = None) -> ResolvedSchema:
+                             origin_did: str = None) -> messages.ResolvedSchema:
         """
         Resolve a schema from a registered credential type or the ledger
 
@@ -325,11 +300,41 @@ class IndyClient:
             origin_did: the DID of the schema issuer
         """
         return await self._fetch(
-            ResolveSchemaReq(name, version, origin_did),
-            ResolvedSchema)
+            messages.ResolveSchemaReq(name, version, origin_did),
+            messages.ResolvedSchema)
+
+    async def get_credential_dependencies(self,
+                                          name: str,
+                                          version: str = None,
+                                          origin_did: str = None,
+                                          dependency_graph=None,
+                                          visited_dids=None) -> messages.CredentialDependencies:
+        """
+        Get a credentials dependencies
+
+        Args:
+            name: the schema name
+            version: the schema version
+            origin_did: the DID of the schema issuer
+            dependency_graph: dependency graph for this dependency
+        """
+        return await self._fetch(
+            messages.CredentialDependenciesReq(
+                name, version, origin_did, dependency_graph, visited_dids))
+
+    async def get_endpoint(self, did: str) -> messages.Endpoint:
+        """
+        Get an endpoint for a did
+
+        Args:
+            did: the did to resolve
+        """
+        return await self._fetch(
+            messages.EndpointReq(did), messages.Endpoint)
 
     async def construct_proof(self, holder_id: str, proof_req: dict,
-                              wql_filters: dict = None, cred_ids: set = None) -> ConstructedProof:
+                              wql_filters: dict = None,
+                              cred_ids: set = None) -> messages.ConstructedProof:
         """
         Construct a proof from credentials in the holder's wallet given a proof request
 
@@ -339,8 +344,10 @@ class IndyClient:
             cred_ids: an optional set of credential IDs to use in the proof
         """
         return await self._fetch(
-            ConstructProofReq(holder_id, ProofRequest(proof_req, wql_filters), cred_ids),
-            ConstructedProof)
+            messages.ConstructProofReq(
+                holder_id,
+                messages.ProofRequest(proof_req, wql_filters), cred_ids),
+            messages.ConstructedProof)
 
     async def register_proof_spec(self, spec: dict) -> str:
         """
@@ -352,11 +359,11 @@ class IndyClient:
             the identifier of the registered proof request spec
         """
         result = await self._fetch(
-            RegisterProofSpecReq(spec),
-            ProofSpecStatus)
+            messages.RegisterProofSpecReq(spec),
+            messages.ProofSpecStatus)
         return result.spec_id
 
-    async def generate_proof_request(self, spec_id: str) -> ProofRequest:
+    async def generate_proof_request(self, spec_id: str) -> messages.ProofRequest:
         """
         Generate a proof request based on a previously-registered proof request spec
 
@@ -364,11 +371,14 @@ class IndyClient:
             spec_id: the registered proof request spec identifier
         """
         return await self._fetch(
-            GenerateProofRequestReq(spec_id),
-            ProofRequest)
+            messages.GenerateProofRequestReq(spec_id),
+            messages.ProofRequest)
 
-    async def request_proof(self, connection_id: str, proof_req: ProofRequest,
-                            cred_ids: set = None, params: dict = None) -> ConstructedProof:
+    async def request_proof(self,
+                            connection_id: str,
+                            proof_req: messages.ProofRequest,
+                            cred_ids: set = None,
+                            params: dict = None) -> messages.ConstructedProof:
         """
         Request a proof from a holder connection
 
@@ -379,11 +389,11 @@ class IndyClient:
             params: extra parameters for the connection to use in the proof construction
         """
         return await self._fetch(
-            RequestProofReq(connection_id, proof_req, cred_ids, params),
-            VerifiedProof)
+            messages.RequestProofReq(connection_id, proof_req, cred_ids, params),
+            messages.VerifiedProof)
 
-    async def verify_proof(self, verifier_id: str, proof_req: ProofRequest,
-                           proof: ConstructedProof) -> VerifiedProof:
+    async def verify_proof(self, verifier_id: str, proof_req: messages.ProofRequest,
+                           proof: messages.ConstructedProof) -> messages.VerifiedProof:
         """
         Verify a previously constructed proof
 
@@ -393,8 +403,8 @@ class IndyClient:
             proof: the constructed proof
         """
         return await self._fetch(
-            VerifyProofReq(verifier_id, proof_req, proof),
-            VerifiedProof)
+            messages.VerifyProofReq(verifier_id, proof_req, proof),
+            messages.VerifiedProof)
 
     async def resolve_nym(self, did: str, agent_id: str = None):
         """
@@ -405,8 +415,8 @@ class IndyClient:
             agent_id: the agent instance to use
         """
         return await self._fetch(
-            ResolveNymReq(did, agent_id),
-            ResolvedNym)
+            messages.ResolveNymReq(did, agent_id),
+            messages.ResolvedNym)
 
     async def sync(self, wait: bool = True) -> bool:
         """
