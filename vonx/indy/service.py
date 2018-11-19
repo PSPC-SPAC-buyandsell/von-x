@@ -20,6 +20,7 @@ The Indy service implements handlers for all the ledger-related messages, sychro
 agents and connections, and handles the core logic for working with credentials and proofs.
 """
 
+import aiohttp
 import asyncio
 import base64
 import json
@@ -45,6 +46,18 @@ from ..common.service import (
     ServiceSyncError,
 )
 from ..common.util import log_json
+
+from ..common.dependencies import (
+    CredentialDependency,
+    CredentialDependencyGraph,
+    EdgeAlreadyExistsError,
+    NoSelfLoopsError,
+    CantResolveDidError,
+    CantConnectToEndpointError,
+    BadResponseError,
+    CircularDependencyError
+)
+
 from .config import (
     AgentType,
     AgentCfg,
@@ -91,6 +104,10 @@ from .messages import (
     VerifyProofReq,
     ResolveNymReq,
     ResolvedNym,
+    CredentialDependenciesReq,
+    CredentialDependencies,
+    EndpointReq,
+    Endpoint
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -288,7 +305,8 @@ class IndyService(ServiceBase):
 
     def _add_credential_type(self, issuer_id: str, schema_name: str,
                              schema_version: str, origin_did: str,
-                             attr_names: Sequence, config: Mapping = None) -> None:
+                             attr_names: Sequence, dependencies: list,
+                             config: Mapping = None) -> None:
         """
         Add a credential type to a given issuer
 
@@ -298,12 +316,20 @@ class IndyService(ServiceBase):
             schema_version: the version of the schema used by the credential type
             origin_did: the DID of the service issuing the schema (optional)
             attr_names: a list of schema attribute names
+            dependencies: list of dependencies - must be names of valid defined proof requests
             config: additional configuration for the credential type
         """
         agent = self._agents[issuer_id]
+
         if not agent:
             raise IndyConfigError("Agent ID not registered: {}".format(issuer_id))
-        schema = SchemaCfg(schema_name, schema_version, attr_names, origin_did)
+
+        dependency_configs = []
+        for dependency in dependencies:
+            spec = self._proof_specs.get(dependency)
+            dependency_configs.append(spec)
+            
+        schema = SchemaCfg(schema_name, schema_version, attr_names, origin_did, dependency_configs)
         agent.add_credential_type(schema, **(config or {}))
 
     def _add_connection(self, connection_type: str, agent_id: str, **params) -> str:
@@ -1004,6 +1030,143 @@ class IndyService(ServiceBase):
         proof = await conn.instance.construct_proof(proof_req, cred_ids, params)
         return await self._verify_proof(verifier.agent_id, proof_req, proof)
 
+    async def _get_credential_dependencies(self, schema_name: str, schema_version: str,
+                                           origin_did: str, dependency_graph: dict,
+                                           visited_dids) -> CredentialDependencies:
+        """
+        Request dependency graph for a credential
+        """
+        if not visited_dids:
+            visited_dids = []
+
+        did_agent = None
+        if origin_did:
+            for agent in self._agents.values():
+                if agent.did == origin_did:
+                    did_agent = agent
+                    break
+
+        if not did_agent:
+            did_agent = next(iter(self._agents.values()))
+
+        if not did_agent.synced:
+            raise IndyConfigError("Agent is not yet synchronized: {}".format(did_agent.agent_id))
+            
+        this_did = origin_did or did_agent.did
+        
+        dependency = CredentialDependency(
+            schema_name, 
+            schema_version, 
+            this_did, 
+            dependency_graph
+        )
+
+        if origin_did and did_agent.did != origin_did and origin_did not in visited_dids:
+            # If we are given a did and it is not this agent's did, we attempt to
+            # hop to the next agent and continue to recurse
+            endpoint = await self._get_endpoint(origin_did)
+            endpoint = endpoint.endpoint
+            if not endpoint:
+
+                raise CantResolveDidError(
+                    "Attempted to resolve dependencies for schema name: " +
+                    "{}, version: {}, and did: {} but there is no endpoint published for did {}".format(
+                        dependency.schema_name, dependency.schema_version,
+                        dependency.origin_did, dependency.origin_did
+                    ))
+
+            # TODO: move this into HTTPClient
+            try:
+                async with self.http as client:
+                    response = await client.post("{}/get-credential-dependencies".format(endpoint), params={
+                        "schema_name": dependency.schema_name,
+                        "schema_version": dependency.schema_version,
+                        "origin_did": dependency.origin_did
+                    }, json={"dependency_graph": dependency.graph.serialize(), "visited_dids": visited_dids})
+                resp_json = await response.text()
+                resp = json.loads(resp_json)
+
+                success = resp["success"]
+                result = resp["result"]
+
+                if success is False:
+                    raise IndyError("Agent at endpoint {} responded with error: {}".format(endpoint, result))
+                else:
+                    visited_dids.append(origin_did)
+
+                graph = CredentialDependencyGraph(result)
+                dep = graph.get_root()
+
+                try:
+                    dependency_dependencies = await self._get_credential_dependencies(
+                        dep.schema_name,
+                        dep.schema_version,
+                        dep.origin_did,
+                        result,
+                        visited_dids
+                    )
+
+                    dependency = CredentialDependency(
+                        schema_name,
+                        schema_version,
+                        this_did,
+                        dependency_dependencies
+                    )
+                except EdgeAlreadyExistsError:
+                    pass
+
+            except json.decoder.JSONDecodeError:
+                raise BadResponseError("Could not parse respoonse from {}".format(endpoint))
+            except aiohttp.client_exceptions.ClientConnectorError:
+                raise CantConnectToEndpointError("Could not connect to endpoint {}".format(endpoint))
+        else:
+            credential_type = did_agent.find_credential_type(schema_name, schema_version, origin_did)
+            if credential_type:
+                for proof_request in credential_type['definition'].dependencies:
+                    if proof_request:
+                        for schema in proof_request.schemas:
+                            dep = schema["definition"]
+                            if not dep.compare(SchemaCfg(schema_name, schema_version, None, origin_did)):                                
+                                try:
+                                    dependency.add_dependency(
+                                        CredentialDependency(dep.name, dep.version, dep.origin_did)
+                                    )
+
+                                    dependency_dependencies = await self._get_credential_dependencies(
+                                        dep.name,
+                                        dep.version,
+                                        dep.origin_did,
+                                        dependency.graph.serialize(),
+                                        visited_dids
+                                    )
+
+                                    dependency = CredentialDependency(
+                                        schema_name, schema_version, this_did, dependency_dependencies
+                                    )
+                                except EdgeAlreadyExistsError:
+                                    pass
+                                except (CantResolveDidError, CantConnectToEndpointError,
+                                        BadResponseError, CircularDependencyError) as e:
+                                    dependency.graph.annotate_edge(
+                                        dependency,
+                                        CredentialDependency(dep.name, dep.version, dep.origin_did),
+                                        error=str(e)
+                                    )
+
+        return dependency.graph.serialize()
+
+
+    async def _get_endpoint(self, did: str) -> Endpoint:
+        """
+        Resolve a did to an endpoint
+        """
+
+        for _, agent in self._agents.items():
+            if not agent.synced:
+                raise IndyConfigError("Agent is not yet synchronized: {}".format(agent.agent_id))
+            endpoint = await agent.get_endpoint(did)
+            return Endpoint(endpoint)
+
     async def _verify_proof(self, verifier_id: str, proof_req: ProofRequest,
                             proof: ConstructedProof) -> VerifiedProof:
         """
@@ -1136,6 +1299,7 @@ class IndyService(ServiceBase):
                     request.schema_version,
                     request.origin_did,
                     request.attr_names,
+                    request.dependencies,
                     request.config)
                 reply = IndyServiceAck()
             except IndyError as e:
@@ -1226,6 +1390,24 @@ class IndyService(ServiceBase):
         elif isinstance(request, GenerateProofRequestReq):
             try:
                 reply = await self._generate_proof_request(request.spec_id, request.wql_filters)
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, CredentialDependenciesReq):
+            try:
+                reply = await self._get_credential_dependencies(
+                    request.schema_name,
+                    request.schema_version,
+                    request.origin_did,
+                    request.dependency_graph,
+                    request.visited_dids
+                )
+            except IndyError as e:
+                reply = IndyServiceFail(str(e))
+
+        elif isinstance(request, EndpointReq):
+            try:
+                reply = await self._get_endpoint(request.did)
             except IndyError as e:
                 reply = IndyServiceFail(str(e))
 

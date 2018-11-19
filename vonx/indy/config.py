@@ -416,14 +416,21 @@ class SchemaCfg:
     """
     A credential schema definition
     """
-    def __init__(self, name: str, version: str = None, attributes=None, origin_did: str = None):
+    def __init__(
+            self,
+            name: str,
+            version: str = None,
+            attributes=None,
+            origin_did: str = None,
+            dependencies: list = []
+        ):        
         self.name = name
         self.version = version
         self._attributes = []
         if attributes:
             self.attributes = attributes
         self.origin_did = origin_did
-
+        self.dependencies = dependencies
     @property
     def schema_id(self) -> str:
         """
@@ -490,7 +497,7 @@ class SchemaCfg:
         """
         Create a copy of this :class:`SchemaCfg` instance
         """
-        return SchemaCfg(self.name, self.version, self._attributes, self.origin_did)
+        return SchemaCfg(self.name, self.version, self._attributes, self.origin_did, self.dependencies)
 
     def validate(self, value) -> None:
         """
@@ -515,8 +522,8 @@ class SchemaCfg:
         return True
 
     def __repr__(self) -> str:
-        return 'SchemaCfg(name={}, version={}, origin_did={})'.format(
-            self.name, self.version, self.origin_did)
+        return 'SchemaCfg(name={}, version={}, origin_did={}, dependencies={})'.format(
+            self.name, self.version, self.origin_did, self.dependencies)
 
 
 class SchemaManager:

@@ -45,15 +45,19 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         version = None
         origin_did = None
         attributes = None
+        dependencies = ctype.get("depends_on") or []
     elif isinstance(ctype["schema"], dict):
         name = ctype["schema"].get("name")
         version = ctype["schema"].get("version")
         origin_did = ctype["schema"].get("origin_did")
         attributes = ctype["schema"].get("attributes")
+        dependencies = ctype.get("depends_on") or []
     else:
         raise IndyConfigError("Credential type schema must be string or dict")
     if not name:
         raise IndyConfigError("Credential type schema missing 'name'")
+    if isinstance(dependencies, str):
+        dependencies = [dependencies]
     if not version or not (attributes or origin_did):
         schema = schema_mgr.find(name, version)
         if schema:
@@ -69,6 +73,7 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         "schema_version": version,
         "origin_did": origin_did,
         "attributes": attributes,
+        "dependencies": dependencies,
         "params": {},
     }
     for k in CRED_TYPE_PARAMETERS:
@@ -162,8 +167,8 @@ class IndyManager(ConfigServiceManager):
         Initialize our client and populate services based on configuration
         """
         client = self.get_client()
-        await self._register_agents(client)
         await self._register_proof_requests(client)
+        await self._register_agents(client)
         await client.sync(False)
 
     async def _register_agents(self, client: IndyClient) -> None:
@@ -236,6 +241,7 @@ class IndyManager(ConfigServiceManager):
                 cred_type["origin_did"],
                 cred_type["attributes"],
                 cred_type["params"],
+                cred_type["dependencies"],
             )
 
         if connection_cfg:

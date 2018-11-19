@@ -24,6 +24,7 @@ from typing import Sequence
 
 from ..common.exchange import RequestTarget
 from ..common.service import (
+    ServiceFail,
     ServiceAck,
     ServiceRequest,
     ServiceSyncReq,
@@ -60,6 +61,8 @@ from .messages import (
     StoreCredentialReq,
     ResolveSchemaReq,
     ResolvedSchema,
+    CredentialDependenciesReq,
+    CredentialDependencies,
     ProofRequest,
     ConstructProofReq,
     ConstructedProof,
@@ -71,8 +74,12 @@ from .messages import (
     VerifyProofReq,
     ResolveNymReq,
     ResolvedNym,
+    EndpointReq,
+    Endpoint
 )
 
+import logging
+LOGGER = logging.getLogger(__name__)
 class IndyClient:
     """
     This class provides a nicer interface for passing messages to the Indy service manager
@@ -89,7 +96,8 @@ class IndyClient:
             expect: the type or types expected in response
         """
         result = await self._target.request(request)
-        if isinstance(result, IndyServiceFail):
+
+        if isinstance(result, IndyServiceFail) or isinstance(result, ServiceFail):
             raise IndyClientError(result.value)
         elif expect and not isinstance(result, expect):
             raise IndyClientError("Unexpected result: {}".format(result))
@@ -185,7 +193,8 @@ class IndyClient:
     async def register_credential_type(self, issuer_id: str,
                                        schema_name: str, schema_version: str,
                                        origin_did: str, attr_names: Sequence,
-                                       config: dict = None) -> None:
+                                       config: dict = None,
+                                       dependencies: list = []) -> None:
         """
         Register a credential type for a previously-registered issuer
 
@@ -195,12 +204,14 @@ class IndyClient:
             schema_version: the version of the schema
             origin_did: for schemas published by other issuers, otherwise None
             attr_names: the list of attribute names, required for a schema to be published
+            dependencies: list of dependencies - must be names of valid defined proof requests
             config: extra configuration parameters for the credential type
         """
+
         await self._fetch(
             RegisterCredentialTypeReq(
                 issuer_id, schema_name, schema_version,
-                origin_did, attr_names, config),
+                origin_did, attr_names, config, dependencies),
             IndyServiceAck)
 
     async def register_http_connection(self, agent_id: str, config: dict = None) -> str:
@@ -327,6 +338,31 @@ class IndyClient:
         return await self._fetch(
             ResolveSchemaReq(name, version, origin_did),
             ResolvedSchema)
+
+    async def get_credential_dependencies(self, name: str, version: str = None,
+                             origin_did: str = None, dependency_graph=None,
+                             visited_dids=None) -> CredentialDependencies:
+        """
+        Get a credentials dependencies
+
+        Args:
+            name: the schema name
+            version: the schema version
+            origin_did: the DID of the schema issuer
+            dependency_graph: dependency graph for this dependency
+        """
+        return await self._fetch(
+            CredentialDependenciesReq(name, version, origin_did, dependency_graph, visited_dids))
+
+    async def get_endpoint(self, did: str) -> Endpoint:
+        """
+        Get an endpoint for a did
+
+        Args:
+            did: the did to resolve
+        """
+        return await self._fetch(
+            EndpointReq(did), Endpoint)
 
     async def construct_proof(self, holder_id: str, proof_req: dict,
                               wql_filters: dict = None, cred_ids: set = None) -> ConstructedProof:
