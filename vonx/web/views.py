@@ -298,7 +298,7 @@ async def filter_credential(request):
     Expected url parameter:
         - connection_id - the connection to request credentials
         - org_name - the registration id of the org
-        - service_name - the service name to derive proof request dependencies
+        - proof_name - the service name to derive proof request dependencies
 
     Expected query parameters are:
         - fetch - "all" to return all matching credentials, 
@@ -308,7 +308,7 @@ async def filter_credential(request):
     """
     connection_id = request.match_info.get("connection_id")
     org_name = request.match_info.get("org_name")
-    service_name = request.match_info.get("service_name")
+    proof_name = request.match_info.get("proof_name")
 
     fetch = request.query.get("fetch")
     if fetch is None or fetch == "all":
@@ -318,31 +318,9 @@ async def filter_credential(request):
 
     try:
         client = indy_client(request)
-        result = await client.get_org_credentials(
-            connection_id, org_name
+        result = await client.get_filtered_credentials(
+            connection_id, org_name, proof_name, fetch_all
         )
-
-        # use manager to figure out proof request dependencies
-        manager = get_manager(request)
-
-        forms = RouteDefinitions.load(cfg_mgr).forms
-        proofs = cfg_mgr.services_config("proof_requests")
-
-        found = False
-        for form in forms:
-            if form["name"] == service_name:
-                found = True
-                if "proof_request" in form:
-                    if not form["proof_request"]["id"] in proofs:
-                        raise RuntimeError(
-                            'Proof request not found for service: {} {}'.format(service_name, form["proof_request"]["id"])
-                        )
-                    proof = proofs[form["proof_request"]["id"]]
-                    result = filter_by_dependent_proof_requests(form, proof, result, fetch_all)
-        if not found:
-            raise RuntimeError(
-                'Service not found: {}'.format(service_name)
-            )
 
         ret = {
             "success": True,

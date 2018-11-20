@@ -418,6 +418,17 @@ class OrganizationCredentialsReq(IndyServiceReq):
         ("org_name", str),
     )
 
+class FilterCredentialsReq(IndyServiceReq):
+    """
+    Get credentials for an organization, matching a proof request dependencies
+    """
+    _fields = (
+        ("connection_id", str),
+        ("org_name", str),
+        ("proof_name", str),
+        ("fetch_all", bool),
+    )
+
 class OrganizationCredentials(IndyServiceRep):
     """
     The message class representing an organization's credentials

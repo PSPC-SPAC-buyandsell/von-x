@@ -1001,6 +1001,28 @@ class IndyService(ServiceBase):
         proof = await conn.instance.construct_proof(proof_req, cred_ids, params)
         return await self._verify_proof(verifier.agent_id, proof_req, proof)
 
+    async def _get_filtered_credentials(self, connection_id: str, org_name: str, proof_name: str, fetch_all: bool) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization and proof request
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+            - proof_name - the service name to derive proof request dependencies
+            - fetch_all - "true" to return all matching credentials, oherwise filter most recent per schema
+
+        Returns: A list of the credentials
+        """
+        org_creds = self._orgbook_creds_for_org(connection_id, org_name)
+        spec = self._proof_specs.get(spec_id)
+        if not spec:
+            raise IndyConfigError("Proof specification not defined: {}".format(spec_id))
+        if not spec.synced:
+            raise IndyConfigError("Proof specification not synced: {}".format(spec_id))
+
+        filtered_creds = self._filter_by_dependent_proof_requests(form, proof, org_creds, fetch_all)
+        return filtered_creds
+
     async def _get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
         """
         Gets credentials for a given organization
@@ -1010,7 +1032,11 @@ class IndyService(ServiceBase):
             - org_name - the registration id of the org
 
         Returns: A list of the credentials
-        """        
+        """
+        org_creds = self._orgbook_creds_for_org(connection_id, org_name)
+        return org_creds
+
+    async def _orgbook_creds_for_org(self, connection_id, org_name):
         conn = self._connections.get(connection_id)
         if not conn:
             raise IndyConfigError("Unknown connection id: {}".format(connection_id))
@@ -1052,6 +1078,28 @@ class IndyService(ServiceBase):
             cred["source_id"] = result["topic"]["source_id"]
             result_creds.append(cred)
         return result_creds
+
+    def filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
+        print("proof", proof)
+
+        return_creds = {}
+        for cred in creds:
+            for schema in proof["schemas"]:
+                if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
+                    key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
+                    if fetch_all:
+                        if not key in return_creds:
+                            return_creds[key] = []
+                        return_creds[key].append(cred)
+                    else:
+                        if not key in return_creds:
+                            return_creds[key] = []
+                            return_creds[key].append(cred)
+                        else:
+                            if cred['effective_date'] > return_creds[key][0]['effective_date']:
+                                return_creds[key][0] = cred
+
+        return return_creds
 
     async def _get_credential_dependencies(self, schema_name: str, schema_version: str,
                                            origin_did: str, dependency_graph: dict,
@@ -1434,6 +1482,17 @@ class IndyService(ServiceBase):
                 reply = await self._get_org_credentials(
                     request.connection_id,
                     request.org_name
+                )
+            except IndyError as e:
+                reply = messages.IndyServiceFail(str(e))
+
+        elif isinstance(request, messages.FilterCredentialsReq):
+            try:
+                reply = await self._get_filtered_credentials(
+                    request.connection_id,
+                    request.org_name,
+                    request.proof_name,
+                    request.find_all
                 )
             except IndyError as e:
                 reply = messages.IndyServiceFail(str(e))
