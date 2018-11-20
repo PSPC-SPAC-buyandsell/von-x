@@ -1001,7 +1001,7 @@ class IndyService(ServiceBase):
         proof = await conn.instance.construct_proof(proof_req, cred_ids, params)
         return await self._verify_proof(verifier.agent_id, proof_req, proof)
 
-    async def _get_org_credentials(self, org_name: str) -> messages.OrganizationCredentials:
+    async def _get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
         """
         Gets credentials for a given organization
 
