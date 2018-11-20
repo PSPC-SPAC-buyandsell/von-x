@@ -1013,7 +1013,7 @@ class IndyService(ServiceBase):
 
         Returns: A list of the credentials
         """
-        org_creds = self._orgbook_creds_for_org(connection_id, org_name)
+        org_creds = await self._orgbook_creds_for_org(connection_id, org_name)
         spec = self._proof_specs.get(spec_id)
         if not spec:
             raise IndyConfigError("Proof specification not defined: {}".format(spec_id))
@@ -1033,7 +1033,7 @@ class IndyService(ServiceBase):
 
         Returns: A list of the credentials
         """
-        org_creds = self._orgbook_creds_for_org(connection_id, org_name)
+        org_creds = await self._orgbook_creds_for_org(connection_id, org_name)
         return org_creds
 
     async def _orgbook_creds_for_org(self, connection_id, org_name):
