@@ -1492,7 +1492,7 @@ class IndyService(ServiceBase):
                     request.connection_id,
                     request.org_name,
                     request.proof_name,
-                    request.find_all
+                    request.fetch_all
                 )
             except IndyError as e:
                 reply = messages.IndyServiceFail(str(e))
