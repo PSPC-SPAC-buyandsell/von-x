@@ -1017,7 +1017,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
 
-        topic_uri = '/topic/ident/registration/' + org_name 
+        topic_uri = 'topic/ident/registration/' + org_name 
         topic_result_json = await conn.instance.get_json(topic_uri)
 
         if "id" not in topic_result_json:
@@ -1026,7 +1026,7 @@ class IndyService(ServiceBase):
             )
         topic_id = topic_result_json["id"]
 
-        topic_search_uri = '/topic/' + str(topic_id) + '/credential/active'
+        topic_search_uri = 'topic/' + str(topic_id) + '/credential/active'
         result_json = await conn.instance.get_json(topic_search_uri)
 
         if 0 == len(result_json):
