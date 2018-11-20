@@ -409,6 +409,27 @@ class CredentialDependencies(IndyServiceRep):
         ("dependencies", list),
     )
 
+class OrganizationCredentialsReq(IndyServiceReq):
+    """
+    Get credentials for an organization
+    """
+    _fields = (
+        ("connection_id", str),
+        ("org_name", str),
+        # TODO optionally pass through a list of schema(s)?
+        #("schema_name", str),
+        #("schema_version", str),
+        #("origin_did", str),
+    )
+
+class OrganizationCredentials(IndyServiceRep):
+    """
+    The message class representing an organization's credentials
+    """
+    _fields = (
+        ("credentials", list),
+    )
+
 class EndpointReq(IndyServiceReq):
     """
     Get endpoint for a did

@@ -303,6 +303,18 @@ class IndyClient:
             messages.ResolveSchemaReq(name, version, origin_did),
             messages.ResolvedSchema)
 
+    async def get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+
+        Returns: A list of the credentials
+        """
+        return await self._fetch(messages.OrganizationCredentialsReq(connection_id, org_name))
+
     async def get_credential_dependencies(self,
                                           name: str,
                                           version: str = None,

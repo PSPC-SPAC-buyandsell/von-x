@@ -40,6 +40,7 @@ def get_standard_routes(_app) -> list:
         web.get('/health', views.health),
         web.get('/status', views.status),
         web.get('/ledger-status', views.ledger_status),
+        web.get('/{connection_id}/search_credential/{org_name}', views.search_credential),
         web.post('/get-credential-dependencies', views.get_credential_dependencies),
         web.post('/issue-credential', views.issue_credential),
         web.post('/{connection_id}/issue-credential', views.issue_credential),

@@ -260,6 +260,35 @@ async def construct_proof(request, holder_id: str = None):
     return response
 
 
+async def search_credential(request):
+    """
+    Gets credentials for a given organization
+
+    Expected url parameter:
+        - connection_id - the connection to request credentials
+        - org_name - the registration id of the org
+
+    Returns: A list of the credentials
+    """
+    connection_id = request.match_info.get("connection_id")
+    org_name = request.match_info.get("org_name")
+
+    try:
+        client = indy_client(request)
+        result = await client.get_org_credentials(
+            connection_id, org_name
+        )
+
+        ret = {
+            "success": True,
+            "result": result
+        }
+
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+
 async def get_credential_dependencies(request):
     """
     Gets the dependencies for a given credential type
