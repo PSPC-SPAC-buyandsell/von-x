@@ -1010,7 +1010,7 @@ class IndyService(ServiceBase):
             - org_name - the registration id of the org
 
         Returns: A list of the credentials
-        """
+        """        
         conn = self._connections.get(connection_id)
         if not conn:
             raise IndyConfigError("Unknown connection id: {}".format(connection_id))
@@ -1034,7 +1034,6 @@ class IndyService(ServiceBase):
                 'No credentials found for: {}'.format(org_name)
             )
         result_creds = self._orgbook_topic_to_creds(result_json)
-        
         return result_creds
 
     def _orgbook_topic_to_creds(self, topic_json):

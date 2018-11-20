@@ -416,10 +416,6 @@ class OrganizationCredentialsReq(IndyServiceReq):
     _fields = (
         ("connection_id", str),
         ("org_name", str),
-        # TODO optionally pass through a list of schema(s)?
-        #("schema_name", str),
-        #("schema_version", str),
-        #("origin_did", str),
     )
 
 class OrganizationCredentials(IndyServiceRep):

@@ -28,6 +28,8 @@ from aiohttp import web
 from ..common.util import log_json, normalize_credential_ids
 from ..indy.client import IndyClientError
 
+from .routes import RouteDefinitions
+
 from .view_helpers import (
     IndyRequestError,
     get_handle_id,
@@ -287,6 +289,89 @@ async def search_credential(request):
     except IndyClientError as e:
         ret = {"success": False, "result": str(e)}
     return web.json_response(ret)
+
+
+async def filter_credential(request):
+    """
+    Gets credentials for a given organization and proof request
+
+    Expected url parameter:
+        - connection_id - the connection to request credentials
+        - org_name - the registration id of the org
+        - service_name - the service name to derive proof request dependencies
+
+    Expected query parameters are:
+        - fetch - "all" to return all matching credentials, 
+                  any other value will filter most recent per schema
+
+    Returns: A list of the credentials
+    """
+    connection_id = request.match_info.get("connection_id")
+    org_name = request.match_info.get("org_name")
+    service_name = request.match_info.get("service_name")
+
+    fetch = request.query.get("fetch")
+    if fetch is None or fetch == "all":
+        fetch_all = True
+    else:
+        fetch_all = False
+
+    try:
+        client = indy_client(request)
+        result = await client.get_org_credentials(
+            connection_id, org_name
+        )
+
+        # use manager to figure out proof request dependencies
+        manager = get_manager(request)
+
+        forms = RouteDefinitions.load(cfg_mgr).forms
+        proofs = cfg_mgr.services_config("proof_requests")
+
+        found = False
+        for form in forms:
+            if form["name"] == service_name:
+                found = True
+                if "proof_request" in form:
+                    if not form["proof_request"]["id"] in proofs:
+                        raise RuntimeError(
+                            'Proof request not found for service: {} {}'.format(service_name, form["proof_request"]["id"])
+                        )
+                    proof = proofs[form["proof_request"]["id"]]
+                    result = filter_by_dependent_proof_requests(form, proof, result, fetch_all)
+        if not found:
+            raise RuntimeError(
+                'Service not found: {}'.format(service_name)
+            )
+
+        ret = {
+            "success": True,
+            "result": result
+        }
+
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+def _filter_by_dependent_proof_requests(form, proof, creds, fetch_all=False):
+    return_creds = {}
+    for cred in creds:
+        for schema in proof["schemas"]:
+            if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
+                key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
+                if fetch_all:
+                    if not key in return_creds:
+                        return_creds[key] = []
+                    return_creds[key].append(cred)
+                else:
+                    if not key in return_creds:
+                        return_creds[key] = []
+                        return_creds[key].append(cred)
+                    else:
+                        if cred['effective_date'] > return_creds[key][0]['effective_date']:
+                            return_creds[key][0] = cred
+
+    return return_creds
 
 
 async def get_credential_dependencies(request):
