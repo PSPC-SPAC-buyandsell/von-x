@@ -28,8 +28,6 @@ from aiohttp import web
 from ..common.util import log_json, normalize_credential_ids
 from ..indy.client import IndyClientError
 
-from .routes import RouteDefinitions
-
 from .view_helpers import (
     IndyRequestError,
     get_handle_id,
