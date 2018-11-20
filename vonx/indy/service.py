@@ -1014,13 +1014,13 @@ class IndyService(ServiceBase):
         Returns: A list of the credentials
         """
         org_creds = await self._orgbook_creds_for_org(connection_id, org_name)
-        spec = self._proof_specs.get(spec_id)
+        spec = self._proof_specs.get(proof_name)
         if not spec:
-            raise IndyConfigError("Proof specification not defined: {}".format(spec_id))
+            raise IndyConfigError("Proof specification not defined: {}".format(proof_name))
         if not spec.synced:
-            raise IndyConfigError("Proof specification not synced: {}".format(spec_id))
+            raise IndyConfigError("Proof specification not synced: {}".format(proof_name))
 
-        filtered_creds = self._filter_by_dependent_proof_requests(form, proof, org_creds, fetch_all)
+        filtered_creds = self._filter_by_dependent_proof_requests(spec, org_creds, fetch_all)
         return filtered_creds
 
     async def _get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
@@ -1079,7 +1079,7 @@ class IndyService(ServiceBase):
             result_creds.append(cred)
         return result_creds
 
-    def filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
+    def _filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
         print("proof", proof)
 
         return_creds = {}
