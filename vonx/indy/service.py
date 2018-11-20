@@ -1081,10 +1081,11 @@ class IndyService(ServiceBase):
 
     def _filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
         print("proof", proof)
+        print("schemas", proof.schemas)
 
         return_creds = {}
         for cred in creds:
-            for schema in proof["schemas"]:
+            for schema in proof.schemas:
                 if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
                     key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
                     if fetch_all:
