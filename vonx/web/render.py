@@ -67,7 +67,7 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                         if val is not None and val != '':
                             params[attr_name] = val
 
-            org_name = request.query.get("org_name")
+            org_name = request.query.get("org_id")
             if org_name:
                 creds = await client.get_filtered_credentials(proof_meta["connection_id"], org_name, proof_meta["id"], False)
                 print(creds)
