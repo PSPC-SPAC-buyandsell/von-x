@@ -902,8 +902,8 @@ class IndyService(ServiceBase):
 
         if not found_creds:
             raise IndyError("No credentials found for proof")
-        elif len(found_creds) > 1:
-            raise IndyError("Too many credentials found for proof")
+        #elif len(found_creds) > 1:
+        #    raise IndyError("Too many credentials found for proof")
 
         request_params = proof_req_briefs2req_creds(proof_req.data, found_creds)
 
@@ -1000,6 +1000,113 @@ class IndyService(ServiceBase):
             raise IndyConfigError("Verifier is not yet synchronized: {}".format(verifier.agent_id))
         proof = await conn.instance.construct_proof(proof_req, cred_ids, params)
         return await self._verify_proof(verifier.agent_id, proof_req, proof)
+
+    async def _get_filtered_credentials(self, connection_id: str, org_name: str, proof_name: str, fetch_all: bool) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization and proof request
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+            - proof_name - the service name to derive proof request dependencies
+            - fetch_all - "true" to return all matching credentials, oherwise filter most recent per schema
+
+        Returns: A list of the credentials
+        """
+        org_creds = await self._orgbook_creds_for_org(connection_id, org_name)
+        spec = self._proof_specs.get(proof_name)
+        if not spec:
+            raise IndyConfigError("Proof specification not defined: {}".format(proof_name))
+        if not spec.synced:
+            raise IndyConfigError("Proof specification not synced: {}".format(proof_name))
+
+        filtered_creds = self._filter_by_dependent_proof_requests(spec, org_creds, fetch_all)
+        return filtered_creds
+
+    async def _get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+
+        Returns: A list of the credentials
+        """
+        org_creds = await self._orgbook_creds_for_org(connection_id, org_name)
+        return org_creds
+
+    async def _orgbook_creds_for_org(self, connection_id, org_name):
+        conn = self._connections.get(connection_id)
+        if not conn:
+            raise IndyConfigError("Unknown connection id: {}".format(connection_id))
+        if not conn.synced:
+            raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
+
+        topic_uri = 'topic/ident/registration/' + org_name 
+        topic_result_json = await conn.instance.get_json(topic_uri)
+
+        if "id" not in topic_result_json:
+            raise RuntimeError(
+                'No organization found for: {}'.format(org_name)
+            )
+        topic_id = topic_result_json["id"]
+
+        topic_search_uri = 'topic/' + str(topic_id) + '/credential/active'
+        result_json = await conn.instance.get_json(topic_search_uri)
+
+        if 0 == len(result_json):
+            raise RuntimeError(
+                'No credentials found for: {}'.format(org_name)
+            )
+        result_creds = self._orgbook_topic_to_creds(result_json)
+        return result_creds
+
+    def _orgbook_topic_to_creds(self, topic_json):
+        result_creds = []
+        for result in topic_json:
+            cred = {}
+            cred["issuer_name"] = result["credential_type"]["issuer"]["name"]
+            cred["issuer_did"] = result["credential_type"]["issuer"]["did"]
+            cred["schema_name"] = result["credential_type"]["schema"]["name"]
+            cred["schema_version"] = result["credential_type"]["schema"]["version"]
+            cred["description"] = result["credential_type"]["description"]
+            cred["effective_date"] = result["effective_date"]
+            cred["wallet_id"] = result["wallet_id"]
+            cred["id"] = result["id"]
+            cred["topic_id"] = result["topic"]["id"]
+            cred["source_id"] = result["topic"]["source_id"]
+            result_creds.append(cred)
+        return result_creds
+
+    def _filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
+        print("proof", proof)
+        print("schemas", proof.schemas)
+
+        filter_creds = {}
+        for cred in creds:
+            for schema in proof.schemas:
+                if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
+                    key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
+                    if fetch_all:
+                        if not key in filter_creds:
+                            filter_creds[key] = []
+                        filter_creds[key].append(cred)
+                    else:
+                        if not key in filter_creds:
+                            filter_creds[key] = []
+                            filter_creds[key].append(cred)
+                        else:
+                            if cred['effective_date'] > filter_creds[key][0]['effective_date']:
+                                filter_creds[key][0] = cred
+
+        return_creds = []
+        for key in filter_creds:
+            creds = filter_creds[key]
+            for cred in creds:
+                return_creds.append(cred)
+
+        return return_creds
 
     async def _get_credential_dependencies(self, schema_name: str, schema_version: str,
                                            origin_did: str, dependency_graph: dict,
@@ -1373,6 +1480,26 @@ class IndyService(ServiceBase):
             try:
                 reply = await self._generate_proof_request(
                     request.spec_id, request.wql_filters
+                )
+            except IndyError as e:
+                reply = messages.IndyServiceFail(str(e))
+
+        elif isinstance(request, messages.OrganizationCredentialsReq):
+            try:
+                reply = await self._get_org_credentials(
+                    request.connection_id,
+                    request.org_name
+                )
+            except IndyError as e:
+                reply = messages.IndyServiceFail(str(e))
+
+        elif isinstance(request, messages.FilterCredentialsReq):
+            try:
+                reply = await self._get_filtered_credentials(
+                    request.connection_id,
+                    request.org_name,
+                    request.proof_name,
+                    request.fetch_all
                 )
             except IndyError as e:
                 reply = messages.IndyServiceFail(str(e))

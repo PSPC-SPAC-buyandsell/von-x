@@ -303,6 +303,32 @@ class IndyClient:
             messages.ResolveSchemaReq(name, version, origin_did),
             messages.ResolvedSchema)
 
+    async def get_org_credentials(self, connection_id: str, org_name: str) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+
+        Returns: A list of the credentials
+        """
+        return await self._fetch(messages.OrganizationCredentialsReq(connection_id, org_name))
+
+    async def get_filtered_credentials(self, connection_id: str, org_name: str, proof_name: str, fetch_all: bool) -> messages.OrganizationCredentials:
+        """
+        Gets credentials for a given organization and proof request
+
+        Expected url parameter:
+            - connection_id - the connection to request credentials
+            - org_name - the registration id of the org
+            - proof_name - the service name to derive proof request dependencies
+            - fetch_all - "true" to return all matching credentials, oherwise filter most recent per schema
+
+        Returns: A list of the credentials
+        """
+        return await self._fetch(messages.FilterCredentialsReq(connection_id, org_name, proof_name, fetch_all))
+
     async def get_credential_dependencies(self,
                                           name: str,
                                           version: str = None,

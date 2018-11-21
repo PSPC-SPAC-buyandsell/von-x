@@ -67,7 +67,17 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
                         if val is not None and val != '':
                             params[attr_name] = val
 
-            cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
+            org_name = request.query.get("org_id")
+            if org_name:
+                creds = await client.get_filtered_credentials(proof_meta["connection_id"], org_name, proof_meta["id"], False)
+                print(creds)
+                cred_ids = ''
+                for i in range(len(creds)):
+                    if i > 0:
+                        cred_ids = cred_ids + ','
+                    cred_ids = cred_ids + creds[i]['wallet_id']
+            else:
+                cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
             cred_ids = normalize_credential_ids(cred_ids)
 
             verified = await client.request_proof(

@@ -260,6 +260,96 @@ async def construct_proof(request, holder_id: str = None):
     return response
 
 
+async def search_credential(request):
+    """
+    Gets credentials for a given organization
+
+    Expected url parameter:
+        - connection_id - the connection to request credentials
+        - org_name - the registration id of the org
+
+    Returns: A list of the credentials
+    """
+    connection_id = request.match_info.get("connection_id")
+    org_name = request.match_info.get("org_name")
+
+    try:
+        client = indy_client(request)
+        result = await client.get_org_credentials(
+            connection_id, org_name
+        )
+
+        ret = {
+            "success": True,
+            "result": result
+        }
+
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+
+async def filter_credential(request):
+    """
+    Gets credentials for a given organization and proof request
+
+    Expected url parameter:
+        - connection_id - the connection to request credentials
+        - org_name - the registration id of the org
+        - proof_name - the service name to derive proof request dependencies
+
+    Expected query parameters are:
+        - fetch - "all" to return all matching credentials, 
+                  any other value will filter most recent per schema
+
+    Returns: A list of the credentials
+    """
+    connection_id = request.match_info.get("connection_id")
+    org_name = request.match_info.get("org_name")
+    proof_name = request.match_info.get("proof_name")
+
+    fetch = request.query.get("fetch")
+    if fetch is None or fetch == "all":
+        fetch_all = True
+    else:
+        fetch_all = False
+
+    try:
+        client = indy_client(request)
+        result = await client.get_filtered_credentials(
+            connection_id, org_name, proof_name, fetch_all
+        )
+
+        ret = {
+            "success": True,
+            "result": result
+        }
+
+    except IndyClientError as e:
+        ret = {"success": False, "result": str(e)}
+    return web.json_response(ret)
+
+def _filter_by_dependent_proof_requests(form, proof, creds, fetch_all=False):
+    return_creds = {}
+    for cred in creds:
+        for schema in proof["schemas"]:
+            if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
+                key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
+                if fetch_all:
+                    if not key in return_creds:
+                        return_creds[key] = []
+                    return_creds[key].append(cred)
+                else:
+                    if not key in return_creds:
+                        return_creds[key] = []
+                        return_creds[key].append(cred)
+                    else:
+                        if cred['effective_date'] > return_creds[key][0]['effective_date']:
+                            return_creds[key][0] = cred
+
+    return return_creds
+
+
 async def get_credential_dependencies(request):
     """
     Gets the dependencies for a given credential type

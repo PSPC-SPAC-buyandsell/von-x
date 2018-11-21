@@ -431,6 +431,24 @@ class HttpConnection(ConnectionBase):
             url = url + path
         return url
 
+    async def get_json(self, path: str):
+        """
+        A standard GET request to an API method
+
+        Args:
+            path: The relative path to the API method, including ? url parameters
+
+        Returns:
+            the decoded JSON response
+        """
+        url = self.get_api_url(path)
+        LOGGER.debug("get_json: %s", url)
+        async with HttpSession("get_json", self._http_client) as handler:
+            response = await handler.client.get(url)
+            self._response_headers = response.headers
+            await handler.check_status(response)
+            return await response.json()
+
     async def post_json(self, path: str, data):
         """
         A standard POST request to an API method
