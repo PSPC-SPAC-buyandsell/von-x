@@ -1083,22 +1083,28 @@ class IndyService(ServiceBase):
         print("proof", proof)
         print("schemas", proof.schemas)
 
-        return_creds = {}
+        filter_creds = {}
         for cred in creds:
             for schema in proof.schemas:
                 if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
                     key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
                     if fetch_all:
                         if not key in return_creds:
-                            return_creds[key] = []
-                        return_creds[key].append(cred)
+                            filter_creds[key] = []
+                        filter_creds[key].append(cred)
                     else:
                         if not key in return_creds:
-                            return_creds[key] = []
-                            return_creds[key].append(cred)
+                            filter_creds[key] = []
+                            filter_creds[key].append(cred)
                         else:
-                            if cred['effective_date'] > return_creds[key][0]['effective_date']:
-                                return_creds[key][0] = cred
+                            if cred['effective_date'] > filter_creds[key][0]['effective_date']:
+                                filter_creds[key][0] = cred
+
+        return_creds = []
+        for key in filter_creds:
+            creds = filter_creds[key]
+            for cred in creds:
+                return_creds.append(cred)
 
         return return_creds
 
