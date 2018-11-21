@@ -1089,11 +1089,11 @@ class IndyService(ServiceBase):
                 if schema['key']['did'] == cred['issuer_did'] and schema['key']['name'] == cred['schema_name'] and schema['key']['version'] == cred['schema_version']:
                     key = schema['key']['did'] + '::' + schema['key']['name'] + '::' + schema['key']['version']
                     if fetch_all:
-                        if not key in return_creds:
+                        if not key in filter_creds:
                             filter_creds[key] = []
                         filter_creds[key].append(cred)
                     else:
-                        if not key in return_creds:
+                        if not key in filter_creds:
                             filter_creds[key] = []
                             filter_creds[key].append(cred)
                         else:
