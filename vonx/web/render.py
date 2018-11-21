@@ -70,11 +70,12 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
             org_name = request.query.get("org_name")
             if org_name:
                 creds = await client.get_filtered_credentials(proof_meta["connection_id"], org_name, proof_meta["id"], False)
+                print(creds)
                 cred_ids = ''
-                for i in range(len(creds)):
+                for i in range(len(creds.credentials)):
                     if i > 0:
                         cred_ids = cred_ids + ','
-                    cred_ids = cred_ids + creds[i]['wallet_id']
+                    cred_ids = cred_ids + credscredentials[i]['wallet_id']
             else:
                 cred_ids = request.query.get("credential_ids", request.query.get("credential_id"))
             cred_ids = normalize_credential_ids(cred_ids)
