@@ -266,12 +266,12 @@ async def search_credential(request):
 
     Expected url parameter:
         - connection_id - the connection to request credentials
-        - org_name - the registration id of the org
+        - org_id - the registration id of the org
 
     Returns: A list of the credentials
     """
     connection_id = request.match_info.get("connection_id")
-    org_name = request.match_info.get("org_name")
+    org_name = request.match_info.get("org_id")
 
     try:
         client = indy_client(request)
@@ -295,7 +295,7 @@ async def filter_credential(request):
 
     Expected url parameter:
         - connection_id - the connection to request credentials
-        - org_name - the registration id of the org
+        - org_id - the registration id of the org
         - proof_name - the service name to derive proof request dependencies
 
     Expected query parameters are:
@@ -305,7 +305,7 @@ async def filter_credential(request):
     Returns: A list of the credentials
     """
     connection_id = request.match_info.get("connection_id")
-    org_name = request.match_info.get("org_name")
+    org_name = request.match_info.get("org_id")
     proof_name = request.match_info.get("proof_name")
 
     fetch = request.query.get("fetch")
