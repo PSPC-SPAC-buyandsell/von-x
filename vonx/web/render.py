@@ -120,4 +120,6 @@ async def render_form(form: dict, request: web.Request) -> web.Response:
     tpl_vars["inputs"]["connection_id"] = form.get("connection_id", "")
     tpl_vars["path"] = request.rel_url
 
+    print("tpl_vars", tpl_vars)
+
     return aiohttp_jinja2.render_template(tpl_name, request, tpl_vars)
