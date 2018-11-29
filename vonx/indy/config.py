@@ -28,7 +28,7 @@ import logging
 from typing import Mapping, Sequence
 
 from von_anchor import HolderProver, Verifier
-from von_anchor.anchor.base import _BaseAnchor
+from von_anchor.anchor.base import BaseAnchor
 from von_anchor.anchor.demo import BCRegistrarAnchor, OrgHubAnchor
 from von_anchor.nodepool import NodePool
 from von_anchor.wallet import Wallet, register_wallet_storage_library
@@ -103,7 +103,7 @@ class AgentCfg:
         return ret
 
     @property
-    def instance(self) -> _BaseAnchor:
+    def instance(self) -> BaseAnchor:
         """
         Accessor for the current agent instance
         """
@@ -190,7 +190,7 @@ class AgentCfg:
         If end point is None, endpoint will be removed from ledger.
         """
         await self._instance.send_endpoint(self.endpoint)
-        
+
 
     @property
     def is_holder(self):

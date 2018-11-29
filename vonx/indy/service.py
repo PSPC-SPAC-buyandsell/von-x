@@ -749,7 +749,7 @@ class IndyService(ServiceBase):
             cred_data: the raw credential attributes
         """
         async with self._storage_lock:
-            (cred_json, cred_revoc_id, _epoch_creation) = await issuer.instance.create_cred(
+            (cred_json, cred_revoc_id) = await issuer.instance.create_cred(
                 json.dumps(request.cred_offer.data),
                 request.data,
                 cred_data,
@@ -1043,7 +1043,7 @@ class IndyService(ServiceBase):
         if not conn.synced:
             raise IndyConfigError("Connection is not yet synchronized: {}".format(connection_id))
 
-        topic_uri = 'topic/ident/registration/' + org_name 
+        topic_uri = 'topic/ident/registration/' + org_name
         topic_result_json = await conn.instance.get_json(topic_uri)
 
         if "id" not in topic_result_json:

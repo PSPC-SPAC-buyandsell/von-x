@@ -35,6 +35,6 @@ setup(
         'didauth==1.2.3',
         'PyYAML',
         'networkx>=2.2,<3'
-        'von-anchor==1.6.37',
+        'von-anchor==1.6.41',
     ],
 )

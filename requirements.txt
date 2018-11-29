@@ -5,6 +5,6 @@ networkx>=2.2,<3
 
 
 # part of von-image
-#python3-indy==1.6.7
+#python3-indy==1.6.8
 #didauth==1.2.3
-#von-anchor==1.6.37
+#von-anchor==1.6.41
