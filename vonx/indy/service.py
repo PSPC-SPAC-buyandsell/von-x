@@ -296,7 +296,7 @@ class IndyService(ServiceBase):
         Add a connection configuration
 
         Args:
-            connection_type: the type of the connection, normally TheOrgBook
+            connection_type: the type of the connection, normally OrgBook
             agent_id: the identifier of the registered agent
             params: parameters to be passed to the :class:`ConnectionCfg` constructor
         """

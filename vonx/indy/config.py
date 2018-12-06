@@ -57,26 +57,21 @@ class AgentCfg:
     """
     Manage configuration settings for an Agent, including schemas bound for the ledger
     """
-    def __init__(self, agent_type: str, wallet_id: str, **params):
-        self.agent_id = params.get("id")
+    def __init__(self, agent_type: str, wallet_id: str, id=None, details=None, **kwargs):
+        self.agent_id = id
         try:
             self.agent_type = AgentType(agent_type)
         except KeyError:
             raise IndyConfigError("Unsupported agent type: {}".format(agent_type))
         self.cred_types = []
+        self.details = details or {}
         self._instance = None
+        self.kwargs = kwargs
+        self.link_secret_name = kwargs.get("link_secret_name", "master-secret")
         self.opened = False
         self.registered = False
         self.synced = False
         self.wallet_id = wallet_id
-        self.abbreviation = params.get("abbreviation")
-        self.email = params.get("email")
-        self.endpoint = params.get("endpoint")
-        self.name = params.get("name")
-        self.url = params.get("url")
-        self.logo_b64 = params.get("logo_b64")
-        self.logo_path = params.get("logo_path")
-        self.link_secret_name = params.get("link_secret_name", "master-secret")
 
     @property
     def created(self) -> bool:
@@ -84,6 +79,13 @@ class AgentCfg:
         Accessor for the current created status of the agent instance
         """
         return self.instance is not None
+
+    @property
+    def endpoint(self) -> str:
+        """
+        Accessor for the agent's endpoint (URL)
+        """
+        return self.details.get("endpoint")
 
     @property
     def did(self) -> str:
@@ -98,8 +100,9 @@ class AgentCfg:
         Accessor for the extended Agent configuration
         """
         ret = {}
-        if self.endpoint:
-            ret["endpoint"] = self.endpoint
+        endp = self.endpoint
+        if endp:
+            ret["endpoint"] = endp
         return ret
 
     @property
@@ -252,14 +255,9 @@ class AgentCfg:
                         type_spec[k] = params[k]
                 cred_specs.append(type_spec)
             return {
-                "abbreviation": self.abbreviation,
                 "credential_types": cred_specs,
+                "details": self.details.copy(),
                 "did": self.did,
-                "email": self.email,
-                "name": self.name,
-                "url": self.url,
-                "logo_b64": self.logo_b64,
-                "logo_path": self.logo_path,
             }
         return None
 
@@ -283,11 +281,11 @@ class ConnectionCfg:
         self.sign_target = sign and str(sign) != "0" and str(sign).lower() != "false"
         self.synced = False
 
-        if self.connection_type != ConnectionType.TheOrgBook and \
+        if self.connection_type != ConnectionType.OrgBook and \
                 self.connection_type != ConnectionType.HTTP and \
                 self.connection_type != ConnectionType.holder:
             raise IndyConfigError(
-                "Only HTTP and internal Holder connections are currently supported")
+                "Only OrgBook, HTTP, and internal Holder connections are currently supported")
 
     @property
     def created(self) -> bool:
@@ -321,7 +319,7 @@ class ConnectionCfg:
         Args:
             agent_params: extra parameters assembled by the agent service for this connection
         """
-        if self.connection_type == ConnectionType.TheOrgBook:
+        if self.connection_type == ConnectionType.OrgBook:
             cls = TobConnection
         elif self.connection_type == ConnectionType.HTTP:
             cls = HttpConnection

@@ -189,14 +189,14 @@ class IndyClient:
 
     async def register_orgbook_connection(self, agent_id: str, config: dict = None) -> str:
         """
-        Register a connection to TheOrgBook as a holder/prover
+        Register a connection to OrgBook as a holder/prover
 
         Args:
             agent_id: the registered issuer or verifier agent identifier
             config: configuration parameters for the connection (must include 'api_url')
         """
         result = await self._fetch(
-            messages.RegisterConnectionReq(ConnectionType.TheOrgBook.value, agent_id, config or {}),
+            messages.RegisterConnectionReq(ConnectionType.OrgBook.value, agent_id, config or {}),
             messages.ConnectionStatus)
         return result.connection_id
 

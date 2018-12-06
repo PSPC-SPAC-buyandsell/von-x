@@ -27,7 +27,7 @@ from ..common.manager import ConfigServiceManager
 from .client import IndyClient
 from .config import IndyConfigError, SchemaManager
 from .service import IndyService
-from .tob import CRED_TYPE_PARAMETERS
+from .tob import CRED_TYPE_PARAMETERS, extract_translated
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,32 +54,63 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         dependencies = ctype.get("depends_on") or []
     else:
         raise IndyConfigError("Credential type schema must be string or dict")
+
     if not name:
         raise IndyConfigError("Credential type schema missing 'name'")
     if isinstance(dependencies, str):
         dependencies = [dependencies]
-    if not version or not (attributes or origin_did):
-        schema = schema_mgr.find(name, version)
-        if schema:
-            version = schema.version
+
+    schema = schema_mgr.find(name, version)
+    if schema:
+        version = schema.version
+        if not attributes:
             attributes = schema.attr_names
+        if not origin_did:
             origin_did = schema.origin_did
-        else:
-            raise IndyConfigError(
-                "Schema definition not found: {} {}".format(name, version)
-            )
-    ret = {
+    elif not version or not (attributes or origin_did):
+        raise IndyConfigError(
+            "Schema definition not found: {} {}".format(name, version)
+        )
+
+    details = ctype.get("details", {})
+    for k in ("logo_b64", "logo_path"):
+        if k in ctype:
+            details[k] = ctype[k]
+
+    # TODO: remove, temporary compatibility with older config format
+    if "description" in ctype:
+        details["label"] = ctype["description"]
+    if "issuer_url" in ctype:
+        details["url"] = ctype["issuer_url"]
+
+    params = {
+        "claim_descriptions": {},
+        "claim_labels": {},
+    }
+    for k in CRED_TYPE_PARAMETERS:
+        if k in ctype:
+            params[k] = ctype[k]
+    params["details"] = details
+
+    if schema:
+        deflang = "en"
+        for attr_spec in schema.attributes:
+            attr_name = attr_spec["name"]
+            a_lbls = extract_translated(attr_spec, "label", None, deflang)
+            if a_lbls[deflang] and attr_name not in params["claim_labels"]:
+                params["claim_labels"][attr_name] = a_lbls
+            a_desc = extract_translated(attr_spec, "description", None, deflang)
+            if a_desc[deflang] and attr_name not in params["claim_descriptions"]:
+                params["claim_descriptions"][attr_name] = a_desc
+
+    return {
         "schema_name": name,
         "schema_version": version,
         "origin_did": origin_did,
         "attributes": attributes,
         "dependencies": dependencies,
-        "params": {},
+        "params": params,
     }
-    for k in CRED_TYPE_PARAMETERS:
-        if k in ctype:
-            ret["params"][k] = ctype[k]
-    return ret
 
 
 class IndyManager(ConfigServiceManager):
@@ -215,22 +246,35 @@ class IndyManager(ConfigServiceManager):
         if "wallet" not in issuer_cfg:
             raise IndyConfigError("Wallet not defined for issuer: {}".format(issuer_id))
         wallet_cfg = issuer_cfg["wallet"]
-        del issuer_cfg["wallet"]
         if "credential_types" not in issuer_cfg:
             raise IndyConfigError("Missing credential_types for issuer: {}".format(issuer_id))
         cred_types = issuer_cfg["credential_types"]
-        del issuer_cfg["credential_types"]
         if "connection" not in issuer_cfg:
             raise IndyConfigError("Missing connection for issuer: {}".format(issuer_id))
         connection_cfg = issuer_cfg["connection"]
-        del issuer_cfg["connection"]
 
         if not wallet_cfg.get("name"):
             wallet_cfg["name"] = issuer_id + "-Issuer-Wallet"
         if not wallet_cfg.get("seed"):
             raise IndyConfigError("Missing wallet seed for issuer: {}".format(issuer_id))
+
+        details = issuer_cfg.get("details", {})
+        params = {}
+
+        # TODO: remove, temporary compatibility with older config format
+        if "name" in issuer_cfg:
+            details["label"] = issuer_cfg["name"]
+        for k in ("abbreviation", "email", "logo_b64", "logo_path", "url"):
+            if k in issuer_cfg:
+                details[k] = issuer_cfg[k]
+
+        for k in ("link_secret_name",):
+            if k in issuer_cfg:
+                params[k] = issuer_cfg[k]
+        params["details"] = details
+
         wallet_id = await client.register_wallet(wallet_cfg)
-        issuer_id = await client.register_issuer(wallet_id, issuer_cfg)
+        issuer_id = await client.register_issuer(wallet_id, params)
 
         for type_spec in cred_types:
             cred_type = load_credential_type(type_spec, self._schema_mgr)
@@ -247,8 +291,8 @@ class IndyManager(ConfigServiceManager):
         if connection_cfg:
             if not connection_cfg.get("id"):
                 connection_cfg["id"] = issuer_id
-            conn_type = connection_cfg.get("type", "TheOrgBook")
-            if conn_type == "TheOrgBook":
+            conn_type = connection_cfg.get("type", "OrgBook")
+            if conn_type == "OrgBook" or conn_type == "TheOrgBook":
                 _conn_id = await client.register_orgbook_connection(
                     issuer_id, connection_cfg)
             else:
@@ -339,8 +383,8 @@ class IndyManager(ConfigServiceManager):
         if connection_cfg:
             if not connection_cfg.get("id"):
                 connection_cfg["id"] = verifier_id
-            conn_type = connection_cfg.get("type", "TheOrgBook")
-            if conn_type == "TheOrgBook":
+            conn_type = connection_cfg.get("type", "OrgBook")
+            if conn_type == "OrgBook" or conn_type == "TheOrgBook":
                 _conn_id = await client.register_orgbook_connection(
                     verifier_id, connection_cfg)
             else:

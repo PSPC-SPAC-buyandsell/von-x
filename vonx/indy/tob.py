@@ -16,7 +16,7 @@
 #
 
 """
-Connection handling specific to using TheOrgBook as a holder/prover
+Connection handling specific to using the OrgBook as a holder/prover
 """
 
 import base64
@@ -30,15 +30,13 @@ from ..common.util import log_json
 LOGGER = logging.getLogger(__name__)
 
 CRED_TYPE_PARAMETERS = (
-    "depends_on",
     "cardinality_fields",
+    "claim_descriptions",
+    "claim_labels",
     "credential",
-    "description",
-    "issuer_url",
+    "details",
     "mapping",
     "topic",
-    "logo_b64",
-    "logo_path",
     "visible_fields",
 )
 
@@ -60,67 +58,108 @@ def encode_logo_image(config: dict, path_root: str) -> str:
     return None
 
 
+def extract_translated(config: dict, field: str, defval=None, deflang: str = "en"):
+    ret = {deflang: defval}
+    if config:
+        pfx = field + "_"
+        for k,v in config.items():
+            if k == field:
+                ret[deflang] = v
+            elif k.startswith(pfx):
+                lang = k[len(pfx):]
+                if lang:
+                    ret[lang] = v
+    return ret
+
+
 def assemble_issuer_spec(config: dict) -> dict:
     """
-    Create the issuer JSON definition which will be submitted to TheOrgBook
+    Create the issuer JSON definition which will be submitted to the OrgBook
     """
-    issuer_spec = {}
-    issuer_email = config.get("email")
-    if not issuer_email:
-        raise IndyConfigError("Missing issuer email address")
+
+    config_root = config.get("config_root", ".")
+    deflang = "en"
+
     issuer_did = config.get("did")
     if not issuer_did:
         raise IndyConfigError("Missing issuer DID")
 
-    config_root = config.get("config_root", ".")
-    issuer_spec["issuer"] = {
-        "did": issuer_did,
-        "name": config.get("name") or "",
-        "abbreviation": config.get("abbreviation") or "",
-        "email": issuer_email,
-        "url": config.get("url") or "",
-        "logo_b64": encode_logo_image(config, config_root),
-    }
+    details = config.get("details", {})
+    issuer_email = details.get("email")
+    if not issuer_email:
+        raise IndyConfigError("Missing issuer email address")
 
-    if not issuer_spec["issuer"]["name"]:
+    abbrevs = extract_translated(details, "abbreviation", "", deflang)
+    labels = extract_translated(details, "label", "", deflang)
+    urls = extract_translated(details, "url", "", deflang)
+
+    spec = {
+        "did": issuer_did,
+        "email": issuer_email,
+        "logo_b64": encode_logo_image(details, config_root),
+        "abbreviation": abbrevs[deflang],
+        "name": labels[deflang] or issuer_email,
+        "url": urls[deflang],
+    }
+    for k,v in abbrevs.items():
+        spec["abbreviation_{}".format(k)] = v
+    for k,v in labels.items():
+        spec["label_{}".format(k)] = v
+    for k,v in urls.items():
+        spec["url_{}".format(k)] = v
+
+    if not spec["name"]:
         raise IndyConfigError("Missing issuer name")
 
     cred_type_specs = config.get("credential_types")
     if not cred_type_specs:
         raise IndyConfigError("Missing credential_types")
+
     ctypes = []
     for type_spec in cred_type_specs:
         schema = type_spec["schema"]
         if not type_spec.get("topic"):
             raise IndyConfigError("Missing 'topic' for credential type")
+
+        type_details = type_spec.get("details", {})
+        labels = extract_translated(type_details, "label", schema.name, deflang)
+        urls = extract_translated(type_details, "url", spec["url"], deflang)
+        logo_b64 = encode_logo_image(type_details, config_root)
+
         ctype = {
-            "name": type_spec.get("description") or schema.name,
-            "endpoint": type_spec.get("issuer_url") or issuer_spec["issuer"]["url"],
             "schema": schema.name,
             "version": schema.version,
-            "topic": type_spec["topic"],
             "credential_def_id": type_spec["cred_def"]["id"],
+            "name": labels[deflang],
+            "endpoint": urls[deflang],
+            "topic": type_spec["topic"],
+            "logo_b64": logo_b64,
         }
+        for k in labels:
+            ctype["label_{}".format(k)] = labels[k]
+        for k in urls:
+            ctype["endpoint_{}".format(k)] = urls[k]
         for k in CRED_TYPE_PARAMETERS:
-            if k in type_spec and k not in ctype:
+            if k != "details" and k in type_spec and k not in ctype:
                 ctype[k] = type_spec[k]
-        ctype["logo_b64"] = encode_logo_image(type_spec, config_root)
-        if "logo_path" in ctype:
-            del ctype["logo_path"]
+
         ctypes.append(ctype)
-    issuer_spec["credential_types"] = ctypes
-    return issuer_spec
+
+    return {
+        "issuer": spec,
+        "credential_types": ctypes,
+    }
 
 
 class TobConnection(HttpConnection):
     """
-    A class for managing communication with TheOrgBook API and performing the initial
+    A class for managing communication with the OrgBook API and performing the initial
     synchronization as an issuer
     """
 
     async def sync(self) -> None:
         """
-        Submit the issuer JSON definition to TheOrgBook to register our service
+        Submit the issuer JSON definition to the OrgBook to register our service
         """
         if self.agent_type == "issuer":
             spec = assemble_issuer_spec(self.agent_params)

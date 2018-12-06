@@ -49,7 +49,7 @@ class ConnectionType(Enum):
     """
     Enumeration of supported connection types
     """
-    TheOrgBook = "TheOrgBook"
+    OrgBook = "OrgBook"
     holder = "holder"
     HTTP = "HTTP"
 
