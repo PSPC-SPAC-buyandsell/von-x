@@ -259,7 +259,7 @@ class IndyManager(ConfigServiceManager):
             raise IndyConfigError("Missing wallet seed for issuer: {}".format(issuer_id))
 
         details = issuer_cfg.get("details", {})
-        params = {}
+        params = {"id": issuer_id}
 
         # TODO: remove, temporary compatibility with older config format
         if "name" in issuer_cfg:
