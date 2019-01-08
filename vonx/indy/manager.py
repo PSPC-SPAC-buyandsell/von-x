@@ -84,6 +84,7 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         details["url"] = ctype["issuer_url"]
 
     params = {
+        "category_labels": {},
         "claim_descriptions": {},
         "claim_labels": {},
     }

@@ -31,6 +31,7 @@ LOGGER = logging.getLogger(__name__)
 
 CRED_TYPE_PARAMETERS = (
     "cardinality_fields",
+    "category_labels",
     "claim_descriptions",
     "claim_labels",
     "credential",
