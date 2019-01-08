@@ -73,7 +73,7 @@ def load_credential_type(ctype, schema_mgr: SchemaManager) -> dict:
         )
 
     details = ctype.get("details", {})
-    for k in ("logo_b64", "logo_path"):
+    for k in ("endpoint", "logo_b64", "logo_path"):
         if k in ctype:
             details[k] = ctype[k]
 
