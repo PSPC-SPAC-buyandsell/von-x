@@ -581,6 +581,16 @@ class IndyService(ServiceBase):
                         "Ledger schema attributes do not match definition, found: {}".format(
                             ledger_schema["attrNames"]))
             except AbsentSchema:
+                detail = cred_type.get("details", {})
+                publish = detail.get("publish_schema", True)
+                if not publish:
+                    raise ServiceSyncError(
+                        "Schema not found on ledger, and not configured to be " \
+                        "published: {} ({})".format(
+                            definition.name, definition.version
+                        )
+                    )
+
                 # If not found, send the schema to the ledger
                 LOGGER.info(
                     "Publishing schema: %s (%s)",
