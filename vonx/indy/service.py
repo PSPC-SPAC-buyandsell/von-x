@@ -1090,9 +1090,6 @@ class IndyService(ServiceBase):
         return result_creds
 
     def _filter_by_dependent_proof_requests(self, proof, creds, fetch_all=False):
-        print("proof", proof)
-        print("schemas", proof.schemas)
-
         filter_creds = {}
         for cred in creds:
             for schema in proof.schemas:

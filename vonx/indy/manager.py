@@ -264,7 +264,7 @@ class IndyManager(ConfigServiceManager):
         # TODO: remove, temporary compatibility with older config format
         if "name" in issuer_cfg:
             details["label"] = issuer_cfg["name"]
-        for k in ("abbreviation", "email", "logo_b64", "logo_path", "url"):
+        for k in ("endpoint", "abbreviation", "email", "logo_b64", "logo_path", "url"):
             if k in issuer_cfg:
                 details[k] = issuer_cfg[k]
 

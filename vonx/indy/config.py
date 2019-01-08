@@ -678,12 +678,12 @@ class WalletCfg:
 
     async def load_storage_library(self, storage_type):
         # load storage library for postgres
-        if storage_type == "postgres":
+        if storage_type == "postgres_storage":
             try:
                 await register_wallet_storage_library(
                     storage_type,
                     "libindystrgpostgres.so",
-                    "postgreswallet_fn_")
+                    "postgresstorage_init")
             except IndyError as x_indy:
                 if x_indy.error_code == ErrorCode.WalletTypeAlreadyRegisteredError:
                     LOGGER.info('Wallet already exists: %s', self.name)
