@@ -69,6 +69,8 @@ from .connection import HttpSession
 from .errors import IndyConfigError, IndyConnectionError, IndyError
 from . import messages
 
+FORMAT = '%(asctime)s %(message)s'
+logging.basicConfig(format=FORMAT)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -1118,6 +1120,9 @@ class IndyService(ServiceBase):
     async def _get_credential_dependencies(self, schema_name: str, schema_version: str,
                                            origin_did: str, dependency_graph: dict,
                                            visited_dids) -> messages.CredentialDependencies:
+
+        LOGGER.info("Starting credential dependency lookup for schema: %s", schema_name)
+
         """
         Request dependency graph for a credential
         """
@@ -1149,8 +1154,11 @@ class IndyService(ServiceBase):
         if origin_did and did_agent.did != origin_did and origin_did not in visited_dids:
             # If we are given a did and it is not this agent's did, we attempt to
             # hop to the next agent and continue to recurse
+            LOGGER.debug("Agent with did = %s not yet visited, attempting hop.", origin_did)
+
             endpoint = await self._get_endpoint(origin_did)
             endpoint = endpoint.endpoint
+
             if not endpoint:
 
                 raise CantResolveDidError(
@@ -1163,6 +1171,8 @@ class IndyService(ServiceBase):
 
             # TODO: move this into HTTPClient
             try:
+                LOGGER.debug("Async get-credential-dependencies to endpoint %s for schema %s", endpoint, dependency.schema_name)
+
                 async with self.http as client:
                     url = "{}/get-credential-dependencies".format(endpoint)
                     response = await client.post(url, params={
@@ -1175,6 +1185,8 @@ class IndyService(ServiceBase):
                 resp_json = await response.text()
                 resp = json.loads(resp_json)
 
+                LOGGER.debug("Async response from endpoint %s is: %s", endpoint, resp_json)
+
                 success = resp["success"]
                 result = resp["result"]
 
@@ -1184,10 +1196,13 @@ class IndyService(ServiceBase):
                 else:
                     visited_dids.append(origin_did)
 
+
                 graph = CredentialDependencyGraph(result)
                 dep = graph.get_root()
 
                 try:
+                    LOGGER.debug("Await get-credential-dependencies for foreign schema %s", dep.schema_name)
+
                     dependency_dependencies = await self._get_credential_dependencies(
                         dep.schema_name,
                         dep.schema_version,
@@ -1212,6 +1227,8 @@ class IndyService(ServiceBase):
                 raise CantConnectToEndpointError(
                     "Could not connect to endpoint {}".format(endpoint))
         else:
+            LOGGER.debug("Agent with did = %s already visited (or current).", origin_did)
+
             credential_type = did_agent.find_credential_type(
                 schema_name, schema_version, origin_did)
             if credential_type:
@@ -1226,6 +1243,7 @@ class IndyService(ServiceBase):
                                         CredentialDependency(dep.name, dep.version, dep.origin_did)
                                     )
 
+                                    LOGGER.debug("Await get-credential-dependencies for known schema %s", dep.schema_name)
                                     dependency_dependencies = await self._get_credential_dependencies(
                                         dep.name,
                                         dep.version,
@@ -1248,6 +1266,8 @@ class IndyService(ServiceBase):
                                             dep.name, dep.version, dep.origin_did),
                                         error=str(e)
                                     )
+
+        LOGGER.info("Completed credential dependency lookup for schema: %s", schema_name)
 
         return dependency.graph.serialize()
 
