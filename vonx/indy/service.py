@@ -69,8 +69,6 @@ from .connection import HttpSession
 from .errors import IndyConfigError, IndyConnectionError, IndyError
 from . import messages
 
-FORMAT = '%(asctime)s %(message)s'
-logging.basicConfig(format=FORMAT)
 LOGGER = logging.getLogger(__name__)
 
 
