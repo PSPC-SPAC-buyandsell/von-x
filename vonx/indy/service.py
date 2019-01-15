@@ -1241,7 +1241,7 @@ class IndyService(ServiceBase):
                                         CredentialDependency(dep.name, dep.version, dep.origin_did)
                                     )
 
-                                    LOGGER.debug("Await get-credential-dependencies for known schema %s", dep.schema_name)
+                                    LOGGER.debug("Await get-credential-dependencies for known schema %s", schema_name)
                                     dependency_dependencies = await self._get_credential_dependencies(
                                         dep.name,
                                         dep.version,
