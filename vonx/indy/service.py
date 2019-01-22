@@ -477,10 +477,13 @@ class IndyService(ServiceBase):
         )
 
         try:
-            async with HttpSession('fetching genesis transaction', timeout=15) as handler:
-                response = await handler.client.get(genesis_url)
-                await handler.check_status(response, (200,))
-                data = await response.text()
+            async with self.http as client:
+                async with HttpSession('fetching genesis transaction', http_client=client,
+                        timeout=15) as handler:
+                    response = await client.get(genesis_url,
+                        trace_request_ctx={"ctx": "genesis transaction", "url": genesis_url})
+                    await handler.check_status(response, (200,))
+                    data = await response.text()
         except IndyConnectionError as e:
             raise ServiceSyncError(str(e)) from None
 
@@ -522,13 +525,16 @@ class IndyService(ServiceBase):
             LOGGER.info("Registering DID %s", did)
 
             try:
-                async with HttpSession('DID registration', timeout=30) as handler:
-                    response = await handler.client.post(
-                        "{}/register".format(ledger_url),
-                        json={"did": did, "verkey": agent.verkey, "role": role},
-                    )
-                    await handler.check_status(response, (200,))
-                    nym_info = await response.json()
+                async with self.http as client:
+                    async with HttpSession("DID registration", http_client=client,
+                            timeout=30) as handler:
+                        response = await handler.client.post(
+                            "{}/register".format(ledger_url),
+                            json={"did": did, "verkey": agent.verkey, "role": role},
+                            trace_request_ctx={"ctx": "DID registration"},
+                        )
+                        await handler.check_status(response, (200,))
+                        nym_info = await response.json()
             except IndyConnectionError as e:
                 raise ServiceSyncError(str(e)) from None
             LOGGER.debug("Registration response: %s", nym_info)
@@ -1179,7 +1185,11 @@ class IndyService(ServiceBase):
                         "origin_did": dependency.origin_did
                     }, json={
                         "dependency_graph": dependency.graph.serialize(),
-                        "visited_dids": visited_dids})
+                        "visited_dids": visited_dids,
+                    }, trace_request_ctx={
+                        "ctx": "get dependencies",
+                        "url": endpoint,
+                    })
                 resp_json = await response.text()
                 resp = json.loads(resp_json)
 
@@ -1241,7 +1251,10 @@ class IndyService(ServiceBase):
                                         CredentialDependency(dep.name, dep.version, dep.origin_did)
                                     )
 
-                                    LOGGER.debug("Await get-credential-dependencies for known schema %s", schema_name)
+                                    LOGGER.debug(
+                                        "Await get-credential-dependencies for known schema %s",
+                                        schema_name,
+                                    )
                                     dependency_dependencies = await self._get_credential_dependencies(
                                         dep.name,
                                         dep.version,
@@ -1330,7 +1343,8 @@ class IndyService(ServiceBase):
         """
         url = self._ledger_url
         async with self.http as client:
-            response = await client.get("{}/status".format(url))
+            response = await client.get("{}/status".format(url),
+                trace_request_ctx={'ctx': 'ledger status'})
         return await response.text()
 
     def _connection_http_client(self, conn_id: str = None, **kwargs):
@@ -1346,7 +1360,7 @@ class IndyService(ServiceBase):
             kwargs["request_class"] = SignedRequest
         if conn_id and "auth" not in kwargs:
             kwargs["auth"] = self._signed_request_auth(conn_id)
-        return super(IndyService, self).http_client(**kwargs)
+        return self.http_client(**kwargs)
 
     def _signed_request_auth(self, conn_id: str, header_list=None):
         """

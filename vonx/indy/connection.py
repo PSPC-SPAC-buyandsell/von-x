@@ -94,6 +94,7 @@ class HttpSession:
     async def __aexit__(self, exc_type, exc_value, traceback):
         if self._opened:
             await self._client.close()
+            self._opened = False
         if exc_type == IndyConnectionError:
             return False
         if exc_type == asyncio.TimeoutError:

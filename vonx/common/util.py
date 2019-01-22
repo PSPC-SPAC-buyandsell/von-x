@@ -25,6 +25,8 @@ import time
 
 from .exchange import ExchangeMessage
 
+LOGGER = logging.getLogger(__name__)
+
 
 class MessageEncoder(json.JSONEncoder):
     """
@@ -53,7 +55,7 @@ def log_json(heading, data, logger=None, level=logging.DEBUG):
     Utility method to log JSON data for debugging
     """
     if not logger:
-        logger = logging.getLogger(__name__)
+        logger = LOGGER
     msg = """
 ============================================================================
 %s

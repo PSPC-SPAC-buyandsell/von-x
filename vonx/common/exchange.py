@@ -35,6 +35,7 @@ from typing import Awaitable, Callable, NamedTuple, Sequence
 import aiohttp
 
 from . import eventloop
+from .trace import DebugTraceConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -964,6 +965,10 @@ class RequestExecutor(MessageProcessor):
         keep_cookies = bool(keep_cookies) and keep_cookies != 'false'
         if 'cookie_jar' not in kwargs and not keep_cookies:
             kwargs['cookie_jar'] = aiohttp.DummyCookieJar()
+        trace = os.getenv('HTTP_TRACE_CONNECTIONS')
+        trace = bool(trace) and trace != 'false'
+        if trace and 'trace_configs' not in kwargs:
+            kwargs['trace_configs'] = [DebugTraceConfig()]
         return aiohttp.ClientSession(*args, **kwargs)
 
     @property
