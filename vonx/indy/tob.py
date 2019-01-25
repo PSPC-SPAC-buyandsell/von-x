@@ -90,6 +90,10 @@ def assemble_issuer_spec(config: dict) -> dict:
     if not issuer_email:
         raise IndyConfigError("Missing issuer email address")
 
+    issuer_endpoint = details.get("endpoint")
+    if not issuer_endpoint:
+        raise IndyConfigError("Missing issuer endpoint")
+
     abbrevs = extract_translated(details, "abbreviation", "", deflang)
     labels = extract_translated(details, "label", "", deflang)
     urls = extract_translated(details, "url", "", deflang)
@@ -101,6 +105,7 @@ def assemble_issuer_spec(config: dict) -> dict:
         "abbreviation": abbrevs[deflang],
         "name": labels[deflang] or issuer_email,
         "url": urls[deflang],
+        "endpoint": issuer_endpoint,
     }
     for k,v in abbrevs.items():
         spec["abbreviation_{}".format(k)] = v

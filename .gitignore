@@ -6,3 +6,5 @@ docs/build
 .DS_Store
 build
 dist
+/Pipfile.lock
+/Pipfile
