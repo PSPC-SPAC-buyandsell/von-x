@@ -394,6 +394,7 @@ class CredentialDependenciesReq(IndyServiceReq):
     Get dependencies for a credential
     """
     _fields = (
+        ("method", str),
         ("schema_name", str),
         ("schema_version", str),
         ("origin_did", str),

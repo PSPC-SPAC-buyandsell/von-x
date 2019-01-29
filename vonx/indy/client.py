@@ -330,6 +330,7 @@ class IndyClient:
         return await self._fetch(messages.FilterCredentialsReq(connection_id, org_name, proof_name, fetch_all))
 
     async def get_credential_dependencies(self,
+                                          method: str,
                                           name: str,
                                           version: str = None,
                                           origin_did: str = None,
@@ -339,6 +340,7 @@ class IndyClient:
         Get a credentials dependencies
 
         Args:
+            method: the http request method (GET or POST)
             name: the schema name
             version: the schema version
             origin_did: the DID of the schema issuer
@@ -346,7 +348,7 @@ class IndyClient:
         """
         return await self._fetch(
             messages.CredentialDependenciesReq(
-                name, version, origin_did, dependency_graph, visited_dids))
+                method, name, version, origin_did, dependency_graph, visited_dids))
 
     async def get_endpoint(self, did: str) -> messages.Endpoint:
         """

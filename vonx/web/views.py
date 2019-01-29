@@ -380,6 +380,7 @@ async def get_credential_dependencies(request):
     try:
         client = indy_client(request)
         result = await client.get_credential_dependencies(
+            request.method,
             schema_name,
             schema_version,
             origin_did,
