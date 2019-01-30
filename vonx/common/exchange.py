@@ -20,7 +20,7 @@ Implementation of the shared Exchange message bus and related classes for sendin
 and acting upon messages
 """
 
-import asyncio
+import asyncio, socket
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 import logging
@@ -949,7 +949,20 @@ class RequestExecutor(MessageProcessor):
         if not self._connector:
             force_close = os.getenv('HTTP_FORCE_CLOSE_CONNECTIONS')
             force_close = bool(force_close) and force_close != 'false'
-            self._connector = LoggingTCPConnector(force_close=force_close)
+
+            # set TCP connection family to IPv4/IPv6.
+            # Default value uses both IPv4 and IPv6.
+            # See: https://docs.aiohttp.org/en/stable/client_reference.html#tcpconnector.
+            if str(os.getenv('TCP_SOCKET_FAMILY')).upper() == 'IPV4':
+                LOGGER.debug("Using TCPv4 sockets")
+                tcp_socket_family = socket.AF_INET
+            elif str(os.getenv('TCP_SOCKET_FAMILY')).upper() == 'IPV6':
+                LOGGER.debug("Using TCPv6 sockets")
+                tcp_socket_family = socket.AF_INET6
+            else:
+                tcp_socket_family = 0
+
+            self._connector = LoggingTCPConnector(force_close=force_close, family=tcp_socket_family)
         return self._connector
 
     def http_client(self, *args, **kwargs) -> aiohttp.ClientSession:
