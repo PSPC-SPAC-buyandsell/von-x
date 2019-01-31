@@ -24,11 +24,12 @@ import json
 import os
 
 from aiohttp import web
+import aiohttp_cors
 import aiohttp_jinja2
 from jinja2 import ChoiceLoader, FileSystemLoader, PackageLoader
 
 from ..common.manager import ConfigServiceManager
-from .routes import get_routes
+from .routes import get_standard_routes, get_custom_routes
 
 
 def _setup_jinja(manager: ConfigServiceManager, app: web.Application):
@@ -52,6 +53,22 @@ def _setup_jinja(manager: ConfigServiceManager, app: web.Application):
     aiohttp_jinja2.setup(app, loader=loader, filters=filters)
 
 
+def _setup_cors(app: web.Application):
+    """
+    Setup CORS support through aiohttp-cors
+    """
+    cors = aiohttp_cors.setup(app, defaults={
+        "*": aiohttp_cors.ResourceOptions(
+                allow_credentials=True,
+                expose_headers="*",
+                allow_headers="*",
+            )
+    })
+
+    for route in list(app.router.routes()):
+        cors.add(route)
+
+
 async def init_web(manager: ConfigServiceManager):
     """
     Initialize the web server application
@@ -62,7 +79,9 @@ async def init_web(manager: ConfigServiceManager):
     app['base_href'] = base
     app['manager'] = manager
     app['static_root_url'] = base + 'assets'
-    app.add_routes(get_routes(app))
+    app.add_routes(get_standard_routes(app))
+    _setup_cors(app)
+    app.add_routes(get_custom_routes(app))
     _setup_jinja(manager, app)
 
     if base != '/':

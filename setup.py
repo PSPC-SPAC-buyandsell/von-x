@@ -31,6 +31,7 @@ setup(
     python_requires='>=3.5.3',
     install_requires=[
         'aiohttp~=3.3.0',
+        'aiohttp_cors~=0.7.0',
         'aiohttp-jinja2~=1.1.0',
         'didauth==1.2.3',
         'PyYAML',

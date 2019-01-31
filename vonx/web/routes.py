@@ -32,7 +32,7 @@ from .render import render_form
 LOGGER = logging.getLogger(__name__)
 
 
-def get_standard_routes(_app) -> list:
+def get_standard_routes(app: web.Application) -> list:
     """
     Get the standard list of routes for the von-x application
     """
